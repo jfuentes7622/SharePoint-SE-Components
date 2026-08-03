@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SPSE Hosted Workbench",
+      "type": "msedge",
+      "request": "launch",
+      "url": "https://sharepointse.contoso.local/sites/dev/_layouts/workbench.aspx",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
+      "name": "SPSE Local Workbench",
+      "type": "msedge",
+      "request": "launch",
+      "url": "https://localhost:4321/temp/workbench.html",
+      "webRoot": "${workspaceFolder}"
+    }
+  ]
+}

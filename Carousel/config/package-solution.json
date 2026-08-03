@@ -1,0 +1,12 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "SPS Carousel",
+    "id": "6362d1ff-6382-47eb-a9db-93a4968ab9bc",
+    "version": "1.0.0.3",
+    "includeClientSideAssets": true
+  },
+  "paths": {
+    "zippedPackage": "solution/sps-carousel.sppkg"
+  }
+}

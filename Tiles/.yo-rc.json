@@ -1,0 +1,17 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "isCreatingSolution": true,
+    "nodeVersion": "10.24.1",
+    "sdksVersions": {},
+    "version": "1.5.1",
+    "libraryName": "tiles",
+    "libraryId": "3de514e7-c0dc-40d3-885b-d500455a0c24",
+    "environment": "onprem",
+    "packageManager": "npm",
+    "solutionName": "Tiles",
+    "solutionShortDescription": "Tiles description",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "componentType": "webpart"
+  }
+}

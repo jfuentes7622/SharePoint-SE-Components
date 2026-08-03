@@ -1,0 +1,24 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "e555af4b-10c2-4f6d-b294-c782f7388469",
+  "alias": "CarouselWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+
+  "requiresCustomScript": false,
+
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+    "group": { "default": "KM" },
+    "title": { "default": "Carousel" },
+    "description": { "default": "Carousel" },
+    "officeFabricIconFontName": "BuildQueue",
+    "properties": {
+      "carouselSlideInterval": 5000,
+      "carouselWidth": 500,
+      "carouselHeight": 0,
+      "carouselTransitionInterval": 1500
+    }
+  }]
+}

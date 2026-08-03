@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "6b3bcf4e-c028-4517-aded-bd03c5b54679",
+  "alias": "TabComponentWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "supportedHosts": ["SharePointWebPart", "TeamsPersonalApp", "TeamsTab", "SharePointFullPage"],
+  "supportsThemeVariants": true,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70", 
+    "group": { "default": "Advanced" },
+    "title": { "default": "SPS Tabs" },
+    "description": { "default": "SPS Tabs for webparts and sections" },
+    "officeFabricIconFontName": "AutoFillTemplate",
+    "properties": {
+      "description": "SPS Tabs",
+      "disableColor": "#393939",
+      "selectedColor": "#8A1717",
+      "TabType":"1",
+      "tabs": []
+    }
+  }]
+}

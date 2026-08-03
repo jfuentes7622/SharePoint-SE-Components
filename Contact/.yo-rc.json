@@ -1,0 +1,17 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "isCreatingSolution": true,
+    "nodeVersion": "10.24.1",
+    "sdksVersions": {},
+    "version": "1.5.1",
+    "libraryName": "sps-contacts",
+    "libraryId": "f951b3fa-2515-45e0-8bfb-98e5a48e08ca",
+    "environment": "onprem",
+    "packageManager": "npm",
+    "solutionName": "sps-contacts",
+    "solutionShortDescription": "sps-contacts description",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "componentType": "webpart"
+  }
+}

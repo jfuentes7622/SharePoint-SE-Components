@@ -1,0 +1,10 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "version": "1.5.1",
+    "libraryName": "accordion",
+    "libraryId": "ff98fba2-e4d7-4ccd-b192-dc5decc0651c",
+    "environment": "onprem",
+    "packageManager": "npm",
+    "isCreatingSolution": true
+  }
+}

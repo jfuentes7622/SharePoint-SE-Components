@@ -1,0 +1,14 @@
+[
+  {
+    "Name": "https://goldentroutfarms.sharepoint.com/SiteAssets/styles.css",
+    "Type": "css"
+  },
+  {
+    "Name": "https://goldentroutfarms.sharepoint.com/SiteAssets/OverrideCss.css",
+    "Type": "css"
+  },
+  {
+    "Name": "https://goldentroutfarms.sharepoint.com/SiteAssets/Clock.css",
+    "Type": "css"
+  }
+]

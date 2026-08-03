@@ -1,0 +1,21 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "SPS-Contacts",
+    "id": "d951b3fa-2515-45e0-8bfb-98e5a48e08ca",
+    "version": "3.0.0.0",
+    "skipFeatureDeployment": true,
+    "includeClientSideAssets": true,
+    "features": [
+      {
+        "title": "sps-contacts Feature",
+        "description": "The feature that activates elements of the spo-contacts solution.",
+        "id": "f951b3fa-2515-45e0-8bfb-98e5a48e08ca",
+        "version": "1.0.0.0"
+      }
+    ]
+  },
+  "paths": {
+    "zippedPackage": "solution/sps-contacts.sppkg"
+  }
+}

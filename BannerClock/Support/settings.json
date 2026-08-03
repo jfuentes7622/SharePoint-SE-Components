@@ -1,0 +1,13 @@
+{
+  "digitalOnly":"false",
+  "hour12":"true",
+  "displayDay":"false",
+  "ClockSize":"100",
+  "spList":"ClockList",
+  "ModernBannerComId":"SPPageChrome",
+  "ModernFooterComId":"SPPageChrome",
+  "ModernBannerTeamId":"spoAppComponent",
+  "ModernFooterTeamId":"appRoot",
+  "ClassicBannerId":"suiteBarTop",
+  "ClassicFooterId":"s4-workspace"
+}

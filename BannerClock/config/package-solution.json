@@ -1,0 +1,26 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "SPS Banner-Clock",
+    "id": "a93f2750-8035-4cda-b2a7-6d1a7e7c8ba5",
+    "version": "2.0.23.0",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": false,
+    "features": [
+      {
+        "title": "Classification Banner and Clock",
+        "description": "Provides a classification banner at the very top with clock and other branding functionality",
+        "id": "5ca76051-cf87-4f31-b364-f8375f427756",
+        "version": "1.0.0.0",
+        "assets": {
+          "elementManifests": [
+            "elements.xml"
+          ]
+        }
+      }
+    ]
+  },
+  "paths": {
+    "zippedPackage": "solution/SPS-BannerClock.sppkg"
+  }
+}

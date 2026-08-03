@@ -1,0 +1,19 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/config.2.0.schema.json",
+  "version": "2.0",
+  "bundles": {
+    "spo-linkbutton-web-part": {
+      "components": [
+        {
+          "entrypoint": "./lib/webparts/spoLinkbutton/SpoLinkbuttonWebPart.js",
+          "manifest": "./src/webparts/spoLinkbutton/SpoLinkbuttonWebPart.manifest.json"
+        }
+      ]
+    }
+  },
+  "externals": {"sp-client-custom-fields": "node_modules/sp-client-custom-fields/dist/sp-client-custom-fields.bundle.js"},
+  "localizedResources": {
+    "sp-client-custom-fields/strings": "node_modules/sp-client-custom-fields/lib/loc/{locale}.js",
+    "SpoLinkbuttonWebPartStrings": "lib/webparts/spoLinkbutton/loc/{locale}.js"
+  }
+}

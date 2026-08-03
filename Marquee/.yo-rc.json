@@ -1,0 +1,16 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "isCreatingSolution": true,
+    "nodeVersion": "10.24.1",
+    "version": "1.5.1",
+    "libraryName": "sps-marquee",
+    "libraryId": "402f3b97-2119-4b7e-a233-2b27d0d5e0fb",
+    "environment": "onprem",
+    "packageManager": "npm",
+    "solutionName": "SPS-Marquee",
+    "solutionShortDescription": "Marquee description",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "componentType": "webpart"
+  }
+}

@@ -1,0 +1,88 @@
+@import "~@microsoft/sp-office-ui-fabric-core/dist/sass/SPFabricCore.scss";
+
+$red-color: #8A1717;
+$grey-color: #393939;
+$white-color:#FAFAFA;
+$tile-size: 140px;
+
+.tile {
+  @include ms-Grid-col;
+  //@include ms-sm4;
+  display: flex;
+  margin-bottom: 16px;
+  flex-basis: 140px;
+  
+ 
+  a {
+    background-color: $red-color;
+    box-sizing: border-box;
+    color: $white-color;
+    display: block;
+    overflow: hidden;
+    height: $tile-size;
+    width: $tile-size!important;
+    padding: 15px;
+    position: relative;
+    text-decoration: none;
+    border: 2px solid $red-color;
+    border-radius: 10px;     
+    &:hover,
+    &:visited {
+      color: $white-color;
+      text-decoration: none;
+    }
+  }
+
+ /*  .tileIcon {
+    @include ms-fontSize-su;
+    text-align: center;
+  } */
+
+  .tileTitle {
+    font-size:20px;
+    font-weight: 500;
+    left: 0;
+    padding: 5px;
+    right: 0;
+    text-align: center;
+    margin: 0;
+    position: absolute;
+    top: 50%;
+    -ms-transform: translateY(-50%);
+    transform: translateY(-50%);
+  }
+
+  .tileOver {
+    background-color: $red-color;
+    box-sizing: border-box;
+    color: $white-color;
+    text-align: center;
+    vertical-align: middle;
+    display: flex;
+    justify-content: center;
+    align-content: center;
+    flex-direction: column;
+    font-size: 14px;
+    font-weight:500;
+    height: 100%;
+    left: 0;
+    padding: 15px;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    transition: all 0.5s ease;
+  }
+
+  
+  &:hover {  
+    .tileOver {
+        top:0;
+        vertical-align: auto;
+      }
+   }
+
+  }
+
+      
+     
+

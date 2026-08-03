@@ -1,0 +1,114 @@
+@import '~@microsoft/sp-office-ui-fabric-core/dist/sass/SPFabricCore.scss';
+
+
+$carouselWidth: var(--cWidth);
+$carouselHeight: var(--cHeight);
+
+li.slide {
+  cursor: pointer;
+}
+.carousel .slider {
+  width: fit-content;
+  width: -moz-fit-content;
+}
+@media all and (min-width: 768px) and (max-width: 990px) {
+  .carouselDiv{
+  text-align: -webkit-center;}
+}
+@media only screen and (min-width: 990px) {
+  .carouselDiv{
+  text-align: -webkit-center;}
+}
+@media (max-width:800px){
+  .carouselDiv{
+    text-align: -webkit-center;
+  }
+}
+
+.configGridCell {
+  border: 1px solid #bbb;
+}
+
+.iskmCarousel {
+  .container {
+    min-width: 500px;
+    min-height:  500px;
+    }
+
+  .carouselDiv {
+    display: flex;
+    text-align: -webkit-center!important;
+    width: $carouselWidth;
+    height: $carouselHeight;
+  }
+
+  .row {
+    @include ms-Grid-row;
+    @include ms-fontColor-white;
+    background-color: $ms-color-themeDark;
+    padding: 20px;
+  }
+
+  .infoRow {
+    text-align:  -webkit-left;
+    margin-left: 20%;
+    padding-bottom: 5px;
+  }
+
+  .column {
+    @include ms-Grid-col;
+    @include ms-lg10;
+    @include ms-xl8;
+    @include ms-xlPush2;
+    @include ms-lgPush1;
+  }
+
+  .title {
+    @include ms-font-xl;
+    @include ms-fontColor-white;
+  }
+
+  .subTitle {
+    @include ms-font-l;
+    @include ms-fontColor-white;
+  }
+
+  .description {
+    @include ms-font-l;
+    @include ms-fontColor-white;
+  }
+
+  .button {
+    // Our button
+    text-decoration: none;
+    height: 32px;
+
+    // Primary Button
+    min-width: 80px;
+    background-color: $ms-color-themePrimary;
+    border-color: $ms-color-themePrimary;
+    color: $ms-color-white;
+
+    // Basic Button
+    outline: transparent;
+    position: relative;
+    font-family: "Segoe UI WestEuropean","Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,"Helvetica Neue",sans-serif;
+    -webkit-font-smoothing: antialiased;
+    font-size: $ms-font-size-m;
+    font-weight: $ms-font-weight-regular;
+    border-width: 0;
+    text-align: center;
+    cursor: pointer;
+    display: inline-block;
+
+    .label {
+      font-weight: $ms-font-weight-semibold;
+      font-size: $ms-font-size-m;
+      height: 32px;
+      line-height: 32px;
+      margin: 0 4px;
+      vertical-align: top;
+      display: inline-block;
+    }
+  }
+}

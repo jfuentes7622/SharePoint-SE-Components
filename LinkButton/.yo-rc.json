@@ -1,0 +1,16 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "version": "1.5.1",
+    "libraryName": "linkbutton",
+    "libraryId": "e9ddd6ce-6fbf-4ac7-9885-751bed656089",
+    "environment": "onprem",
+       "isCreatingSolution": true,
+    "nodeVersion": "10.24.1",
+     "packageManager": "npm",
+    "solutionName": "SPS-LinkButton",
+    "solutionShortDescription": "Link button description",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "componentType": "webpart"
+  }
+}

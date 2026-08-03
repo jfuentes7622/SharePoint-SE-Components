@@ -1,0 +1,20 @@
+export type ConfigData = {
+    personnelListName: string;
+    personnelImgWidth: number;
+    personnelDefaultImgUrl: string;
+    personnelShowDefaultImg: boolean;
+    siteUrl:string;
+    directorateField:string;
+    divisionField:string;
+    groupField:string;
+    branchField: string;
+    groupHeiarchyField: string;
+    nameField: string;
+    eMailField: string;
+    phoneNumberField: string;
+    bioLinkField: string;
+    displayPhotoField: string;
+    imageLinkField: string;
+    sVoipField : string;
+    imageIsCircle: boolean;
+};

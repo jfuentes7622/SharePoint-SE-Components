@@ -1,0 +1,27 @@
+@import '~@microsoft/sp-office-ui-fabric-core/dist/sass/SPFabricCore.scss';
+
+.tiles {
+  .message {
+    @include ms-font-m;
+  }
+
+  .error {
+    @include ms-font-m;
+    color: $ms-color-alert;
+  }
+
+  .tilesList {
+    @include ms-Grid-row;
+   // display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  div[class^=webPartTitle] {
+     font-weight:600 !important; 
+     font-size: 20px!important; 
+     text-align: center;
+  } 
+}

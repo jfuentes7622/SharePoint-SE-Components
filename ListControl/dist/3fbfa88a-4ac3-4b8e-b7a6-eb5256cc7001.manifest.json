@@ -1,0 +1,140 @@
+{
+  "id": "3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001",
+  "alias": "ListControlWebPart",
+  "componentType": "WebPart",
+  "version": "0.0.1",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "preconfiguredEntries": [
+    {
+      "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+      "group": {
+        "default": "Advanced"
+      },
+      "title": {
+        "default": "SPS List Control"
+      },
+      "description": {
+        "default": "List control for SharePoint SE dynamic form integration"
+      },
+      "officeFabricIconFontName": "BulletedList",
+      "properties": {
+        "description": "List control",
+        "instanceName": "",
+        "listName": "",
+        "viewId": "",
+        "pageSize": 0,
+        "showViewSelector": true,
+        "showLinkToItem": false,
+        "linkTargetPageUrl": "",
+        "linkTargetIdParam": "itemid",
+        "includeReturnUrlParam": false,
+        "enableDiagnostics": true,
+        "showRefresh": true,
+        "showAdd": true,
+        "showEdit": true,
+        "showView": true,
+        "showDelete": true,
+        "filterJson": "",
+        "filterDesignerField": "",
+        "filterDesignerOperator": "contains",
+        "filterDesignerLogical": "and",
+        "filterDesignerValueType": "static",
+        "filterDesignerValue": "",
+        "filterDesignerSelectedIndex": "",
+        "conditionalStyleJson": "",
+        "conditionalStyleRuleName": "",
+        "conditionalStyleScope": "row",
+        "conditionalStyleApplyField": "",
+        "conditionalStyleConditionField": "",
+        "conditionalStyleConditionOperator": "eq",
+        "conditionalStyleConditionLogical": "and",
+        "conditionalStyleConditionValueType": "static",
+        "conditionalStyleConditionValue": "",
+        "conditionalStyleEnabled": true,
+        "conditionalStylePriority": "100",
+        "conditionalStyleBackgroundColor": "",
+        "conditionalStyleForegroundColor": "",
+        "conditionalStyleFontFamily": "",
+        "conditionalStyleFontSize": "",
+        "conditionalStyleFontStyle": "",
+        "conditionalStyleFontWeight": "",
+        "conditionalStyleTextAlign": "",
+        "conditionalStyleSelectedIndex": "",
+        "bodyTextColor": "",
+        "bodyFontFamily": "",
+        "bodyFontSize": "14px",
+        "bodyFontStyle": "normal",
+        "bodyTextAlign": "left",
+        "bodyFontBold": false,
+        "selectedTextColor": "",
+        "selectedBackgroundColor": "#eef6ff",
+        "selectedFontStyle": "normal",
+        "selectedFontBold": false,
+        "headerTextColor": "",
+        "headerBackgroundColor": "",
+        "headerFontFamily": "",
+        "headerFontSize": "14px",
+        "headerFontStyle": "normal",
+        "headerTextAlign": "left",
+        "headerFontBold": false,
+        "tableCornerStyle": "square",
+        "tableCornerRadius": 8,
+        "tableRowLineWidth": 1,
+        "buttonCornerStyle": "square",
+        "buttonCornerRadius": 4,
+        "cornerStyle": "square",
+        "cornerRadius": 12
+      }
+    }
+  ],
+  "loaderConfig": {
+    "entryModuleId": "list-control-web-part",
+    "internalModuleBaseUrls": [
+      "https://localhost:4321/"
+    ],
+    "scriptResources": {
+      "list-control-web-part": {
+        "type": "path",
+        "path": "dist/list-control-web-part.js"
+      },
+      "ListControlWebPartStrings": {
+        "defaultPath": "lib/webparts/listControl/loc/en-us.js",
+        "type": "localizedPath",
+        "paths": {}
+      },
+      "PropertyControlStrings": {
+        "defaultPath": "node_modules/@pnp/spfx-property-controls/lib/loc/en-us.js",
+        "type": "localizedPath",
+        "paths": {}
+      },
+      "react": {
+        "type": "component",
+        "version": "15.6.2",
+        "id": "0d910c1c-13b9-4e1c-9aa4-b008c5e42d7d",
+        "failoverPath": "node_modules/react/dist/react.js"
+      },
+      "react-dom": {
+        "type": "component",
+        "version": "15.6.2",
+        "id": "aa0a46ec-1505-43cd-a44a-93f3a5aa460a",
+        "failoverPath": "node_modules/react-dom/dist/react-dom.js"
+      },
+      "@microsoft/sp-core-library": {
+        "type": "component",
+        "version": "1.5.1",
+        "id": "7263c7d0-1d6a-45ec-8d85-d4d1d234171b"
+      },
+      "@microsoft/sp-http": {
+        "type": "component",
+        "version": "1.5.1",
+        "id": "c07208f0-ea3b-4c1a-9965-ac1b825211a6"
+      },
+      "@microsoft/sp-webpart-base": {
+        "type": "component",
+        "version": "1.5.1",
+        "id": "974a7777-0990-4136-8fa6-95d80114c2e0"
+      }
+    }
+  }
+}

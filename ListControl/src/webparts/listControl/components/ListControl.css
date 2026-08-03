@@ -1,0 +1,249 @@
+.lc-root {
+  background-color: var(--lc-webpart-bg-color);
+  border: var(--lc-webpart-border-width) solid var(--lc-webpart-border-color);
+  border-radius: var(--lc-webpart-corner-style);
+  padding: 12px;
+  --lc-body-text-color: inherit;
+  --lc-body-font-family: inherit;
+  --lc-body-font-size: 14px;
+  --lc-body-font-style: normal;
+  --lc-body-font-weight: normal;
+  --lc-body-text-align: left;
+  --lc-selected-text-color: inherit;
+  --lc-selected-bg-color: #eef6ff;
+  --lc-selected-font-style: normal;
+  --lc-selected-font-weight: normal;
+  --lc-header-text-color: inherit;
+  --lc-header-bg-color: transparent;
+  --lc-header-font-family: inherit;
+  --lc-header-font-size: 14px;
+  --lc-header-font-style: normal;
+  --lc-header-font-weight: normal;
+  --lc-header-text-align: left;
+  --lc-table-bg-color: #ffffff;
+  --lc-table-border-color: #ccc;
+  --lc-table-border-width: 1px;
+  --lc-table-corner-radius: 0px;
+  --lc-row-line-width: 1px;
+  --lc-alternate-row-color: #f9f9f9;
+  --lc-button-text-color: #000000;
+  --lc-button-bg-color: #f0f0f0;
+  --lc-button-font-family: inherit;
+  --lc-button-font-size: 14px;
+  --lc-button-font-style: normal;
+  --lc-button-font-weight: normal;
+  --lc-button-corner-radius: 0px;
+  --lc-webpart-bg-color: #ffffff;
+  --lc-webpart-border-color: #ccc;
+  --lc-webpart-border-width: 0px;
+  --lc-webpart-corner-style: 0px;
+}
+
+.lc-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.lc-toolbar button {
+  color: var(--lc-button-text-color);
+  background-color: var(--lc-button-bg-color);
+  font-family: var(--lc-button-font-family);
+  font-size: var(--lc-button-font-size);
+  font-style: var(--lc-button-font-style);
+  font-weight: var(--lc-button-font-weight);
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: var(--lc-button-corner-radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lc-toolbar button:hover:not(:disabled) {
+  opacity: 0.8;
+}
+
+.lc-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lc-status {
+  margin-bottom: 12px;
+}
+
+.lc-table-wrap {
+  overflow-x: auto;
+  background-color: var(--lc-table-bg-color);
+  border: var(--lc-table-border-width) solid var(--lc-table-border-color);
+  border-radius: var(--lc-table-corner-radius);
+}
+
+.lc-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background-color: transparent;
+  border: none;
+}
+
+.lc-table th {
+  border-bottom: var(--lc-row-line-width) solid #ccc;
+  text-align: var(--lc-header-text-align);
+  padding: 8px;
+  color: var(--lc-header-text-color);
+  background-color: var(--lc-header-bg-color);
+  font-family: var(--lc-header-font-family);
+  font-size: var(--lc-header-font-size);
+  font-style: var(--lc-header-font-style);
+  font-weight: var(--lc-header-font-weight);
+  position: relative;
+}
+
+.lc-header-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  position: relative;
+}
+
+.lc-header-title {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+.lc-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.lc-header-action {
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  padding: 2px 4px;
+}
+
+.lc-table th:hover .lc-header-action,
+.lc-header-action-active {
+  opacity: 1;
+}
+
+.lc-header-action:hover {
+  border-color: #bdbdbd;
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.lc-filter-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 220px;
+  z-index: 40;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  background-color: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  padding: 10px;
+}
+
+.lc-filter-label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.lc-filter-select,
+.lc-filter-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+}
+
+.lc-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.lc-filter-actions button {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.lc-row {
+  cursor: pointer;
+}
+
+.lc-row td {
+  border-bottom: none;
+  padding: 8px;
+  vertical-align: top;
+  text-align: var(--lc-body-text-align);
+  color: var(--lc-body-text-color);
+  font-family: var(--lc-body-font-family);
+  font-size: var(--lc-body-font-size);
+  font-style: var(--lc-body-font-style);
+  font-weight: var(--lc-body-font-weight);
+}
+
+.lc-table tbody tr:not(:last-child) td {
+  border-bottom: var(--lc-row-line-width) solid #eee;
+}
+
+.lc-item-link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.lc-row-selected {
+  background-color: var(--lc-selected-bg-color);
+}
+
+.lc-row-selected td {
+  background-color: var(--lc-selected-bg-color) !important;
+  color: var(--lc-selected-text-color) !important;
+  font-style: var(--lc-selected-font-style) !important;
+  font-weight: var(--lc-selected-font-weight) !important;
+}
+
+.lc-row:nth-child(even) td {
+  background-color: var(--lc-alternate-row-color);
+}
+
+.lc-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.lc-pagination button {
+  min-width: 88px;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-radius: var(--lc-button-corner-radius);
+  color: var(--lc-button-text-color);
+  background-color: var(--lc-button-bg-color);
+  font-family: var(--lc-button-font-family);
+  font-size: var(--lc-button-font-size);
+  cursor: pointer;
+}
+
+.lc-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

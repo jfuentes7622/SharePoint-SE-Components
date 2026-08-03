@@ -1,0 +1,390 @@
+@import '~office-ui-fabric-react/dist/sass/References.scss';
+
+.sharePointDynamicForm {
+  overflow: hidden;
+  padding: 1em;
+  color: "[theme:bodyText, default: #323130]";
+  color: var(--bodyText);
+
+  input[type='text'],
+  textarea,
+  [contenteditable='true'] {
+    direction: ltr !important;
+    text-align: left !important;
+  }
+
+  &.teams {
+    font-family: $ms-font-family-fallbacks;
+  }
+}
+
+.container {
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: "[theme: neutralSecondary, default: #605e5c]";
+  font-size: 16px;
+}
+
+.dark {
+  --bodyText: #ffffff;
+  --link: #6db3f2;
+}
+
+.editBar {
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.message {
+  margin-bottom: 16px;
+}
+
+.designerMode {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: "[theme: neutralLight, default: #f3f2f1]";
+  z-index: 9999;
+  overflow-y: auto;
+
+  .designerToolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    background: "[theme: white, default: #ffffff]";
+    border-bottom: 1px solid "[theme: neutralQuaternary, default: #e1dfdd]";
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+
+    h2 { margin: 0; font-size: 20px; font-weight: 600; }
+  }
+
+  .designerActions {
+    display: flex;
+    gap: 8px;
+  }
+}
+
+.designerWorkspace {
+  display: flex;
+  gap: 16px;
+  padding: 16px 24px 24px;
+  align-items: flex-start;
+}
+
+.designerPanel {
+  width: 280px;
+  flex: 0 0 280px;
+  background: #ffffff;
+  border: 1px solid #e1dfdd;
+  border-radius: 4px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.designerPanelSection + .designerPanelSection {
+  margin-top: 20px;
+}
+
+.designerPanelTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.designerPanelHint {
+  color: #605e5c;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.designerPaletteButton {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #f8f8f8;
+  border: 1px solid #e1dfdd;
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.designerPaletteButton:hover {
+  background: #f3f2f1;
+}
+
+.designerPaletteMeta {
+  display: block;
+  color: #605e5c;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.designerCanvas {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid #e1dfdd;
+  border-radius: 4px;
+}
+
+.designerTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px;
+  border-bottom: 1px solid #e1dfdd;
+}
+
+.designerTab,
+.designerTabActive,
+.designerActionButton,
+.designerDeleteButton,
+.designerInlineButton,
+.designerInlineButtonDanger {
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.designerTab,
+.designerTabActive,
+.designerActionButton,
+.designerDeleteButton {
+  border: 1px solid #c8c6c4;
+  padding: 8px 12px;
+  background: #ffffff;
+}
+
+.designerTabActive {
+  background: #0078d4;
+  border-color: #0078d4;
+  color: #ffffff;
+}
+
+.designerActionButton {
+  margin-left: auto;
+}
+
+.designerDeleteButton {
+  color: #a80000;
+}
+
+.designerCanvasBody {
+  padding: 16px;
+}
+
+.designerPreviewSection {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #e1dfdd;
+}
+
+.designerPreviewTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.designerPreviewFormName {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.designerPreviewFormDescription {
+  color: #605e5c;
+  margin-bottom: 16px;
+}
+
+.designerPreviewStep {
+  margin-bottom: 20px;
+}
+
+.designerPreviewStepTitle {
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
+.designerPreviewStepDescription {
+  color: #605e5c;
+  margin-bottom: 12px;
+}
+
+.designerPreviewField {
+  border: 1px dashed #c8c6c4;
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: #faf9f8;
+  margin-bottom: 8px;
+}
+
+.designerPreviewFieldLabel {
+  font-weight: 600;
+}
+
+.designerPreviewFieldType {
+  font-size: 12px;
+  color: #605e5c;
+  margin-top: 4px;
+}
+
+.designerStepHeader {
+  margin-bottom: 16px;
+}
+
+.designerStepTitle {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.designerStepDescription {
+  margin-top: 6px;
+  color: #605e5c;
+}
+
+.designerEmptyState {
+  color: #605e5c;
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+.designerFieldCard,
+.designerFieldCardActive {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #e1dfdd;
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #ffffff;
+}
+
+.designerFieldCardActive {
+  border-color: #0078d4;
+  box-shadow: 0 0 0 1px #0078d4 inset;
+}
+
+.designerFieldInfo {
+  min-width: 0;
+}
+
+.designerFieldLabel {
+  font-weight: 600;
+}
+
+.designerFieldMeta {
+  font-size: 12px;
+  color: #605e5c;
+  margin-top: 4px;
+}
+
+.designerFieldActions {
+  display: flex;
+  gap: 6px;
+  margin-left: 12px;
+}
+
+.designerInlineButton,
+.designerInlineButtonDanger {
+  border: 1px solid #c8c6c4;
+  background: #ffffff;
+  padding: 6px 10px;
+}
+
+.designerInlineButtonDanger {
+  color: #a80000;
+}
+
+.designerFormLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+
+.designerInput,
+.designerTextarea,
+.designerTextareaLarge {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #c8c6c4;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 14px;
+}
+
+.designerTextarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.designerTextareaLarge {
+  min-height: 180px;
+  resize: vertical;
+}
+
+.designerReadOnlyValue {
+  padding: 8px;
+  background: #f8f8f8;
+  border-radius: 4px;
+  border: 1px solid #edebe9;
+  word-break: break-word;
+}
+
+.designerCheckboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.welcome {
+  text-align: center;
+}
+
+.welcomeImage {
+  width: 100%;
+  max-width: 420px;
+}
+
+.links {
+  a {
+    text-decoration: none;
+    color: "[theme:link, default:#03787c]";
+    color: var(--link);
+
+    &:hover {
+      text-decoration: underline;
+      color: "[theme:linkHovered, default: #014446]";
+      color: var(--linkHovered);
+    }
+  }
+}
+
+.richTextEditor {
+  [contenteditable] {
+    direction: ltr !important;
+    text-align: left !important;
+    unicode-bidi: normal !important;
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed !important;
+    word-break: break-word !important;
+  }
+}

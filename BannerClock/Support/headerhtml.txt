@@ -1,0 +1,2 @@
+<div id='bannerheader' class='banner'>Unclassified</div>
+<div id='worldclock' class='clock'/>

@@ -1,0 +1,27 @@
+a.button {
+    -webkit-appearance: button;
+    -moz-appearance: button;
+    appearance: button;
+    display: flex;
+    text-decoration: none;
+    height: 5vh;
+    font-size: 1.25rem;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: white;
+    background-color: #8A1717; 
+    border-radius: 5px !important;
+    max-width: 400px;
+    text-align: center;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    outline: transparent;
+    position: relative;
+    /*margin-left:auto;*/
+    border: 1px solid #8A1717;    
+}
+a.button:hover {
+    background-color: #fafafa;
+    color:#8A1717;
+    border: 1px solid #8A1717;
+}

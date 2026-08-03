@@ -1,0 +1,29 @@
+.ms-compositeHeader {
+    background-color: red;
+}
+.ms-siteLogoContainerOuter {
+    border-radius: 50%;
+    border-width: 3px;
+}
+.ms-siteLogo-actual {
+    border-radius: 50%;
+}
+.CanvasZone{
+	max-width:100%;
+}
+div[class^="homePageContent_"]{
+    max-width:100% !important;
+}
+div[class^="commentsWrapper_"]{
+    max-width:100% !important;
+}
+
+.DoDBanner{
+	background-color:#228b22;
+	color:#fff;
+	text-align:center;
+	border-bottom:thin solid;
+	font-size:13px;
+	font-family:"Segoe UI","Segoe,Tahoma,Arial,Helvetica,sans-serif;
+	padding: 4px 0px;
+}

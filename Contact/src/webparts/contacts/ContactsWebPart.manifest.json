@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "c1b4c347-4693-4853-9c7b-14d5c1d685ef",
+  "alias": "ContactsWebPart",
+  "componentType": "WebPart",
+  "version": "1.0.0",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70", 
+    "group": { "default": "SPS" },
+    "title": { "default": "Contacts" },
+    "description": { "default": "Create contacts based on list or info on your site" },
+    "officeFabricIconFontName": "PeopleAdd",
+    "properties": {
+      "directorate": "",
+      "division":"",
+      "propertyCheckbox": true,
+      "personnelImgWidth": 100,
+      "personnelDefaultImg": "",
+      "PersonnelPanelHeaderBackColor": "#8A1717",
+      "PersonnelPanelHeaderTextColor": "#FAFAFA"
+    }
+  }]
+}

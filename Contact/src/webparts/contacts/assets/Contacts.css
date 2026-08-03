@@ -1,0 +1,10 @@
+.groupHeading {
+    background-color: rgb(245, 7, 177);
+    color: rgb(251, 251, 252);
+    font-weight: bold;
+    font-size: 1.25rem;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }

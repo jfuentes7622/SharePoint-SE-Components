@@ -1,0 +1,23 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/config.2.0.schema.json",
+  "version": "2.0",
+  "bundles": {
+    "contacts-web-part": {
+      "components": [
+        {
+          "entrypoint": "./lib/webparts/contacts/ContactsWebPart.js",
+          "manifest": "./src/webparts/contacts/ContactsWebPart.manifest.json"
+        }
+      ]
+    }
+  },
+  "externals": {
+    "sp-client-custom-fields": "node_modules/sp-client-custom-fields/dist/sp-client-custom-fields.bundle.js"
+  },
+  "localizedResources": {
+    "ContactsWebPartStrings": "lib/webparts/contacts/loc/{locale}.js",
+    "PropertyControlStrings": "node_modules/@pnp/spfx-property-controls/lib/loc/{locale}.js",
+    "ControlStrings": "node_modules/@pnp/spfx-controls-react/lib/loc/{locale}.js",
+    "sp-client-custom-fields/strings": "node_modules/sp-client-custom-fields/lib/loc/{locale}.js"
+  }
+}

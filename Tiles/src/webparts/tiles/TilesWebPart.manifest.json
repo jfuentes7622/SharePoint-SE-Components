@@ -1,0 +1,19 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "9e6094a4-d8f2-4ce6-ac3f-312a37aeecee",
+  "alias": "TilesWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+    "group": { "default": "SPS" },
+    "title": { "default": "SPS Tiles" },
+    "description": { "default": "Links in Tile Format" },
+    "officeFabricIconFontName": "FiveTileGrid",
+    "properties": {
+      "title": "Title"
+    }
+  }]
+}

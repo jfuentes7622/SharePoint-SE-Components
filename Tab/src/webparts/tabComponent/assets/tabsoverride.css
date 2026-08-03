@@ -1,0 +1,10 @@
+.no-touch .cd-tabs-navigation span:hover {
+    color: #29324e;
+    background-color: gray;
+}
+.cd-tabs-navigation span.selected {
+    background-color: lightblue !important;
+    box-shadow: inset 0 2px 0 green;
+    color: #29324e;
+    cursor: auto;
+}

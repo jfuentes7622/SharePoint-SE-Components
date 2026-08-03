@@ -1,0 +1,151 @@
+/// <reference types="react" />
+import * as React from 'react';
+import './ListControl.css';
+export interface IListControlViewOption {
+    key: string;
+    text: string;
+    isDefault?: boolean;
+}
+export interface IListControlProps {
+    context: any;
+    listName: string;
+    defaultViewId: string;
+    views: IListControlViewOption[];
+    pageSize: number;
+    isEditMode: boolean;
+    showViewSelector: boolean;
+    showRefresh: boolean;
+    showAdd: boolean;
+    showEdit: boolean;
+    showView: boolean;
+    showDelete: boolean;
+    showLinkToItem: boolean;
+    linkTargetPageUrl: string;
+    linkTargetIdParam: string;
+    includeReturnUrlParam: boolean;
+    enableDiagnostics: boolean;
+    bodyTextColor: string;
+    bodyFontFamily: string;
+    bodyFontSize: string;
+    bodyFontStyle: string;
+    bodyFontBold: boolean;
+    bodyTextAlign: string;
+    selectedTextColor: string;
+    selectedBackgroundColor: string;
+    selectedFontStyle: string;
+    selectedFontBold: boolean;
+    headerTextColor: string;
+    headerBackgroundColor: string;
+    headerFontFamily: string;
+    headerFontSize: string;
+    headerFontStyle: string;
+    headerFontBold: boolean;
+    headerTextAlign: string;
+    tableBackgroundColor: string;
+    tableBorderColor: string;
+    tableBorderWidth: string;
+    tableCornerStyle: string;
+    tableCornerRadius: number;
+    tableRowLineWidth: number;
+    cornerStyle: string;
+    cornerRadius: number;
+    alternateRowShading: boolean;
+    alternateRowShadingColor: string;
+    buttonTextColor: string;
+    buttonBackgroundColor: string;
+    buttonFontFamily: string;
+    buttonFontSize: string;
+    buttonFontStyle: string;
+    buttonFontBold: boolean;
+    buttonCornerStyle: string;
+    buttonCornerRadius: number;
+    webpartBackgroundColor: string;
+    webpartBorderColor: string;
+    webpartBorderWidth: number;
+    filterJson?: string;
+    conditionalStyleJson?: string;
+    onSelectionChange: (itemId: number, mode: string) => void;
+}
+export interface IListFieldDefinition {
+    Name: string;
+    RealFieldName?: string;
+    DisplayName?: string;
+    Hidden?: string | boolean;
+}
+export interface IListControlState {
+    selectedViewId: string;
+    fields: IListFieldDefinition[];
+    rows: any[];
+    loading: boolean;
+    error: string | null;
+    selectedItemId: number;
+    selectedMode: string;
+    deleting: boolean;
+    sortFieldName: string;
+    sortDirection: 'asc' | 'desc' | '';
+    activeFilterFieldName: string;
+    draftFilterOperator: FilterOperator;
+    draftFilterValue: string;
+    columnFilters: {
+        [fieldName: string]: IColumnFilter;
+    };
+    currentPage: number;
+}
+export declare type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
+export interface IColumnFilter {
+    operator: FilterOperator;
+    value: string;
+    compareDateOnly?: boolean;
+}
+export declare class ListControl extends React.Component<IListControlProps, IListControlState> {
+    private _refreshEventHandler;
+    constructor(props: IListControlProps);
+    componentDidMount(): void;
+    componentWillUnmount(): void;
+    componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void;
+    private getInitialViewId(views);
+    private handleExternalRefresh(event);
+    private getWebUrl();
+    private getJsonWithFallback(url);
+    private postJsonWithFallback(url, body);
+    private buildViewIdCandidates(selectedViewId);
+    private loadSelectedViewFieldNames(selectedViewId);
+    private getFieldsForConsumption(rawFields, viewFieldNames);
+    private loadListFieldTypeMap(viewFieldNames);
+    private loadListFieldTitleMap();
+    private applyFieldDisplayNames(fields, titleMap);
+    private getRowFieldValue(row, field);
+    private stringifyCellValue(value);
+    private isMeaningfulCellValue(value);
+    private filterRenderableRows(rows, visibleFields);
+    private loadRowsFromItemsEndpoint(viewFieldNames);
+    private loadRows();
+    private getRowItemId(row);
+    private selectRow(row);
+    private deleteSelected();
+    private logDiagnostic(message);
+    private getCellMarkup(row, field);
+    private isTitleField(field);
+    private getCellPlainText(row, field);
+    private getItemLinkUrl(row);
+    private getFieldKey(field);
+    private getFilterOperatorOptions();
+    private toggleSort(field);
+    private openFilter(field);
+    private closeFilter();
+    private applyActiveFilter();
+    private clearActiveFilter();
+    private compareComparableValues(leftValue, rightValue);
+    private rowMatchesFilter(row, field, filter);
+    private parsePresetFilterConditions();
+    private resolveFieldByReference(fieldsByKey, fieldRef);
+    private rowMatchesPresetConditions(row, fieldsByKey, conditions);
+    private resolvePresetFilterValue(condition);
+    private getProcessedRows();
+    private parseConditionalStyleRules();
+    private toReactCssStyle(styleDefinition);
+    private evaluateConditionalStyleRule(row, rule, fieldsByKey);
+    private getConditionalStyleForRow(row, fieldsByKey, rules);
+    private getMatchedConditionalRuleNames(row, fieldsByKey, rules);
+    render(): JSX.Element;
+}

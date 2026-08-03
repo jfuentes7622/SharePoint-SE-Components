@@ -1,0 +1,21 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "45c3ad97-c1aa-4a1b-acfb-a48f12345e60",
+  "alias": "SPSLinkbuttonWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70", 
+    "group": { "default": "SPS" },
+    "title": { "default": "SPS Link Button" },
+    "description": { "default": "SPSLink Button" },
+    "officeFabricIconFontName": "FileSymlink",
+    "properties": {
+      "description": "Go to..",
+      "Link": "https://",
+      "Align": "3"
+    }
+  }]
+}

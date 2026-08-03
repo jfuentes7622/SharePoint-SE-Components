@@ -1,0 +1,186 @@
+@import '~@microsoft/sp-office-ui-fabric-core/dist/sass/SPFabricCore.scss';
+
+.flexRow {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.landingRow {
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+}
+
+.landingBlock {
+  width: 100%;
+}
+
+
+@media (min-width: 1366px) {
+  .ms-Xxl3 {
+    width: 100% !important;
+  }
+}
+
+.p1 {
+  padding: 4px;
+}
+
+.p3 {
+  padding: 12px;
+}
+
+.ml2 {
+  margin-left: 8px;
+}
+
+.imageCircle {
+  border-radius: 50%;
+}
+
+.imageSquare {
+  border-radius: 0;
+}
+
+.ContactImages {
+  align-items: flex-end;
+  //top head of the blocks/panels on left side of the org page
+  $personnel-panel-header-background-color: var(--PersonnelPanelHeaderBackColor);
+  $personnel-panel-header-text-color: var(--PersonnelPanelHeaderTextColor);
+  /* $personnel-panel-header-background-color:#8A1717;
+  $personnel-panel-header-text-color:#FAFAFA; */
+
+  .groupHeading {
+    //background-color: rgba(51,62,86,1);
+    background-color: $personnel-panel-header-background-color;
+    color: $personnel-panel-header-text-color;
+    font-weight: bold;
+    font-size: 1.25rem;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .personnelFrame {
+    padding: 8px;
+    border: 1px solid #bbb;
+    margin-bottom: 10px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    font-size: 18px;
+
+    .personnelRow {
+      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+
+    .personnelRow:first-of-type {
+      margin-top: 0px;
+      margin-bottom: 8px;
+    }
+
+    .personnelRow:last-of-type {
+      margin-top: 8px;
+      margin-bottom: 0px;
+    }
+
+    .personnelTitle {
+      color: rgb(51, 51, 51);
+      font-weight: bold;
+    }
+
+    .personnelName {
+      color: rgb(134, 134, 134);
+    }
+
+    .personnelEmail {
+      color: #ff7f50;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .personnelPhone {
+      color: rgb(134, 134, 134);
+    }
+
+    .personnelBioLink {
+      cursor: pointer;
+      text-decoration: underline;
+    }
+  }
+
+
+
+  .container {
+    max-width: 700px;
+    margin: 0px auto;
+    box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.2), 0 25px 50px 0 rgba(0, 0, 0, 0.1);
+  }
+
+  .row {
+    @include ms-Grid-row;
+    @include ms-fontColor-white;
+    background-color: $ms-color-themeDark;
+    padding: 20px;
+  }
+
+  .column {
+    @include ms-Grid-col;
+    @include ms-lg10;
+    @include ms-xl8;
+    @include ms-xlPush2;
+    @include ms-lgPush1;
+  }
+
+  .title {
+    @include ms-font-xl;
+    @include ms-fontColor-white;
+  }
+
+  .subTitle {
+    @include ms-font-l;
+    @include ms-fontColor-white;
+  }
+
+  .description {
+    @include ms-font-l;
+    @include ms-fontColor-white;
+  }
+
+  .button {
+    // Our button
+    text-decoration: none;
+    height: 32px;
+
+    // Primary Button
+    min-width: 80px;
+    background-color: $ms-color-themePrimary;
+    border-color: $ms-color-themePrimary;
+    color: $ms-color-white;
+
+    // Basic Button
+    outline: transparent;
+    position: relative;
+    font-family: "Segoe UI WestEuropean", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    font-size: $ms-font-size-m;
+    font-weight: $ms-font-weight-regular;
+    border-width: 0;
+    text-align: center;
+    cursor: pointer;
+    display: inline-block;
+    padding: 0 16px;
+
+    .label {
+      font-weight: $ms-font-weight-semibold;
+      font-size: $ms-font-size-m;
+      height: 32px;
+      line-height: 32px;
+      margin: 0 4px;
+      vertical-align: top;
+      display: inline-block;
+    }
+  }
+}

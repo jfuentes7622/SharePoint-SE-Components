@@ -1,0 +1,21 @@
+{
+    "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+    "solution": {
+        "name": "SPS-Linkbutton",
+        "id": "e9ddd6ce-6fbf-4ac7-9885-751bed656089",
+        "version": "0.0.1.0",
+        "includeClientSideAssets": true,
+        "skipFeatureDeployment": true,
+        "features": [
+            {
+                "title": "sps-linkbutton Feature",
+                "description": "The feature that activates elements of the spo-linkbutton solution.",
+                "id": "a1604f51-f091-4dbc-b92b-a79d8339f3f5",
+                "version": "1.0.0.0"
+            }
+        ]
+    },
+    "paths": {
+        "zippedPackage": "solution/sps-linkbutton.sppkg"
+    }
+}

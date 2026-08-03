@@ -1,0 +1,18 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "isCreatingSolution": true,
+    "nodeVersion": "10.24.1",
+    "sdksVersions": {},
+    "version": "1.5.1",
+    "libraryName": "branding",
+    "libraryId": "a93f2750-8035-4cda-b2a7-6d1a7e7c8ba5",
+    "environment": "onprem",
+    "packageManager": "npm",
+    "solutionName": "Branding",
+    "solutionShortDescription": "Branding description",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "componentType": "extension",
+    "extensionType": "ApplicationCustomizer"
+  }
+}

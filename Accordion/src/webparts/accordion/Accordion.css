@@ -1,0 +1,87 @@
+
+.input {
+    position: absolute;
+    opacity: 0;
+    z-index: -1;
+  }
+  
+  .row {
+    width: 100%;
+    display: -webkit-box;
+    display: flex;
+  }
+  .row .col {
+    -webkit-box-flex: 1;
+            flex: 1;
+  }
+  .row .col:last-child {
+    margin-left: 1em;
+  }
+  
+  /* Accordion styles */
+  .tabs {
+    overflow: hidden;
+    box-shadow: 0 4px 4px -2px rgba(0, 0, 0, 0.5);
+  }
+   
+  
+  .tab {
+    color: white;
+    overflow: hidden;
+    border-bottom-width: 0.1px;
+    border-bottom-color:  #ecf0f1;
+    border-bottom-style: solid;
+  }
+  .tab-label {
+    display: -webkit-box !important;
+    display: flex !important;
+    -webkit-box-pack: justify;
+    justify-content: space-between;
+    padding: 1em;
+    background: #333333;
+    font-weight: bold;
+    cursor: pointer;
+    /* Icon */
+  }
+  .tab-label:hover {
+    background: #8a1717;
+  }
+  .tab-label::after {
+    content: "\276F";
+    width: 1em;
+    height: 1em;
+    text-align: center;
+    -webkit-transition: all .35s !important;
+    transition: all .35s !important;
+  }
+  .tab-content {
+    max-height: 0;
+    padding: 0 1em;
+    color: #333333;
+    background: white;
+    -webkit-transition: all .35s !important;
+    transition: all .35s !important;
+  }
+  .tab-close {
+    display: -webkit-box;
+    display: flex;
+    -webkit-box-pack: end;
+            justify-content: flex-end;
+    padding: 1em;
+    font-size: 0.75em;
+    background: #333333;
+    cursor: pointer;
+  }
+  .tab-close:hover {
+    background: #8a1717;
+  }
+ 
+  .input:checked + .tab-label::after {
+    -webkit-transform: rotate(90deg) !important;
+            transform: rotate(90deg) !important;
+  }
+  .input:checked ~ .tab-content {
+    max-height: 100vh;
+    padding: 1em;
+  }
+  

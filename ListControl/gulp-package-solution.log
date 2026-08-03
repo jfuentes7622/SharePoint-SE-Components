@@ -1,0 +1,86 @@
+Build target: SHIP
+[[90m21:47:30[39m] Using gulpfile C:\Source\SPSE\ListControl\gulpfile.js
+[[90m21:47:30[39m] Starting gulp
+[[90m21:47:30[39m] Starting 'package-solution'...
+[[90m21:47:30[39m] Starting subtask '[36mconfigure-sp-build-rig[39m'...
+[[90m21:47:30[39m] Finished subtask '[36mconfigure-sp-build-rig[39m' after [35m55 ms[39m
+[[90m21:47:30[39m] Starting subtask '[36mpackage-solution[39m'...
+[[90m21:47:30[39m] [[36mpackage-solution[39m] Found manifest: C:\Source\SPSE\ListControl\temp\deploy\3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001.json
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_2ebd4d55efee1dd93d1f40672c6fb44a.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_39e8e51466997ddeb9b5390b6fc7c74b.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_41864a6e1314128ba4e1cdfcfbb82c48.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_4622fa6916a370d16833634ce14955fd.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_504f6e79ea5e7eb01bde466e05232402.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_586e88825a09e6cc9724fa627288b806.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_5db653e0250b1a294c027029f1aac20a.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_87faccad8e53d783ff4eb1f74f2076b8.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_a242c957b6f0be780d4a09d0e3dfae86.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_c5f6e83d141a520adeb188bf51178760.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: list-control-web-part_dfa819ad0be06e6af4ee68b42e3eb05a.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: listcontrol-listcontrolwebpartstrings_en-us_53a0bca07a28548a6949d6f740ad945a.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: listcontrol-listcontrolwebpartstrings_en-us_94179a8a6382b901046876fb49f4ac56.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: listcontrol-listcontrolwebpartstrings_en-us_cdbc45817d6022e16a8e7732047bd114.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: listcontrol-listcontrolwebpartstrings_en-us_fe60ee08737b0917ba7ee1d7a23248bd.js[39m
+[[90m21:47:30[39m] [[36mpackage-solution[39m] [36mFound client-side build resource: listcontrol-propertycontrolstrings_en-us_3496584cdd1e0cb09550ba44102e18a6.js[39m
+[[90m21:47:30[39m] [33mVerifying configuration...[39m
+[[90m21:47:30[39m] [32mDone![39m
+[[90m21:47:30[39m] 
+[[90m21:47:30[39m] [33mNormalizing solution information...[39m
+[[90m21:47:30[39m] Attempting creating component definitions for {1} manifests
+[[90m21:47:30[39m] Created component definitions for {1} manifests
+[[90m21:47:30[39m] feature.componentIds not set! Adding all [1] components to feature { List Control Feature }.
+[[90m21:47:30[39m] [32mDone![39m
+[[90m21:47:30[39m] 
+[[90m21:47:30[39m] [33mReading custom Feature XML...[39m
+[[90m21:47:30[39m] [32mDone![39m
+[[90m21:47:30[39m] 
+[[90m21:47:30[39m] [33mValidating App Package...[39m
+[[90m21:47:30[39m] [32mDone![39m
+[[90m21:47:30[39m] 
+[[90m21:47:30[39m] [33mReading resources...[39m
+[[90m21:47:30[39m] [32mDone![39m
+[[90m21:47:30[39m] 
+[[90m21:47:30[39m] [33mReading Sharepoint Assets & Creating XML...[39m
+[[90m21:47:32[39m] [32mDone![39m
+[[90m21:47:32[39m] 
+[[90m21:47:32[39m] [33mWriting solution XML to sharepoint\solution\debug...[39m
+[[90m21:47:32[39m] Cleaned sharepoint\solution\debug
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\AppManifest.xml
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ca9ab008-a03d-4cc9-8f57-a15f0f3d4001\WebPart_3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001.xml
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\_rels\ClientSideAssets.xml.rels
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_2ebd4d55efee1dd93d1f40672c6fb44a.js
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\[Content_Types].xml
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\feature_ca9ab008-a03d-4cc9-8f57-a15f0f3d4001.xml
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\feature_ca9ab008-a03d-4cc9-8f57-a15f0f3d4001.xml.config.xml
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets.xml
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets.xml.config.xml
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_39e8e51466997ddeb9b5390b6fc7c74b.js
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_41864a6e1314128ba4e1cdfcfbb82c48.js
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_4622fa6916a370d16833634ce14955fd.js
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_504f6e79ea5e7eb01bde466e05232402.js
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_586e88825a09e6cc9724fa627288b806.js
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_87faccad8e53d783ff4eb1f74f2076b8.js
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_5db653e0250b1a294c027029f1aac20a.js
+[[90m21:47:32[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_a242c957b6f0be780d4a09d0e3dfae86.js
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_c5f6e83d141a520adeb188bf51178760.js
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\ClientSideAssets\list-control-web-part_dfa819ad0be06e6af4ee68b42e3eb05a.js
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\ClientSideAssets\listcontrol-listcontrolwebpartstrings_en-us_53a0bca07a28548a6949d6f740ad945a.js
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\ClientSideAssets\listcontrol-listcontrolwebpartstrings_en-us_94179a8a6382b901046876fb49f4ac56.js
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\ClientSideAssets\listcontrol-listcontrolwebpartstrings_en-us_cdbc45817d6022e16a8e7732047bd114.js
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\ClientSideAssets\listcontrol-propertycontrolstrings_en-us_3496584cdd1e0cb09550ba44102e18a6.js
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\ClientSideAssets\listcontrol-listcontrolwebpartstrings_en-us_fe60ee08737b0917ba7ee1d7a23248bd.js
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\_rels\.rels
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\_rels\AppManifest.xml.rels
+[[90m21:47:33[39m] Created file: sharepoint\solution\debug\_rels\feature_ca9ab008-a03d-4cc9-8f57-a15f0f3d4001.xml.rels
+[[90m21:47:34[39m] Created file: sharepoint\solution\list-control.sppkg
+[[90m21:47:34[39m] [32mDone![39m
+[[90m21:47:34[39m] 
+[[90m21:47:34[39m] [1m[32mALL DONE![39m[22m
+[[90m21:47:34[39m] 
+[[90m21:47:34[39m] Finished subtask '[36mpackage-solution[39m' after [35m3.44 s[39m
+[[90m21:47:34[39m] Finished 'package-solution' after 3.5 s
+[[90m21:47:34[39m] [35m==================[ Finished ]==================[39m
+[[90m21:47:35[39m] Project list-control-se version:[33m0.0.1[39m
+[[90m21:47:35[39m] Build tools version:[33m3.7.4[39m
+[[90m21:47:35[39m] Node version:[33mv10.24.1[39m
+[[90m21:47:35[39m] Total duration:[33m1.72 min[39m

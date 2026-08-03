@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Elements xmlns="http://schemas.microsoft.com/sharepoint/">
+    <CustomAction
+        Title="Branding"
+        Location="ClientSideExtension.ApplicationCustomizer"
+        ClientSideComponentId="6fad0110-ac0c-46b4-a16b-337c1c6df3c4"
+        ClientSideComponentProperties="">
+    </CustomAction>
+</Elements>

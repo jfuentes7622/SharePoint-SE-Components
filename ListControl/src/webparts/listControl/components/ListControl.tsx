@@ -652,11 +652,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         if (names.length > 0) {
           return names;
         }
-      } catch (_error) {
-        // Keep trying fallback URL formats.
+      } catch (viewFieldsError) {
+        this.logDiagnostic('loadSelectedViewFieldNames: Attempt failed for url=' + urls[j] + ': ' + (viewFieldsError && viewFieldsError.message ? viewFieldsError.message : String(viewFieldsError)));
       }
     }
 
+    this.logDiagnostic('loadSelectedViewFieldNames: No view field names resolved for viewId=' + String(selectedViewId));
     return [];
   }
 
@@ -732,7 +733,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       }
 
       return map;
-    } catch (_error) {
+    } catch (error) {
+      this.logDiagnostic('loadListFieldTypeMap failed: ' + (error && error.message ? error.message : String(error)));
       return {};
     }
   }
@@ -762,7 +764,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       }
 
       return map;
-    } catch (_error) {
+    } catch (error) {
+      this.logDiagnostic('loadListFieldTitleMap failed: ' + (error && error.message ? error.message : String(error)));
       return {};
     }
   }
@@ -1064,6 +1067,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return;
     }
 
+    this.logDiagnostic('Deleting item. itemId=' + String(this.state.selectedItemId));
     this.setState({ deleting: true, error: null });
 
     try {

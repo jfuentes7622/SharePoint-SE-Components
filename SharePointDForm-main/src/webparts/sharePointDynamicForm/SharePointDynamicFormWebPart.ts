@@ -1038,8 +1038,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       }));
 
       this.context.propertyPane.refresh();
-    } catch (_error) {
+    } catch (error) {
       // List loading failure is non-critical; dropdown will be empty
+      console.warn('[SharePointDynamicFormWebPart] loadLists: Failed to load site lists: ', error);
     }
   }
 
@@ -1123,12 +1124,13 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       }
 
       this.context.propertyPane.refresh();
-    } catch (_error) {
+    } catch (error) {
       this._listFields = [{ key: '', text: strings.PropDynamicTargetFieldNone }];
       this._lookupPermissionFields = [{ key: '', text: strings.PropPermissionBaseLookupFieldNone }];
       this._fieldTypeByInternalName = {};
       this._fieldLookupListByInternalName = {};
       this.context.propertyPane.refresh();
+      console.warn('[SharePointDynamicFormWebPart] loadListFields: Failed to load fields for list "' + listName + '": ', error);
     }
   }
 
@@ -1148,7 +1150,8 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         var title = item.Title ? String(item.Title) : '(no title)';
         return { key: String(item.Id), text: title + ' (ID: ' + item.Id + ')' };
       });
-    } catch (_error) {
+    } catch (error) {
+      console.warn('[SharePointDynamicFormWebPart] loadLookupListItems: Failed to load items for list "' + listId + '": ', error);
       return [];
     }
   }

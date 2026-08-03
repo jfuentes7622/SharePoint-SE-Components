@@ -419,11 +419,12 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       });
 
       this.context.propertyPane.refresh();
-    } catch (_error) {
+    } catch (error) {
       this._listFields = [];
       this._fieldTypeByInternalName = {};
       this._fieldLookupListByInternalName = {};
       this.context.propertyPane.refresh();
+      this.logDiagnostic('Failed to load fields for list "' + listName + '": ' + (error && error.message ? error.message : String(error)));
     }
   }
 
@@ -442,7 +443,8 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
         var title = item.Title ? String(item.Title) : '(no title)';
         return { key: title, text: title + ' (ID: ' + item.Id + ')' };
       });
-    } catch (_error) {
+    } catch (error) {
+      this.logDiagnostic('Failed to load lookup list items for listId=' + listId + ': ' + (error && error.message ? error.message : String(error)));
       return [];
     }
   }

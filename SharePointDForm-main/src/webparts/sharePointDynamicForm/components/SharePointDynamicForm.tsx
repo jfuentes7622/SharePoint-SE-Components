@@ -949,6 +949,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       prevProps.linkedFieldValue !== this.props.linkedFieldValue;
 
     if (selectionPropsChanged) {
+      console.log('[SharePointDynamicForm] Selection-related props changed, refreshing selection values');
       this.refreshSelectionValues();
     }
   }
@@ -998,6 +999,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     try {
       var item = await this.loadItem(schema.listName || this.props.listName, resolvedItemId);
       if (!item) {
+        console.log('[SharePointDynamicForm] refreshSelectionValues: item not found for resolvedItemId=' + resolvedItemId + ', falling back to full loadData');
         this.loadData();
         return;
       }
@@ -1012,7 +1014,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         loading: false,
         error: null,
       });
-    } catch (_selectionUpdateError) {
+      console.log('[SharePointDynamicForm] refreshSelectionValues SUCCESS - resolvedItemId=' + resolvedItemId);
+    } catch (selectionUpdateError) {
+      console.error('[SharePointDynamicForm] refreshSelectionValues ERROR, falling back to full loadData: ', selectionUpdateError);
       this.loadData();
     }
   }
@@ -2678,6 +2682,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   }
 
   private async createItem(listName: string, payload: any): Promise<number> {
+    console.log('[SharePointDynamicForm] createItem START - List: ' + listName + ', Payload: ', payload);
     var response = await this.postWithAcceptFallback(
       this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/items",
       payload
@@ -2686,10 +2691,13 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       await this.logSubmitFailure(response, 'Create item', listName, payload);
       throw new Error(strings.FormSubmitFailedDefault);
     }
-    return this.getCreatedItemId(await response.json());
+    var createdItemId = this.getCreatedItemId(await response.json());
+    console.log('[SharePointDynamicForm] createItem SUCCESS - New item ID: ' + createdItemId);
+    return createdItemId;
   }
 
   private async updateItem(listName: string, itemId: number, payload: any): Promise<void> {
+    console.log('[SharePointDynamicForm] updateItem START - List: ' + listName + ', ItemId: ' + itemId + ', Payload: ', payload);
     var response = await this.postWithAcceptFallback(
       this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/items(" + itemId + ')',
       payload,
@@ -2702,6 +2710,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       await this.logSubmitFailure(response, 'Update item', listName, payload);
       throw new Error(strings.FormSubmitFailedDefault);
     }
+    console.log('[SharePointDynamicForm] updateItem SUCCESS - ItemId: ' + itemId);
   }
 
   private async handleSubmit(): Promise<void> {
@@ -2710,6 +2719,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       return;
     }
     var effectiveMode = this.getEffectiveMode();
+    console.log('[SharePointDynamicForm] handleSubmit START - Mode: ' + effectiveMode + ', List: ' + (schema.listName || this.props.listName));
 
     var canSubmitByPermission = effectiveMode === 'edit' ? this.state.canEditRecords : this.state.canAddRecords;
     if (!canSubmitByPermission) {
@@ -2770,6 +2780,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       }
 
       this.notifyListControlRefresh(listName, wasCreate ? 'add' : 'edit');
+      console.log('[SharePointDynamicForm] handleSubmit SUCCESS - ' + (wasCreate ? 'Created' : 'Updated') + ' item ID: ' + itemId);
 
       this.setState({
         values: nextValues,
@@ -2790,6 +2801,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         }, 1000);
       }
     } catch (error) {
+      console.error('[SharePointDynamicForm] handleSubmit ERROR: ', error);
       this.setState({
         isSubmitting: false,
         submitError: error && error.message ? error.message : strings.FormSubmitFailedDefault,
@@ -2821,12 +2833,13 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       }
 
       window.dispatchEvent(event);
-    } catch (_eventError) {
-      // Ignore refresh notification failures.
+    } catch (eventError) {
+      console.warn('[SharePointDynamicForm] notifyListControlRefresh: Failed to dispatch refresh event for list "' + listName + '": ', eventError);
     }
   }
 
   private handleCancel(): void {
+    console.log('[SharePointDynamicForm] handleCancel invoked. Mode: ' + this.props.mode + ', isViewEditing: ' + this.state.isViewEditing);
     var cancelRedirectTarget = this.getPreferredRedirectUrl(this.props.cancelRedirectUrl);
     if (cancelRedirectTarget && typeof window !== 'undefined') {
       if (!this.tryRedirect(cancelRedirectTarget)) {
@@ -2851,6 +2864,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       return;
     }
 
+    console.log('[SharePointDynamicForm] handleDesignerSave: Saving schema for list "' + (this.state.schema.listName || this.props.listName) + '"');
     this.props.onSaveSchema(this.state.schema);
     this.props.onToggleDesignerMode();
   }

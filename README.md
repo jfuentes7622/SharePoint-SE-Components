@@ -2,13 +2,15 @@
 
 A collection of SharePoint Framework (SPFx) components, built for SharePoint SE (SPFx v1.5.1). This repository contains reusable web parts (and one application customizer extension) that can be deployed to SharePoint Online/Server and, where noted, Microsoft Teams.
 
+All web-part property panes display the deployed solution version. Components with an **Enable diagnostics logging** setting write optional lifecycle and data-loading details to the browser console; genuine failures remain visible even when diagnostic logging is disabled.
+
 ## Components
 
 | Component | Type | Summary |
 |---|---|---|
 | [Accordion](#accordion) | Web Part | Collapsible accordion sections sourced from a SharePoint list |
 | [BannerClock](#bannerclock) | Application Customizer | World-clock banner injected above/below the page chrome |
-| [Calendar](#calendar) | Web Part | Placeholder/template calendar web part |
+| [Calendar](#calendar) | Web Part | FullCalendar-based SharePoint Events calendar with month, week, day, and list views |
 | [Carousel](#carousel) | Web Part | Auto-playing image carousel from a picture library |
 | [Contact](#contact) | Web Part | Filterable staff/contact directory cards |
 | [LinkButton](#linkbutton) | Web Part | Styled hyperlink button |
@@ -37,6 +39,32 @@ Displays collapsible accordion sections populated dynamically from a SharePoint 
 | Property | Label | Description |
 |---|---|---|
 | `optionChoice` | Accordion Style | Interaction mode: "Single" (radio buttons, one section open at a time) or "Multiple" (checkboxes, several open at once) |
+
+**Header Styling**
+| Property | Label | Description |
+|---|---|---|
+| `headerBackgroundColor` | Header Background Color | Background color applied to each accordion section's header/label |
+| `headerTextColor` | Header Text Color | Text color applied to each accordion section's header/label |
+| `headerFontBold` | Header Bold Text | Toggles bold font weight on the header text |
+
+**Content Styling**
+| Property | Label | Description |
+|---|---|---|
+| `contentBackgroundColor` | Content Background Color | Background color applied to each accordion section's content panel |
+| `contentTextColor` | Content Text Color | Text color applied to each accordion section's content panel |
+| `contentFontBold` | Content Bold Text | Toggles bold font weight on the content text |
+
+**Font Settings**
+| Property | Label | Description |
+|---|---|---|
+| `fontFamily` | Font Family | Font family applied to both header and content text (Segoe UI, Arial, Trebuchet MS, Georgia, Times New Roman, Courier New) |
+| `fontStyle` | Font Style | Font style applied to both header and content text (Normal, Italic, Oblique) |
+
+**Advanced**
+| Property | Label | Description |
+|---|---|---|
+| `overrideCssUrl` | Override CSS URL | Optional external stylesheet URL loaded after the web part's own CSS to override component styles |
+| `enableDiagnostics` | Enable diagnostics logging | Enables browser-console details for configuration and list loading |
 
 ---
 
@@ -77,36 +105,42 @@ An SPFx **Application Customizer** (extension), not a web part — display name 
 
 ## Calendar
 
-Currently an early-stage/template web part. It does not yet implement full calendar/events rendering — the component displays placeholder content and exposes a single configuration property. Intended purpose is to render calendar or event information based on future configuration.
+Displays SharePoint Events list data in a full interactive calendar powered by the free, MIT-licensed FullCalendar library. It supports month, week, day, and agenda-style list views; all-day events; locations; weekend visibility; configurable height; and navigation to an event's SharePoint display form.
 
 ### Properties
 
 | Property | Label | Description |
 |---|---|---|
-| `description` | Description Field | Text field for custom description/content shown in the web part |
+| `listName` | Events list | Visible SharePoint Events list (`BaseTemplate` 106) to display |
+| `defaultView` | Default view | `dayGridMonth`, `timeGridWeek`, `timeGridDay`, or `listWeek` |
+| `showWeekends` | Show weekends | Shows or hides Saturday and Sunday |
+| `calendarHeight` | Calendar height | Height in pixels; `0` uses automatic height |
+| `enableDiagnostics` | Enable diagnostics logging | Enables browser-console details for calendar and event loading |
 
 ---
 
 ## Carousel
 
-Displays a full-width, auto-playing image slider sourced from a SharePoint picture library. Images are sorted by slide order and support titles, links, and date-based expiration/visibility. Features auto-play with pause-on-hover, configurable slide/transition timing, adjustable dimensions, and responsive image scaling.
+Displays a full-width, auto-playing image slider sourced from a SharePoint document or picture library. Images are sorted by an optional slide order (falling back to library item order), and support optional titles, click-through links, and date-based expiration/visibility columns — none of which are required, so the web part works against a plain library with only image files. Features auto-play with pause-on-hover, configurable slide/transition timing, adjustable dimensions, circular or square image display, and responsive image scaling.
 
 ### Properties
 
 | Property | Label | Description |
 |---|---|---|
-| `carouselSlideLibrary` | Select Carousel Library | Picture library that contains the carousel slides (required) |
+| `carouselSlideLibrary` | Select Carousel Library | Document library that contains the carousel slide images (required) |
 | `carouselWidth` | Carousel Width | Width of the carousel container in pixels (default: 500) |
 | `carouselHeight` | Carousel Height | Height of the carousel container in pixels; `0` enables dynamic height based on image aspect ratio (default: 0) |
 | `carouselBackgroundColor` | Carousel Background Color | Background fill color of the carousel (supports alpha transparency) |
 | `carouselSlideInterval` | Slide Interval | How long each slide displays before auto-advancing, in milliseconds (default: 5000) |
 | `carouselTransitionInterval` | Transition Interval | Duration of the fade/slide transition animation between slides, in milliseconds (default: 1500) |
+| `imageIsCircle` | Display images in a circle | Renders slide images as circles instead of rectangles |
+| `enableDiagnostics` | Enable diagnostics logging | Enables browser-console details for image loading and carousel behavior |
 
 ---
 
 ## Contact
 
-Displays a filterable, customizable directory of personnel/contacts organized by organizational hierarchy (directorate, division, branch, group). Supports two data sources: a SharePoint list, or inline custom contact entries authored directly in the property pane. Renders contact cards with optional circular photos, job title, name, email, phone, VOIP info, and biography links, with configurable header colors and styling.
+Displays a filterable, customizable directory of personnel/contacts organized by organizational hierarchy (directorate, division, branch, group). Supports two data sources: a SharePoint list, or inline custom contact entries authored directly in the property pane. Renders contact cards with configurable photo shape (square, rounded, or circle), job title, name, email, phone, VOIP info, and biography links, with configurable header/title colors, fonts, and styling.
 
 ### Properties
 
@@ -135,15 +169,26 @@ Displays a filterable, customizable directory of personnel/contacts organized by
 |---|---|---|
 | `PersonnelPanelHeaderBackColor` | Panel Header Background Color | Contact card header background color (default: `#8A1717`) |
 | `PersonnelPanelHeaderTextColor` | Panel Header Text Color | Contact card header text color (default: `#FAFAFA`) |
+| `headerFontFamily` | Header Font Family | Font family used for the contact card header text |
+| `headerFontStyle` | Header Font Style | Font style for the header text: `normal`, `italic`, or `oblique` |
+| `headerFontBold` | Bold Header Text | Renders the header text in bold |
+| `headerAlignment` | Header Text Alignment | Header text alignment: `left`, `center`, or `right` |
+| `headerTopCorners` | Header Top Corners | Header panel top corners: `rounded` or `squared` |
+| `tileTitleColor` | Tile Title Color | Job title text color on each contact tile |
+| `titleFontFamily` | Title Font Family | Font family used for the tile job title text |
+| `titleFontStyle` | Title Font Style | Font style for the tile job title text |
+| `titleFontBold` | Bold Title Text | Renders the tile job title text in bold |
+| `tileInfoBackgroundColor` | Tile Info Background Color | Background color behind the name/email/phone info area of each contact tile |
 | `imageWidth` | Image Diameter (ex:150, no px or %) | Size of contact photos, in pixels |
-| `imageIsCircle` | Image in a circle? | Renders contact photos as circles instead of rectangles |
+| `imageShape` | Image Shape | Shape of contact photos: `square`, `rounded`, or `circle` |
 | `overridecss` | Override CSS URL | URL to a custom stylesheet that overrides web part styling |
+| `enableDiagnostics` | Enable diagnostics logging | Enables browser-console details for contact, record, and image loading |
 
 ---
 
 ## LinkButton
 
-Renders a styled hyperlink displayed as a button (**SPS Link Button**). Configurable text, target URL, and horizontal alignment. Includes client-side validation to block HTML injection and limits button text to 50 characters.
+Renders a styled hyperlink displayed as a button (**SPS Link Button**). In addition to text, target URL, and alignment, it supports configurable shape, colors, typography, dimensions, an optional image icon, and an external override stylesheet. Client-side validation blocks HTML injection and limits button text to 50 characters.
 
 ### Properties
 
@@ -152,6 +197,14 @@ Renders a styled hyperlink displayed as a button (**SPS Link Button**). Configur
 | `description` | Button Title | Text displayed on the button (max 50 characters; validated against HTML injection) |
 | `Link` | Link | Target URL the button navigates to when clicked (requires a valid URL) |
 | `Align` | Align Button | Horizontal alignment of the button: `left`, `center`, or `right` |
+| `buttonShape` | Button shape | Square or rounded corners (default: `rounded`) |
+| `buttonBackgroundColor` / `buttonFontColor` | Button colors | Background and text colors |
+| `fontFamily` / `fontStyle` / `fontBold` / `fontSize` | Typography | Font family, style, weight, and CSS size |
+| `buttonHeight` / `buttonWidth` | Dimensions | CSS height and width (defaults: `5vh` and `200px`) |
+| `showIcon` | Show icon | Displays an optional image icon |
+| `iconImageUrl` / `iconSize` / `iconPosition` | Icon settings | Image URL, CSS size, and left/right placement |
+| `overrideCssUrl` | Override CSS URL | Optional external stylesheet URL |
+| `enableDiagnostics` | Enable diagnostics logging | Enables browser-console validation and rendering details |
 
 > Note: Teams tab icon assets exist in the `teams/` folder, but there is no functional Teams tab implementation.
 
@@ -169,7 +222,10 @@ Displays SharePoint list data as a sortable, filterable table (**SPS List Contro
 | `instanceName` | Web part name | Identifies this List Control for Dynamic Form web part connections (leave blank for default) |
 | `listName` | SharePoint list | List to display |
 | `viewId` | Default view | View of the list to show initially |
+| `viewColumns` | View columns | Ordered collection of internal field name, display name, and optional CSS width; use Move up/Move down to set display order |
 | `pageSize` | Items per page | Number of items per page (`0` or blank shows all items) |
+
+Selecting a list or view rebuilds `viewColumns` from the SharePoint view's field order. Blank widths use automatic sizing, and an empty collection falls back to the selected view's fields.
 
 **View & Navigation**
 | Property | Label | Description |
@@ -304,17 +360,25 @@ Displays a scrolling announcement ticker (**SPS Marquee**) rendered as an animat
 | Property | Label | Description |
 |---|---|---|
 | `description` | Scrolling Text | Announcement text to scroll (max 250 characters, no HTML tags) |
+| `listName` | List | Optional SharePoint list containing dynamic announcements |
+| `messageField` | Message column | Column containing message text; list values are rendered as plain text |
+| `messageDuration` | Seconds to show each message | Time before advancing to the next list message (default: 8) |
 
 **Style/Appearance**
 | Property | Label | Description |
 |---|---|---|
 | `marqueeBackColor` | Announcements Background Color | Background color of the marquee bar (supports alpha transparency) |
 | `marqueeTextColor` | Announcements Text Color | Text color of the scrolling announcement (supports alpha transparency) |
+| `fontFamily` / `fontSize` / `fontStyle` / `fontBold` | Typography | Announcement font settings |
+| `marqueeHeight` | Marquee height | CSS height/minimum height (default: `32px`) |
+| `scrollSpeed` | Scroll speed | Seconds per complete pass; lower is faster (default: 50) |
+| `scrollDirection` | Scroll direction | Left or right |
 
 **Behavior/Status**
 | Property | Label | Description |
 |---|---|---|
 | `marqueeActive` | Active | Enable/disable display of the marquee announcement |
+| `enableDiagnostics` | Enable diagnostics logging | Enables browser-console details for message loading and rendering |
 
 ---
 
@@ -372,6 +436,16 @@ Displays a scrolling announcement ticker (**SPS Marquee**) rendered as an animat
 | `permissionScope` | Permission scope | List (check list permissions) or Item (check specific item permissions) |
 | `permissionScopeItemId` | Permission scope item ID | Specific item ID used for item-level permission checks |
 | `permissionScopeLookupPick` | Selected permission item | Helper for selecting the permission reference item |
+| `permissionDeniedMessage` | Permission denied message | Form-designer message used consistently for form-list, lookup-list, lookup-item, and blocked-submit denials |
+
+**Recent Field Controls**
+
+- Fields are enabled by default and can be visibly disabled per field without changing configured/default values.
+- Field labels support Top and Left; Boolean labels additionally support Bottom and Right.
+- Boolean fields show no automatic Yes/No text. Optional **Checkbox text** can be configured beside the checkbox.
+- DateTime fields support Date Only, Date and Time, and Time Only formats.
+- Date and Time / Time Only fields support UTC (default) or Local browser time interpretation. Existing forms needing browser-local behavior should explicitly select Local.
+- Permission-denied UI defaults to “You do not have permission to access or modify this record.” Detailed permission-source diagnostics remain console-only.
 
 **Buttons & Submit Behavior**
 | Property | Label | Description |
@@ -495,22 +569,28 @@ Creates a tabbed interface control (**SPS Tabs**) for modern SharePoint pages an
 | Property | Label | Description |
 |---|---|---|
 | `overrideCSS` | Override CSS (URL of CSS) | URL to an external CSS file for custom tab styling |
-| `useGlobalCSS` | Use Global CSS for Tabs | Applies a global SharePoint CSS override from `/iskm/css/tabsoverride.css` |
+| `useGlobalCSS` | Use Global CSS for Tabs | Applies a global SharePoint CSS override from `/tabs/css/tabsoverride.css` |
+| `enableDiagnostics` | Enable diagnostics logging | Enables browser-console details for tab-zone discovery and configuration |
 
 ---
 
 ## Tiles
 
-Displays a responsive grid of clickable tile cards (**SPS Tiles**) that function as navigation links. Each tile has a title, description, URL, and link-target behavior (current window or new tab). Shows placeholder messaging when no tiles are configured. Supports Teams tab deployment.
+Displays a responsive grid of clickable navigation tile cards (**SPS Tiles**). Tiles support normal and hover images, image-only modes, per-tile colors, configurable shapes and dimensions, typography, and instant/fade/directional-slide hover transitions. Shows placeholder messaging when no tiles are configured and supports Teams tab deployment.
 
 ### Properties
 
 | Property | Label | Description |
 |---|---|---|
-| `collectionData` | Tile data | Collection of tile items, each with: `title` (required), `url` (required), `description` (optional), and `target` (required — empty string opens in the parent window, `_blank` opens a new tab) |
+| `collectionData` | Tile data | Ordered tile collection with title, URL, description, target, color, normal image settings, and hover image settings |
 | `title` | — | Web part instance title displayed at the top of the component |
-
-> Note: `tileHeight` (tile card height) and `tileEffect` (interaction animation) exist in code but are currently disabled/commented out of the active property pane.
+| `tileShape` | Shape | `squared`, `rounded`, or `round` |
+| `backgroundColor` / `textColor` / `hoverColor` | Colors | Global tile, text, and hover colors; each tile may override its normal background |
+| `hoverSameAsBackground` | Same hover color | Reuses the normal background color while hovering |
+| `hoverTransition` | Mouse-over transition | `solid`, `fade`, or slide from top/bottom/left/right |
+| `fontFamily` / `fontStyle` / `fontBold` / `fontSize` | Typography | Global tile text settings |
+| `tileWidth` / `tileHeight` | Tile dimensions | Width and height in pixels (defaults: 140 × 140) |
+| `enableDiagnostics` | Enable diagnostics logging | Enables browser-console tile rendering details |
 
 ---
 

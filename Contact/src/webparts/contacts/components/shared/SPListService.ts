@@ -8,22 +8,8 @@ import { SPHttpClient, SPHttpClientResponse } from '@microsoft/sp-http';
 import { SPContexts } from './SPContexts';
 import { personnelRecord, fieldInfo} from './SPListRecordTypes';
 import { ConfigData } from '../IContactsProps';
-//import PnPTelemetry from "@pnp/telemetry-js";
-// import {
-//   Logger,
-//   ConsoleListener,
-//   LogLevel
-// } from "@pnp/logging";
-import  { Logger, LogLevel } from 'sp-pnp-js';
 
-const LOG_SOURCE: string = 'KM Contacts - ';
-//const telemetry = PnPTelemetry.getInstance();
-
-declare global {
-  interface Window { 
-       iskmActiveLog: boolean;
-  }
-}
+const LOG_SOURCE: string = '[SPListService] ';
 
 export default class SPListService implements ISPListService {
   private _spContexts: SPContexts;
@@ -33,25 +19,22 @@ export default class SPListService implements ISPListService {
     this._configData = configData;
     this._spContexts = spContexts;
 
-    //Logger.subscribe(ConsoleListener());
-    if (!window.iskmActiveLog || window.iskmActiveLog===undefined) {
-        Logger.activeLogLevel = LogLevel.Error;
-      }
-      else {Logger.activeLogLevel=LogLevel.Info;
-    }
-    
-   // telemetry.optOut();
+    this.logDiagnostic('In SPListService.ts constructor');
+  }
 
-    Logger.write(LOG_SOURCE + 'In SPListService.ts constructor', LogLevel.Info);
+  private logDiagnostic(message: string): void {
+    if (this._configData && this._configData.enableDiagnostics === false) {
+      return;
+    }
+    console.log(LOG_SOURCE + message);
   }
 
  public async GetPersonnelData(dir:string, div:string): Promise<Array<personnelRecord>> {  
-  //Logger.write('absUrl:' + this._spContexts.absUrl,LogLevel.Info);
   const url=`${this._spContexts.absUrl}/_api/web/Lists/GetById('${this._configData.personnelListName}')/items?$top=999`;
   const personalRec:Array<personnelRecord> = new Array<personnelRecord>();
-  Logger.write('GetPersonnelData URL:' + url,LogLevel.Info);
-  Logger.write('GetPersonnelData Dir:'+ dir,LogLevel.Info);
-  Logger.write('GetPersonnelData Div:' + div,LogLevel.Info);
+  this.logDiagnostic('GetPersonnelData URL:' + url);
+  this.logDiagnostic('GetPersonnelData Dir:'+ dir);
+  this.logDiagnostic('GetPersonnelData Div:' + div);
     if (this._configData.directorateField){
       return new Promise<Array<personnelRecord>>((resolve) => {
         this._spContexts.spHttpClient.get(url, SPHttpClient.configurations.v1)    
@@ -79,12 +62,13 @@ export default class SPListService implements ISPListService {
                     displayPhoto: rec[config.displayPhotoField],
                     imageLink: rec[config.imageLinkField],
                     sVoip : rec[config.sVoipField],
-                  imageIsCircle: config.imageIsCircle});
+                  imageShape: config.imageShape});
               });
                 resolve(personalRec);
               });
           })
           .catch(e => {
+            console.error(LOG_SOURCE + 'GetPersonnelData failed: ' + e);
             resolve([]);
           });
       });
@@ -93,9 +77,8 @@ export default class SPListService implements ISPListService {
   }
 
   public async GetFieldInfo(listName: string, fieldName: string): Promise<fieldInfo> {    
-    Logger.write('absUrl:'+ this._spContexts.absUrl,LogLevel.Info);
     const url=`${this._spContexts.absUrl}/_api/web/Lists/GetById('${listName}')/fields/GetByTitle('${fieldName}')`;
-    Logger.write('GetFieldInfo Url:'+ url,LogLevel.Info);
+    this.logDiagnostic('GetFieldInfo Url:'+ url);
     return new Promise<fieldInfo | void>((resolve) => {
       this._spContexts.spHttpClient.get(url, SPHttpClient.configurations.v1)
         .then(response => {
@@ -108,6 +91,7 @@ export default class SPListService implements ISPListService {
             });
         })
         .catch(e => {
+          console.error(LOG_SOURCE + 'GetFieldInfo failed: ' + e);
           resolve();
         });
     }) as any;

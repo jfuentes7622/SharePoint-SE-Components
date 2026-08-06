@@ -15,7 +15,17 @@
     "properties": {
       "description": "Go to..",
       "Link": "https://",
-      "Align": "3"
+      "Align": "3",
+      "buttonShape": "rounded",
+      "fontSize": "1.25rem",
+      "buttonBackgroundColor": "#8A1717",
+      "buttonFontColor": "#ffffff",
+      "buttonHeight": "5vh",
+      "buttonWidth": "200px",
+      "showIcon": false,
+      "iconPosition": "left",
+      "iconSize": "24px",
+      "enableDiagnostics": true
     }
   }]
 }

@@ -21,11 +21,11 @@ export default class PersonnelWidgetPerson extends React.Component<IPersonnelWid
                             <ImageDisplay
                                 imageDisplayLink={this.props.personObject.imageLink}
                                 imageDisplayWidth={this.props.personObject.imageWidth as number}
-                                imageIsCircle={this.props.personObject.imageIsCircle}
+                                imageShape={this.props.personObject.imageShape}
                                 imageIsDynamicHeight={true}
                             />
                         )}
-                        <div className={'ms-Grid ' + styles.ml2 + ' ' + styles.p3}>
+                        <div className={'ms-Grid ' + styles.ml2 + ' ' + styles.p3 + ' ' + styles.personnelInfoArea}>
                             <div className='ms-Grid-row'>
                                 <div className={'ms-Grid-col ms-sm12 ' + styles.personnelTitle}>
                                     {this.props.personObject.Title}

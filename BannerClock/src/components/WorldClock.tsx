@@ -28,14 +28,25 @@ export default class WorldClock extends React.Component<IWorldClockProps, IWorld
       spClockList: { value: [] }
     };
   }
+
+  private logDiagnostic(message: string): void {
+    if (this.props.enableDiagnostics === false) {
+      return;
+    }
+
+    console.log('[WorldClock] ' + message);
+  }
   
 
   componentDidMount(): void {
+    this.logDiagnostic('componentDidMount. spList=' + String(this.props.spList || '(none)'));
     if (this.props.spList) {
       this.getDataFromSharepoint(this.props.spList).then((res) => {
         if (res.value.length > 0) {
+          this.logDiagnostic('Loaded ' + String(res.value.length) + ' clock entries from list "' + this.props.spList + '".');
           this._updateState(res);
         } else {
+          console.warn('[WorldClock] List "' + this.props.spList + '" returned no usable clock entries.');
           this._invalidList = true;
           this.setState({ spClockList: { value: [] } });
         }
@@ -49,6 +60,7 @@ export default class WorldClock extends React.Component<IWorldClockProps, IWorld
   componentDidUpdate(prev: IWorldClockProps): void {
     if (this.props.absoluteUrl !== prev.absoluteUrl) {
       this._absoluteUrl = this.props.absoluteUrl;
+      this.logDiagnostic('absoluteUrl changed to ' + this._absoluteUrl + '; reloading clock list.');
       if (this.props.spList !== null) {
         this.getDataFromSharepoint(this.props.spList).then((res) => {
           if (res.value.length > 0) {
@@ -64,6 +76,7 @@ export default class WorldClock extends React.Component<IWorldClockProps, IWorld
       }
     }
     if (this.props.spList !== prev.spList) {
+      this.logDiagnostic('spList prop changed from "' + prev.spList + '" to "' + this.props.spList + '"; reloading clock list.');
       this.getDataFromSharepoint(this.props.spList).then((res) => {
         if (res.value.length > 0) {
           this._updateState(res);
@@ -101,6 +114,7 @@ export default class WorldClock extends React.Component<IWorldClockProps, IWorld
 
   private  getDataFromSharepoint(listName: string): Promise<ISPClockList> {
   //const _spfxFetch: SpfxFetch = new SpfxFetch(this.context.spHttpClient);
+  this.logDiagnostic('Fetching clock list "' + listName + '" from ' + this._absoluteUrl);
   const fetchResponse: any =  this._spHttpClinet.get(
     `${this._absoluteUrl}/_api/web/lists/GetbyTitle('${listName}')/items?$orderby=SortOrder asc`,
     SPHttpClient.configurations.v1

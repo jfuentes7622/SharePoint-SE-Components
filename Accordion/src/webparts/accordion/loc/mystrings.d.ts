@@ -5,6 +5,7 @@ declare interface IAccordionWebPartStrings {
   ItemNameFieldLabel: string;
   ItemContentFieldLabel: string;
   OptionChoiceFieldLabel: string;
+  PropEnableDiagnosticsLabel: string;
 }
 
 declare module 'AccordionWebPartStrings' {

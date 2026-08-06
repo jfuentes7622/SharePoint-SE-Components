@@ -14,6 +14,11 @@ declare interface IListControlWebPartStrings {
   PropViewLabel: string;
   PropViewPlaceholder: string;
   PropNoViews: string;
+  PropViewColumnsLabel: string;
+  PropViewColumnsHeader: string;
+  PropViewColumnField: string;
+  PropViewColumnDisplayName: string;
+  PropViewColumnWidth: string;
   PropPageSizeLabel: string;
   PropPageSizeDescription: string;
   PropShowViewSelectorLabel: string;

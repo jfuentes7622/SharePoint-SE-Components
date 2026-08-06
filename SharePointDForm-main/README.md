@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <a href="README.zh-CN.md">简体中文</a> | English
+  English
 </p>
 
 ---
@@ -62,11 +62,39 @@ SharePoint Dynamic Form is a SharePoint Framework (SPFx) web part that provides 
 |----------|-------------|
 | Text | Text, Multiline, Rich Text |
 | Number | Number, Integer |
-| Date | DateTime, Date Only |
+| Date | DateTime, Date Only, Time Only |
 | Selection | Dropdown, MultiSelect, Lookup, Boolean |
 | People | Person (single/multiple) |
 | Metadata | Taxonomy, Term Store |
 | Media | Image, URL, Attachment |
+
+### Field State And Label Controls
+
+- Every field is enabled by default. Clear **Field enabled** in the designer to keep the field visible while preventing user input.
+- Disabled fields preserve their configured/default values and are also non-editable in the designer preview.
+- Labels can be placed above or to the left of any field.
+- Boolean fields additionally support labels below the checkbox or after it on the right.
+- Boolean fields no longer add automatic Yes/No text. Use **Checkbox text** to provide optional text beside the checkbox.
+
+### Date And Time Options
+
+DateTime fields support three per-field display formats:
+
+| Format | Input | Purpose |
+|---|---|---|
+| `dateOnly` | Date picker | Captures a date without a time control. |
+| `dateTime` | Date and time picker | Captures both date and time. This is the default format. |
+| `timeOnly` | Time picker | Captures a time and stores it using an internal date anchor. |
+
+DateTime and Time Only fields can interpret values as **UTC (Zulu)** or **Local browser time**. UTC is the default when `timeZone` is not set. Existing forms that require the previous browser-local interpretation should select Local browser time for those fields.
+
+### Permission Messages
+
+The designer's **Form messages** settings include a single customizable permission-denied message. It is used consistently when access is denied based on the form list, a lookup list, or a lookup item, and when a submission is blocked by the same permission check.
+
+The default is: **You do not have permission to access or modify this record.**
+
+Detailed permission-source diagnostics remain in the browser console and are not exposed in the user-facing message. The warning also follows the effective form mode: New checks Add permission, while Edit and View check Edit permission.
 
 ### Conditional Logic
 
@@ -256,7 +284,7 @@ src/
     ├── utils/
     │   └── configIO.ts                       # Config read/write utilities
     ├── assets/                                # Web part icons
-    └── loc/                                   # Localization (en-us, zh-cn)
+    └── loc/                                   # Localization (en-us)
 ```
 
 ---
@@ -268,7 +296,7 @@ src/
 <details>
 <summary><strong>What SharePoint versions are supported?</strong></summary>
 
-This project is built on SPFx 1.22 and targets SharePoint Online. It may work with SharePoint 2019/SE with modifications.
+This project is built on SPFx 1.5.1 for SharePoint Server Subscription Edition's on-premises SPFx profile.
 </details>
 
 <details>
@@ -341,14 +369,12 @@ The form engine includes a `ValidationEngine` that supports:
 
 | Category | Technology |
 |----------|------------|
-| Framework | SPFx 1.22, React 17 |
-| UI Library | Fluent UI React 8.x |
-| SharePoint | PnP.js 4.x |
-| Controls | @pnp/spfx-controls-react |
-| Rich Editor | React Quill |
-| Date Utils | date-fns |
-| Build | Heft, Webpack 5 |
-| Language | TypeScript 5.8 |
+| Framework | SPFx 1.5.1, React 15.6.2 |
+| UI Library | Office UI Fabric React 5.135.6 |
+| SharePoint | SPHttpClient and sp-pnp-js 3.0.10 |
+| Controls | @pnp/spfx-controls-react 1.1.0 |
+| Build | Gulp 3 and the SPFx 1.5.1 build rig |
+| Language | TypeScript 2.4.2 |
 
 ---
 

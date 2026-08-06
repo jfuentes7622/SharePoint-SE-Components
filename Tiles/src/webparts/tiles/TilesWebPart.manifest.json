@@ -13,7 +13,20 @@
     "description": { "default": "Links in Tile Format" },
     "officeFabricIconFontName": "FiveTileGrid",
     "properties": {
-      "title": "Title"
+      "title": "Title",
+      "tileShape": "rounded",
+      "backgroundColor": "#8A1717",
+      "textColor": "#FAFAFA",
+      "hoverColor": "#6a1010",
+      "hoverSameAsBackground": true,
+      "hoverTransition": "fade",
+      "fontFamily": "inherit",
+      "fontStyle": "normal",
+      "fontBold": false,
+      "fontSize": 14,
+      "tileWidth": 140,
+      "tileHeight": 140,
+      "enableDiagnostics": false
     }
   }]
 }

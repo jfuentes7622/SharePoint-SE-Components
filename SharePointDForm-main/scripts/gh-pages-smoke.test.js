@@ -25,11 +25,6 @@ assert.ok(
   "index.html must link assets/styles.css"
 );
 
-const bilingualMarkers = ["lang-zh", "lang-en", "lang-pair"];
-for (const cls of bilingualMarkers) {
-  assert.ok(html.includes(cls), `Missing bilingual class: ${cls}`);
-}
-
 assert.ok(
   !html.includes("REPO_PLACEHOLDER"),
   "Replace REPO_PLACEHOLDER with the real GitHub URL"

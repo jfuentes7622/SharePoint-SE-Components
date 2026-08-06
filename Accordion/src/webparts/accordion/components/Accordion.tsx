@@ -38,7 +38,7 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
 
   public componentDidUpdate(prevProps: IAccordionProps, prevState: IReactGetItemsState): void {
     //if properties have changes bind it
-    console.info(LOG_SOURCE + "Component Did Update");
+    this.logDiagnostic("componentDidUpdate() called");
     if (this.props.itemContent !== prevProps.itemContent || this.props.listName !== prevProps.listName || this.props.itemName !== prevProps.itemName || this.props.optionChoice !== prevProps.optionChoice) {
         //use this code if using the additional states itemN and itemC and getColumnRealName function.
      /*  this.getColumnRealName(this.props.listName, this.props.itemName).then(val => {
@@ -56,10 +56,14 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
       this.buildAccordion(this.props.listName, this.props.itemName, this.props.itemContent);
       this.render();
     }
+    if (this.props.overrideCssUrl !== prevProps.overrideCssUrl) {
+      this._applyOverrideStylesheet();
+    }
   }
 
   public componentDidMount() {
-   console.info(LOG_SOURCE+ 'Component Did Mount!');
+   this.logDiagnostic('componentDidMount() called');
+   this._applyOverrideStylesheet();
 
    /*  this.getColumnRealName(this.props.listName, this.props.itemName).then(val => {
       console.log('valN from getColumnRealname:' + val);
@@ -80,6 +84,7 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
 
 
   public fetchLists(url: string): Promise<any> {
+    this.logDiagnostic('fetchLists() requesting url: ' + url);
     return this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1)
       .then((response: SPHttpClientResponse) => {
         if (response.ok) {
@@ -97,9 +102,9 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
     //let displayName=displName.replace(/ /g, "_x0020_");
     //this function not used - but retained for reference purposes
     let url = this.props.spfxContext.pageContext.web.absoluteUrl + "/_api/web/lists/GetById('" + listTitle + "')/fields?$select InternalName&$filter=(Title eq '" + displName + "') and (Hidden eq false)";
-    console.info(LOG_SOURCE+"getColumnName URL: " + url);
+    this.logDiagnostic("getColumnRealName() url: " + url);
     return await this.fetchLists(url).then(val => {
-      console.info(LOG_SOURCE+"value0:" + val.value[0].InternalName);
+      this.logDiagnostic("getColumnRealName() resolved InternalName: " + val.value[0].InternalName);
       return Promise.resolve(val.value[0].InternalName);
     });
   }
@@ -110,15 +115,12 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
       let column1 = colum1.replace(/ /g, "_x0020_");
       let column2 = colum2.replace(/ /g, "_x0020_");
       let url = this.props.spfxContext.pageContext.web.absoluteUrl + "/_api/web/lists/GetById('" + listTitle + "')/Items?$select=" + column1 + "," + column2 + ",ID";
-      console.info(LOG_SOURCE+"Accordian URL-Selected Items: " + url);
+      this.logDiagnostic("buildAccordion() url: " + url);
       this.fetchLists(url).then((response) => {
         let itemsArray: Array<ASPList> = new Array<ASPList>();
         response.value.map((accContents: any) => {
-          console.info(LOG_SOURCE+"Found accContents.column1:" + accContents[column1]);
           let wtag = this.props.spfxContext.webPartTag;
-          console.info(LOG_SOURCE+"WebPartTag:" + wtag);
           let uniqId = wtag + "_" + accContents.ID;
-          console.info(LOG_SOURCE+"UniqueId:" + uniqId);
           let accHead=accContents[column1];
           if (accHead==null) {
             accHead='';
@@ -130,9 +132,11 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
           else {
             accCont= accContents[column2].replace(/<\/?p[^>]*?>/gi, '');
           }
+          this.logDiagnostic("buildAccordion() built item uniqueId=" + uniqId + ", header=" + accHead);
           itemsArray.push({ aHeader: accHead, aContent: accCont, aId: uniqId });
         });
         
+        this.logDiagnostic("buildAccordion() completed. Count=" + itemsArray.length);
         this.setState({ items: itemsArray } as IReactGetItemsState);
 
       // this.setState({ items: itemsArray });
@@ -144,11 +148,51 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
     this.props.spfxContext.propertyPane.open();
   }
 
+  private logDiagnostic(message: string): void {
+    if (this.props.enableDiagnostics === false) {
+      return;
+    }
+
+    console.log('[Accordion] ' + message);
+  }
+
+  private _applyOverrideStylesheet(): void {
+    if (this.props.overrideCssUrl) {
+      this.logDiagnostic('Applying override stylesheet: ' + this.props.overrideCssUrl);
+      const existingLink: HTMLElement = document.getElementById('accordion-component-override-css');
+      if (existingLink) {
+        existingLink.remove();
+      }
+      const link: HTMLLinkElement = document.createElement('link');
+      link.id = 'accordion-component-override-css';
+      link.rel = 'stylesheet';
+      link.href = this.props.overrideCssUrl;
+      document.head.appendChild(link);
+    }
+  }
+
+  private _getHeaderStyle(): React.CSSProperties {
+    return {
+      backgroundColor: this.props.headerBackgroundColor,
+      color: this.props.headerTextColor,
+      fontWeight: this.props.headerFontBold ? 'bold' : 'normal',
+      fontFamily: this.props.fontFamily,
+      fontStyle: this.props.fontStyle as React.CSSProperties['fontStyle']
+    };
+  }
+
+  private _getContentStyle(): React.CSSProperties {
+    return {
+      backgroundColor: this.props.contentBackgroundColor,
+      color: this.props.contentTextColor,
+      fontWeight: this.props.contentFontBold ? 'bold' : 'normal',
+      fontFamily: this.props.fontFamily,
+      fontStyle: this.props.fontStyle as React.CSSProperties['fontStyle']
+    };
+  }
+
   public render(): React.ReactElement<IAccordionProps> {
-    console.info(LOG_SOURCE+ "optionsChoice:" + this.props.optionChoice);
-    console.info(LOG_SOURCE+ "listName:" + this.props.listName);
-    console.info(LOG_SOURCE+ "itemContent:" + this.props.itemContent);
-    console.info(LOG_SOURCE+ "itemName:" + this.props.itemName);
+    this.logDiagnostic("render() optionChoice=" + this.props.optionChoice + ", listName=" + this.props.listName + ", itemContent=" + this.props.itemContent + ", itemName=" + this.props.itemName);
    // this.buildAccordion(this.props.listName, this.props.itemName, this.props.itemContent);
  /*    if (this.props.itemContent=='' || this.props.optionChoice=='' || this.props.listName==''|| this.props.itemName=='') {
       return (
@@ -162,6 +206,8 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
     }
  */
     if (this.props.optionChoice == 'single' &&  this.props.listName!=='' && this.props.itemName!=='' && this.props.itemContent!=='') {
+      const headerStyle: React.CSSProperties = this._getHeaderStyle();
+      const contentStyle: React.CSSProperties = this._getContentStyle();
       return (
         <div className={styles.accordion} >
           {this.state.items.map((item, key) => {
@@ -169,8 +215,8 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
               <div className="row">
                 <div className="col">
                   <div className="tabs">
-                    <div className="tab"><input className="input" type="radio" id={item.aId} name="rd"></input><label className="tab-label" htmlFor={item.aId}>{item.aHeader}</label>
-                      <div className="tab-content"><div dangerouslySetInnerHTML={{ __html: item.aContent }} /></div>
+                    <div className="tab"><input className="input" type="radio" id={item.aId} name="rd"></input><label className="tab-label" style={headerStyle} htmlFor={item.aId}>{item.aHeader}</label>
+                      <div className="tab-content" style={contentStyle}><div dangerouslySetInnerHTML={{ __html: item.aContent }} /></div>
                     </div>
                   </div>
                 </div>
@@ -191,6 +237,8 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
         </div>);
     }
     else if (this.props.optionChoice == 'multiple' &&  this.props.listName!=='' && this.props.itemName!=='' && this.props.itemContent!=='') {
+      const headerStyle: React.CSSProperties = this._getHeaderStyle();
+      const contentStyle: React.CSSProperties = this._getContentStyle();
       return (
         <div className={styles.accordion} >
           {this.state.items.map( (item, key) => {
@@ -199,8 +247,8 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
                 <div className="col">
                   <div className="tabs">
                     <div className="tab">
-                      <input className="input" type="checkbox" id={item.aId}></input><label className="tab-label" htmlFor={item.aId}>{item.aHeader}</label>
-                      <div className="tab-content"><div dangerouslySetInnerHTML={{ __html: item.aContent }} /></div>
+                      <input className="input" type="checkbox" id={item.aId}></input><label className="tab-label" style={headerStyle} htmlFor={item.aId}>{item.aHeader}</label>
+                      <div className="tab-content" style={contentStyle}><div dangerouslySetInnerHTML={{ __html: item.aContent }} /></div>
                     </div>
                   </div>
                 </div>

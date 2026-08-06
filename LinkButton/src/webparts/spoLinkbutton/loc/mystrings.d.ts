@@ -10,6 +10,7 @@ declare interface ISpoLinkbuttonWebPartStrings {
   AppTeamsTabEnvironment: string;
   AppOfficeEnvironment: string;
   AppOutlookEnvironment: string;
+  PropEnableDiagnosticsLabel: string;
 }
 
 declare module 'SpoLinkbuttonWebPartStrings' {

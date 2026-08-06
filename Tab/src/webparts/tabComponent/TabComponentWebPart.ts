@@ -14,7 +14,8 @@ import {
   IPropertyPaneConfiguration,
   PropertyPaneTextField,
   PropertyPaneCheckbox,
-  PropertyPaneDropdown
+  PropertyPaneDropdown,
+  PropertyPaneLabel
 } from '@microsoft/sp-webpart-base';
 
 import { BaseClientSideWebPart,  WebPartContext } from '@microsoft/sp-webpart-base';
@@ -25,17 +26,10 @@ import { ITabComponentProps, ITabVisualSettings } from './components/ITabCompone
 import ErrorComponent, { IErrorComponentProps } from './components/ErrorComponent';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
 import { PropertyFieldCustomList, CustomListFieldType } from 'sp-client-custom-fields/lib/PropertyFieldCustomList';
-import { Logger, LogLevel } from 'sp-pnp-js';
-
-const LOG_SOURCE: string = 'KM Tabs - ';
-
-declare global {
-  interface Window { 
-       iskmActiveLog: boolean;
-  }
-}
 
 require('../tabComponent/assets/TabStyles-round.css');
+
+const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface IConfigListData {
   collectionData: any[];
@@ -58,6 +52,7 @@ export interface ITabComponentWebPartProps {
   autoTabWidth: boolean;
   collectionData: ITabCollectionItem[];
   tabs: any[];
+  enableDiagnostics?: boolean;
 }
 
 export interface ITabCollectionItem {
@@ -83,20 +78,44 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
     window.addEventListener('load', this.windowLoaded.bind(this), false);
 
-    if (!window.iskmActiveLog || window.iskmActiveLog === undefined) {
-        Logger.activeLogLevel = LogLevel.Error;
-      }
-      else {Logger.activeLogLevel=LogLevel.Info;
+    this.logDiagnostic('Constructor invoked. TabType=' + String(this.properties && this.properties.TabType || '(default)'));
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.properties && this.properties.enableDiagnostics === false) {
+      return;
     }
 
-    Logger.write(LOG_SOURCE + 'In TabComponentWebPart.tsx constructor', LogLevel.Info);
+    console.log('[TabComponentWebPart] ' + message);
+  }
+
+  private getWebPartVersion(): string {
+    const solutionVersion = packageSolutionConfig && packageSolutionConfig.solution
+      ? String(packageSolutionConfig.solution.version || '')
+      : '';
+    if (solutionVersion) {
+      return solutionVersion;
+    }
+
+    const manifestVersion = this.context && this.context.manifest ? String(this.context.manifest.version || '') : '';
+    if (manifestVersion && manifestVersion !== '*') {
+      return manifestVersion;
+    }
+
+    return 'Unknown';
   }
 
   private windowLoaded(): void {
+    this.logDiagnostic('Window load event fired; removing part-Loading attribute from tracked zones.');
     // Remove the attribute from the webparts so the normal CSS rules apply
     Array.from(this.ContentArea.querySelectorAll('[part-Loading]')).forEach(d => {
       d.removeAttribute('part-Loading');
     });
+  }
+
+  protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
+    this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
   }
 
   // Searches through the ancestors of childElem and returns true if targetElem is found
@@ -134,8 +153,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     }
 
     //found another tab control, but might not begood
-   // Logger.write(LOG_SOURCE + " Get element: " + targetElem.querySelector("div[id^='ISKMTabControl']"),LogLevel.Info);
-    if (targetElem.querySelector("div[id^='ISKMTabControl']") !== null) {
+    if (targetElem.querySelector("div[id^='TabControl']") !== null) {
       this.foundAnotherTab = true;
       return true;
     }
@@ -146,19 +164,9 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   }
 
   public render(): void {
-/*
-    Logger.subscribe(ConsoleListener());
-    if (!window.iskmActiveLog || window.iskmActiveLog==undefined) {
-        Logger.activeLogLevel = LogLevel.Error;
-      }
-      else {Logger.activeLogLevel=LogLevel.Info;
-    }
-    
-    */
-    //Logger.write(LOG_SOURCE + 'Render:this.properties:'+ this.properties, LogLevel.Info);
-
     // Need to send a message if webpart is used on a classic page
     if (Environment.type === EnvironmentType.ClassicSharePoint) {
+      this.logDiagnostic('Classic SharePoint environment detected; rendering unsupported-environment message instead of tabs.');
       const errElem: React.ReactElement<IErrorComponentProps> = React.createElement(
         ErrorComponent, { ErrorStr: strings.ErrorClassicSharePoint } as IErrorComponentProps
       );
@@ -167,12 +175,13 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
 
     let overrideCSS: string="";
     if (this.properties.useGlobalCSS === true) {
-      overrideCSS = this.context.pageContext.site.absoluteUrl.replace(this.context.pageContext.site.serverRelativeUrl,"") + "/iskm/css/tabsoverride.css";
+      overrideCSS = this.context.pageContext.site.absoluteUrl.replace(this.context.pageContext.site.serverRelativeUrl,"") + "/tabs/css/tabsoverride.css";
     } else if (this.properties.overrideCSS) {
       overrideCSS = this.properties.overrideCSS;
     }
 
     if (overrideCSS !== "") {
+      this.logDiagnostic('Injecting override stylesheet: ' + overrideCSS);
       // inject the EUCOM master style sheet
       const head: HTMLElement = document.getElementsByTagName('head')[0] || document.documentElement;
       const customStyle: HTMLLinkElement = document.createElement('link');
@@ -210,6 +219,8 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
         .filter(d => { return !this.findInAncestors(d, this.domElement); });
     }
 
+    this.logDiagnostic('Discovered ' + String(ctrlZones.length) + ' tab zone(s) for TabType=' + tabtype + ' (processed=' + String(this.tabsProcessedCount) + ', foundAnotherTab=' + String(this.foundAnotherTab) + ').');
+
     // Add an attribute to each webpart so that the "loading" CSS rules apply, but only do it the first time the
     //   page loads and not if we're in edit mode
     if (this.displayMode !== DisplayMode.Edit && document.readyState !== 'complete') {
@@ -225,6 +236,9 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     }
 
     const configuredTabs = this.getConfiguredTabs();
+    if (configuredTabs.length !== ctrlZones.length) {
+      console.warn('[TabComponentWebPart] Configured tab entries (' + String(configuredTabs.length) + ') do not match discovered zone count (' + String(ctrlZones.length) + '). Extra zones will use default "Tab N" labels; extra configured entries are ignored.');
+    }
 
     // Titles for the tabs from the webpart configuration or a default
     const tabHeadings: Array<string> = ctrlZones.map((d, i, e) => {
@@ -253,6 +267,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
         ControlZones: ctrlZones,
         PageInEditMode: this.displayMode === DisplayMode.Edit,
         TabConfigs: tabConfigs,
+        EnableDiagnostics: this.properties.enableDiagnostics !== false,
         GlobalFontSettings: {
           fontFamily: this.properties.fontFamily || 'Segoe UI',
           fontStyle: this.properties.fontStyle || 'normal',
@@ -269,6 +284,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   }
 
   protected onDispose(): void {
+    this.logDiagnostic('onDispose invoked; unmounting React tree.');
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
@@ -282,14 +298,23 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   }
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
     return {
       pages: [
         {
           header: {
-            description: strings.PropertyPaneDescription + ` v${this.context.manifest.version}`,
+            description: ''
           },
           displayGroupsAsAccordion: false,
           groups: [
+            {
+              groupName: fullVersionLabel,
+              groupFields: [
+                PropertyPaneLabel('propertyPaneVersionInfo', {
+                  text: ' '
+                })
+              ]
+            },
             {
               groupName: strings.BasicGroupName,
               groupFields: [
@@ -403,6 +428,15 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
                   text: strings.useGlobalCSS,
                   disabled: false
                 }),
+              ]
+            },
+            {
+              groupName: strings.DiagnosticsGroupName,
+              groupFields: [
+                PropertyPaneCheckbox('enableDiagnostics', {
+                  text: strings.PropEnableDiagnosticsLabel,
+                  checked: this.properties.enableDiagnostics !== false
+                })
               ]
             }
           ]

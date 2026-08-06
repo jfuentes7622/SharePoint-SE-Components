@@ -9,11 +9,18 @@ export interface IListControlViewOption {
   isDefault?: boolean;
 }
 
+export interface IListControlColumnConfiguration {
+  fieldName: string;
+  displayName: string;
+  width?: string;
+}
+
 export interface IListControlProps {
   context: any;
   listName: string;
   defaultViewId: string;
   views: IListControlViewOption[];
+  viewColumns: IListControlColumnConfiguration[];
   pageSize: number;
   isEditMode: boolean;
   showViewSelector: boolean;
@@ -75,6 +82,7 @@ export interface IListFieldDefinition {
   RealFieldName?: string;
   DisplayName?: string;
   Hidden?: string | boolean;
+  ConfiguredWidth?: string;
 }
 
 export interface IListControlState {
@@ -659,6 +667,42 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
     this.logDiagnostic('loadSelectedViewFieldNames: No view field names resolved for viewId=' + String(selectedViewId));
     return [];
+  }
+
+  private getDisplayFields(): IListFieldDefinition[] {
+    if (this.state.selectedViewId !== this.props.defaultViewId || !this.props.viewColumns || this.props.viewColumns.length === 0) {
+      return this.state.fields;
+    }
+
+    var byName: { [fieldName: string]: IListFieldDefinition } = {};
+    for (var i = 0; i < this.state.fields.length; i += 1) {
+      var field = this.state.fields[i];
+      var fieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
+      var responseName = String(field.Name || '').toLowerCase();
+      if (fieldName) { byName[fieldName] = field; }
+      if (responseName) { byName[responseName] = field; }
+    }
+
+    var configured: IListFieldDefinition[] = [];
+    for (var j = 0; j < this.props.viewColumns.length; j += 1) {
+      var column = this.props.viewColumns[j];
+      var match = byName[String(column.fieldName || '').toLowerCase()];
+      if (match) {
+        configured.push(Object.assign({}, match, {
+          DisplayName: column.displayName || match.DisplayName || match.Name,
+          ConfiguredWidth: column.width || ''
+        }));
+      }
+    }
+    return configured;
+  }
+
+  private getConfiguredColumnStyle(field: IListFieldDefinition): React.CSSProperties {
+    var width = parseInt(String(field.ConfiguredWidth || ''), 10);
+    if (!isNaN(width) && width > 0) {
+      return { width: width + 'px', minWidth: width + 'px', maxWidth: width + 'px' };
+    }
+    return {};
   }
 
   private getFieldsForConsumption(rawFields: IListFieldDefinition[], viewFieldNames: string[]): IListFieldDefinition[] {
@@ -1831,9 +1875,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       : processedRows;
     var conditionalRules = this.parseConditionalStyleRules();
     var hasActiveFilters = Object.keys(this.state.columnFilters || {}).length > 0;
+    var displayFields = this.getDisplayFields();
     var fieldsByKey: { [key: string]: IListFieldDefinition } = {};
-    for (var i = 0; i < this.state.fields.length; i += 1) {
-      var fieldsByKeyField = this.state.fields[i];
+    for (var i = 0; i < displayFields.length; i += 1) {
+      var fieldsByKeyField = displayFields[i];
       var fieldsByKeyValue = this.getFieldKey(fieldsByKeyField);
       if (fieldsByKeyValue) {
         fieldsByKey[fieldsByKeyValue] = fieldsByKeyField;
@@ -1982,7 +2027,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
             <table className="lc-table">
               <thead>
                 <tr>
-                  {this.state.fields.map((field) => {
+                  {displayFields.map((field) => {
                     var fieldKey = this.getFieldKey(field);
                     var sortActive = this.state.sortFieldName === fieldKey;
                     var filterActive = !!this.state.columnFilters[fieldKey];
@@ -1994,7 +2039,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                     }
 
                     return (
-                      <th key={field.Name}>
+                      <th key={field.Name} style={this.getConfiguredColumnStyle(field)}>
                         <div className="lc-header-cell">
                           <button
                             type="button"
@@ -2080,14 +2125,17 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                       onClick={() => this.selectRow(row)}
                       className={joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : ''])}
                     >
-                      {this.state.fields.map((field) => {
+                      {displayFields.map((field) => {
                         var markup = this.getCellMarkup(row, field);
                         var showItemLink = this.props.showLinkToItem && this.isTitleField(field);
                         var itemLinkUrl = showItemLink ? this.getItemLinkUrl(row) : '';
                         var itemLinkText = showItemLink ? this.getCellPlainText(row, field) : '';
                         var cellFieldKey = this.getFieldKey(field);
                         var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
-                        var mergedCellStyle = mergeStyleObjects(conditionalStyle.rowStyle, columnStyle);
+                        var mergedCellStyle = mergeStyleObjects(
+                          mergeStyleObjects(conditionalStyle.rowStyle, columnStyle),
+                          this.getConfiguredColumnStyle(field)
+                        );
                         return (
                           <td key={field.Name} style={mergedCellStyle}>
                             {showItemLink && itemLinkUrl ? (

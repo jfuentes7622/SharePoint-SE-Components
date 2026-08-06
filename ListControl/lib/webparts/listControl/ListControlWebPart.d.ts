@@ -1,5 +1,6 @@
 import { Version } from '@microsoft/sp-core-library';
 import { BaseClientSideWebPart, IPropertyPaneConfiguration } from '@microsoft/sp-webpart-base';
+import { IListControlColumnConfiguration } from './components/ListControl';
 export interface IDynamicDataPropertyDefinitionCompat {
     id: string;
     title: string;
@@ -17,6 +18,7 @@ export interface IListControlWebPartProps {
     instanceName?: string;
     listName: string;
     viewId: string;
+    viewColumns?: IListControlColumnConfiguration[];
     pageSize?: number | string;
     showViewSelector: boolean;
     showRefresh: boolean;
@@ -176,5 +178,6 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private getJsonWithAcceptFallback(url);
     private loadLists();
     private loadViews(listName);
+    private loadViewColumns(listName, viewId);
     private logDiagnostic(message);
 }

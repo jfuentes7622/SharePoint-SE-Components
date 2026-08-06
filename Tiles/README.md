@@ -1,73 +1,47 @@
-# tiles
+# SPS Tiles
 
-## Summary
-
-Short summary on functionality and used technologies.
-
-[picture of the solution in action, if possible]
-
-## Used SharePoint Framework Version
-
-![version](https://img.shields.io/badge/version-1.18.2-green.svg)
-
-## Applies to
-
-- [SharePoint Framework](https://aka.ms/spfx)
-- [Microsoft 365 tenant](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-
-> Get your own free development tenant by subscribing to [Microsoft 365 developer program](http://aka.ms/o365devprogram)
-
-## Prerequisites
-
-> Any special pre-requisites?
-
-## Solution
-
-| Solution    | Author(s)                                               |
-| ----------- | ------------------------------------------------------- |
-| folder name | Author details (name, company, twitter alias with link) |
-
-## Version history
-
-| Version | Date             | Comments        |
-| ------- | ---------------- | --------------- |
-| 1.1     | March 10, 2021   | Update comment  |
-| 1.0     | January 29, 2021 | Initial release |
-
-## Disclaimer
-
-**THIS CODE IS PROVIDED _AS IS_ WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.**
-
----
-
-## Minimal Path to Awesome
-
-- Clone this repository
-- Ensure that you are at the solution folder
-- in the command-line run:
-  - **npm install**
-  - **gulp serve**
-
-> Include any additional steps as needed.
+SPFx 1.5.1 web part that displays a responsive collection of navigation tiles.
 
 ## Features
 
-Description of the extension that expands upon high-level summary above.
+- Configure title, description, URL, and link target for each tile.
+- Set per-tile normal and hover images, image position, image-only mode, and background color override.
+- Customize global shape, colors, typography, width, and height.
+- Choose instant, fade, or directional slide hover transitions.
+- Enable diagnostic console logging.
 
-This extension illustrates the following concepts:
+## Tile Collection
 
-- topic 1
-- topic 2
-- topic 3
+| Field | Description |
+|---|---|
+| `title` | Required tile label. |
+| `description` | Optional supporting text. |
+| `url` | Required destination URL. |
+| `target` | Opens in the current context or a new tab (`_blank`). |
+| `color` | Optional tile background override. |
+| `imageUrl` / `imagePosition` / `imageOnly` | Normal image, its position, and image-only mode. |
+| `hoverImageUrl` / `hoverImagePosition` / `hoverImageOnly` | Image settings used while hovering. |
 
-> Notice that better pictures and documentation will increase the sample usage and the value you are providing for others. Thanks for your submissions advance.
+## Appearance
 
-> Share your web part with others through Microsoft 365 Patterns and Practices program to get visibility and exposure. More details on the community, open-source projects and other activities from http://aka.ms/m365pnp.
+| Property | Description | Default |
+|---|---|---|
+| `tileShape` | `squared`, `rounded`, or `round`. | `rounded` |
+| `backgroundColor` / `textColor` | Default tile background and text colors. | `#8A1717` / `#FAFAFA` |
+| `hoverColor` | Hover background color. | `#6a1010` |
+| `hoverSameAsBackground` | Reuses the normal background while hovering. | Enabled |
+| `hoverTransition` | `solid`, `fade`, `slide-top`, `slide-bottom`, `slide-left`, or `slide-right`. | `fade` |
+| `fontFamily` / `fontStyle` / `fontBold` | Tile typography. | Inherited / normal / disabled |
+| `fontSize` | Text size in pixels. | `14` |
+| `tileWidth` / `tileHeight` | Tile dimensions in pixels. | `140` / `140` |
+| `enableDiagnostics` | Writes tile rendering details to the browser console. | Disabled |
 
-## References
+## Build And Package
 
-- [Getting started with SharePoint Framework](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-- [Building for Microsoft teams](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/build-for-teams-overview)
-- [Use Microsoft Graph in your solution](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/web-parts/get-started/using-microsoft-graph-apis)
-- [Publish SharePoint Framework applications to the Marketplace](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/publish-to-marketplace-overview)
-- [Microsoft 365 Patterns and Practices](https://aka.ms/m365pnp) - Guidance, tooling, samples and open-source controls for your Microsoft 365 development
+```powershell
+npm install
+gulp bundle --ship
+gulp package-solution --ship
+```
+
+The deployable package is generated under `sharepoint/solution/`.

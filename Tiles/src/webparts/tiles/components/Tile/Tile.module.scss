@@ -1,88 +1,274 @@
 @import "~@microsoft/sp-office-ui-fabric-core/dist/sass/SPFabricCore.scss";
 
-$red-color: #8A1717;
-$grey-color: #393939;
-$white-color:#FAFAFA;
-$tile-size: 140px;
+// Fallback values (used when CSS variables are not yet applied)
+$fallback-bg:    #8A1717;
+$fallback-text:  #FAFAFA;
 
 .tile {
   @include ms-Grid-col;
-  //@include ms-sm4;
   display: flex;
-  margin-bottom: 16px;
-  flex-basis: 140px;
-  
- 
-  a {
-    background-color: $red-color;
+  margin: 8px;
+  flex-basis: var(--tile-width, 140px);
+
+  .tileLink {
+    background-color: var(--tile-bg, #{$fallback-bg});
+    border: 2px solid var(--tile-bg, #{$fallback-bg});
+    border-radius: var(--border-radius, 10px);
     box-sizing: border-box;
-    color: $white-color;
+    color: var(--text-color, #{$fallback-text});
+    font-family: var(--font-family, inherit);
+    font-style: var(--font-style, normal);
+    font-size: var(--font-size, 14px);
+    font-weight: var(--font-weight, 400);
     display: block;
     overflow: hidden;
-    height: $tile-size;
-    width: $tile-size!important;
+    height: 100%;
+    width: 100% !important;
     padding: 15px;
     position: relative;
     text-decoration: none;
-    border: 2px solid $red-color;
-    border-radius: 10px;     
+
     &:hover,
     &:visited {
-      color: $white-color;
+      color: var(--text-color, #{$fallback-text});
       text-decoration: none;
     }
   }
 
- /*  .tileIcon {
-    @include ms-fontSize-su;
-    text-align: center;
-  } */
+  .tileLinkWithImage {
+    padding: 0;
+  }
 
   .tileTitle {
-    font-size:20px;
-    font-weight: 500;
-    left: 0;
+    font-size: 1.4em;
+    font-weight: inherit;
     padding: 5px;
-    right: 0;
     text-align: center;
     margin: 0;
-    position: absolute;
-    top: 50%;
-    -ms-transform: translateY(-50%);
-    transform: translateY(-50%);
   }
 
   .tileOver {
-    background-color: $red-color;
+    background-color: var(--hover-bg, #{$fallback-bg});
+    border-radius: var(--border-radius, 10px);
     box-sizing: border-box;
-    color: $white-color;
+    color: var(--text-color, #{$fallback-text});
     text-align: center;
     vertical-align: middle;
     display: flex;
     justify-content: center;
     align-content: center;
     flex-direction: column;
-    font-size: 14px;
-    font-weight:500;
+    font-size: 1em;
+    font-weight: inherit;
     height: 100%;
     left: 0;
     padding: 15px;
     position: absolute;
     right: 0;
+    top: 0;
+    z-index: 3;
+  }
+
+  .tileOverWithImage {
+    padding: 0;
+    display: block;
+    font-size: inherit;
+  }
+
+  .tileOverWithImage .tileInner {
+    width: 100%;
+    height: 100%;
+    display: flex;
+  }
+
+  // ── Transition: Solid (instant overlay) ──
+  .tileOverSolid {
+    opacity: 0;
+  }
+
+  .tileLink:hover .tileOverSolid {
+    opacity: 1;
+  }
+
+  // ── Transition: Fade ──
+  .tileOverFade {
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+  }
+
+  .tileLink:hover .tileOverFade {
+    opacity: 1;
+  }
+
+  // ── Transition: Slide from Top ──
+  .tileOverSlideTop {
+    top: -100%;
+    opacity: 1;
+    transition: top 0.35s ease;
+  }
+
+  .tileLink:hover .tileOverSlideTop {
+    top: 0;
+  }
+
+  // ── Transition: Slide from Bottom ──
+  .tileOverSlideBottom {
     top: 100%;
-    transition: all 0.5s ease;
+    opacity: 1;
+    transition: top 0.35s ease;
   }
 
-  
-  &:hover {  
-    .tileOver {
-        top:0;
-        vertical-align: auto;
-      }
-   }
-
+  .tileLink:hover .tileOverSlideBottom {
+    top: 0;
   }
 
-      
-     
+  // ── Transition: Slide from Left ──
+  .tileOverSlideLeft {
+    left: -100%;
+    right: 100%;
+    opacity: 1;
+    transition: left 0.35s ease;
+  }
+
+  .tileLink:hover .tileOverSlideLeft {
+    left: 0;
+    right: 0;
+  }
+
+  // ── Transition: Slide from Right ──
+  .tileOverSlideRight {
+    left: 100%;
+    right: -100%;
+    opacity: 1;
+    transition: right 0.35s ease;
+  }
+
+  .tileLink:hover .tileOverSlideRight {
+    left: 0;
+    right: 0;
+  }
+}
+
+.tileContent {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.tileInner {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.tileInnerVertical {
+  flex-direction: column;
+}
+
+.tileInnerHorizontal {
+  flex-direction: row;
+}
+
+.tileContentWithImage {
+  flex: 1 1 auto;
+  width: auto;
+  height: auto;
+  padding: 15px;
+  box-sizing: border-box;
+}
+
+.tileOverText {
+  font-size: 1em;
+  font-weight: inherit;
+  text-align: center;
+  width: 100%;
+}
+
+.tileContentTop {
+  position: relative;
+}
+
+.tileContentBottom {
+  position: relative;
+}
+
+.tileContentLeft {
+  position: relative;
+}
+
+.tileContentRight {
+  position: relative;
+}
+
+.tileImage {
+  position: relative;
+  overflow: hidden;
+  z-index: 2;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+// imageOnly: image fills the full tile, no text shown
+.imageOnlyContainer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+.top {
+  flex: 0 0 35%;
+  width: 100%;
+  order: 1;
+}
+
+.bottom {
+  flex: 0 0 35%;
+  width: 100%;
+  order: 2;
+}
+
+.left {
+  flex: 0 0 35%;
+  height: 100%;
+  order: 1;
+}
+
+.right {
+  flex: 0 0 35%;
+  height: 100%;
+  order: 2;
+}
+
+.tileContentBottom,
+.tileContentRight {
+  order: 1;
+}
+
+.tileContentTop,
+.tileContentLeft {
+  order: 2;
+}
 

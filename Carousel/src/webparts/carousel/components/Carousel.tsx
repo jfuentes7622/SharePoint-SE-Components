@@ -16,21 +16,7 @@ import 'slick-carousel/slick/slick-theme.css';
 import { IIskmCarouselControllerState } from './IIskmCarouselControllerState';
 import SlideItemModel from './SlideItem';
 
-// import {
-//   Logger,
-//   ConsoleListener,
-//   LogLevel
-// } from "@pnp/logging";
-
-import { Logger, LogLevel } from 'sp-pnp-js';
-
-declare global {
-  interface Window { 
-       iskmActiveLog: boolean;
-  }
-}
-
-const LOG_SOURCE: string = 'Carousel- ';
+const LOG_SOURCE: string = '[Carousel] ';
 
 
 export default class IskmCarouselController extends React.Component<ICarouselProps, IIskmCarouselControllerState> {
@@ -41,45 +27,64 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
         this.state = { imageData: [],
                         dataLoaded: false };
 
-        this.getListData(this.props.carouselSlideLibrary);
-       window.addEventListener('hashchange', (e) => { this.getListData(this.props.carouselSlideLibrary); });
+        this.getListData(this.props.carouselSlideLibrary)
+          .catch((e) => { console.error(LOG_SOURCE + 'Failed to load carousel data: ' + e); });
+        window.addEventListener('hashchange', () => {
+          this.getListData(this.props.carouselSlideLibrary)
+            .catch((e) => { console.error(LOG_SOURCE + 'Failed to load carousel data: ' + e); });
+        });
     }
 
-    
-   private getListData(slideLib:any): void {
-    
-    Logger.write(LOG_SOURCE + 'SlideLibrary in GetSlides:' + slideLib, LogLevel.Info);
-    Promise.all([
-        this.props.recSvc.GetSlides(slideLib)
-        .then(iData => { this._slides = iData; 
-                        return { list: 'GetSlides', data: iData }; })
-        .catch(e => { 
-          Logger.write(LOG_SOURCE + e, LogLevel.Error);
-        })
-      ])
-      .then(result => { 
-         this.DownloadImages((this._slides).sort((a,b) => a.slideNumber - b.slideNumber).map(d => d.slideImgUrl))
-        .then(data => {
-            this.setState({ imageData: data, 
-                            dataLoaded:true 
+    private logDiagnostic(message: string): void {
+      if (this.props.enableDiagnostics === false) {
+        return;
+      }
+      console.log(LOG_SOURCE + message);
+    }
+
+   private getListData(slideLib: string): Promise<void> {
+
+    this.logDiagnostic('SlideLibrary in GetSlides: ' + slideLib);
+
+    return this.props.recSvc.GetSlides(slideLib)
+      .then(iData => {
+        this._slides = iData;
+        this.logDiagnostic('GetSlides returned ' + iData.length + ' slide(s)');
+
+        const urls = (this._slides).slice().sort((a, b) => a.slideNumber - b.slideNumber).map(d => d.slideImgUrl);
+
+        return this.DownloadImages(urls)
+          .then(data => {
+            this.logDiagnostic('DownloadImages completed, rendering ' + data.length + ' slide(s)');
+            this.setState({ imageData: data,
+                            dataLoaded: true
                     });
-        });        
+          })
+          .catch((e) => {
+            console.error(LOG_SOURCE + 'DownloadImages failed, using direct URLs. ' + e);
+            this.setState({ imageData: urls,
+                            dataLoaded: true
+                    });
+          });
       })
       .catch(e => {
-        Logger.write(LOG_SOURCE+':GetListDataFailed' + e, LogLevel.Error);
+        console.error(LOG_SOURCE + ':GetListDataFailed ' + e);
       });
-    //this.context;
   }  
 
 
   public componentWillReceiveProps(newComponentProps: ICarouselProps): void {
     
-      if (newComponentProps.carouselSlideLibrary!==undefined) {
-     
-      this.getListData(newComponentProps.carouselSlideLibrary);
+      if (newComponentProps.carouselSlideLibrary!==undefined && newComponentProps.carouselSlideLibrary !== this.props.carouselSlideLibrary) {
+
+      this.getListData(newComponentProps.carouselSlideLibrary)
+        .catch((e) => { console.error(LOG_SOURCE + 'Failed to load carousel data: ' + e); });
 
       /* tslint:disable-next-line:no-unused-expression */
-      window.addEventListener('hashchange', (e) => { this.getListData(newComponentProps.carouselSlideLibrary); });
+      window.addEventListener('hashchange', () => {
+        this.getListData(newComponentProps.carouselSlideLibrary)
+          .catch((e) => { console.error(LOG_SOURCE + 'Failed to load carousel data: ' + e); });
+      });
 
     }
   }  
@@ -88,71 +93,7 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
         this.props.spfxContext.propertyPane.open();
       }
 
-    /* public render(): React.ReactElement<ICarouselProps> {
- 
-      if (!window.iskmActiveLog || window.iskmActiveLog==undefined) {
-        Logger.activeLogLevel = LogLevel.Error;
-      }
-      else {Logger.activeLogLevel=LogLevel.Info;}
-
- 
-        if (!this.props.carouselSlideLibrary) {
-            return (
-              <div className={styles.iskmCarousel}>
-              <div className={styles.container}>
-                <div className={styles.column}>
-                  <div className={styles.infoRow}><h4>Carousel Web Part</h4></div>
-                  <div className={styles.infoRow}>Requirements</div>
-                  <div className={styles.infoRow}> - Picture library on site with columns:</div>                 
-                  <div className={styles.infoRow}>1) Title (Single Line of Text)</div>
-                  <div className={styles.infoRow}>2) SlideOrder (Number)</div>
-                  <div className={styles.infoRow}>3) LinkTarget (Multiple Lines of Text)</div>
-                  <div className={styles.infoRow}>4) Expiration (Date/Time) - Required</div>
-                  <div className={styles.infoRow}>5) StartDate (Date/Time) - Required</div>
-                  <div className={styles.infoRow}>6) Display (Dropdown Yes/No) - Required</div>
-                  <div className={styles.infoRow}><button className={styles.button} onClick={this.openPane.bind(this)}>CLICK HERE TO CONFIGURE</button></div>
-                </div>
-              </div>
-              </div>
-            );
-          }
-       
-        if (this.props.carouselSlideLibrary) {
-             return(
-            <div className={styles.carouselDiv}>
-            {
-                this.state.imageData.length > 0 && 
-                <Carousel autoPlay={true} infiniteLoop stopOnHover
-                    showStatus={false} 
-                    showThumbs={false}
-                    onClickItem={this._slideClicked.bind(this)}
-                    width={this.props.carouselWidth.toString() + 'px'} 
-                    dynamicHeight={(this.props.carouselHeight > 0?false:true)}
-                    interval={parseInt(this.props.carouselSlideInterval, 10)} 
-                    transitionTime={parseInt(this.props.carouselTransitionInterval, 10)} >
-                    {
-                        this.state.imageData.map(d => {
-                            const guid = Guid.create().toString();
-                            return ( <div key={guid}><img src={d} id={guid} /></div> )
-                        })
-                    }
-                </Carousel>
-            }
-            </div>
-        ); 
-     }
-     return (
-      <div></div>
-     )
-    } */
-
      public render(): React.ReactElement<ICarouselProps> {
-
-  if (!window.iskmActiveLog || window.iskmActiveLog === undefined) {
-    Logger.activeLogLevel = LogLevel.Error;
-  } else {
-    Logger.activeLogLevel = LogLevel.Info;
-  }
 
   if (!this.props.carouselSlideLibrary) {
     return (
@@ -161,13 +102,13 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
           <div className={styles.column}>
             <div className={styles.infoRow}><h4>Carousel Web Part</h4></div>
             <div className={styles.infoRow}>Requirements</div>
-            <div className={styles.infoRow}> - Picture library on site with columns:</div>
-            <div className={styles.infoRow}>1) Title (Single Line of Text)</div>
-            <div className={styles.infoRow}>2) SlideOrder (Number)</div>
-            <div className={styles.infoRow}>3) LinkTarget (Multiple Lines of Text)</div>
-            <div className={styles.infoRow}>4) Expiration (Date/Time) - Required</div>
-            <div className={styles.infoRow}>5) StartDate (Date/Time) - Required</div>
-            <div className={styles.infoRow}>6) Display (Dropdown Yes/No) - Required</div>
+            <div className={styles.infoRow}> - Document/Picture library on site with image files (.jpg, .jpeg, .png, .gif, .webp, .bmp, .svg)</div>
+            <div className={styles.infoRow}>Optional control columns (used when present, otherwise sensible defaults apply):</div>
+            <div className={styles.infoRow}>1) SlideOrder (Number) - sort order; if omitted, slides display in library order</div>
+            <div className={styles.infoRow}>2) LinkTarget or ClickLink (Single/Multiple Lines of Text) - URL to open when slide is clicked</div>
+            <div className={styles.infoRow}>3) Display (Dropdown Yes/No) - set to Yes to show slide; if omitted, all slides display</div>
+            <div className={styles.infoRow}>4) StartDate (Date/Time) - slide visible from this date; if omitted, no start filtering</div>
+            <div className={styles.infoRow}>5) Expiration (Date/Time) - slide hidden after this date; if omitted, no expiration filtering</div>
             <div className={styles.infoRow}>
               <button className={styles.button} onClick={this.openPane.bind(this)}>
                 CLICK HERE TO CONFIGURE
@@ -181,7 +122,9 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
 
   if (this.props.carouselSlideLibrary) {
     // Preserve your existing names/logic and map them to react-slick settings.
-    const dynamicHeight = (this.props.carouselHeight > 0 ? false : true); // same logic as before
+    const normalizedWidth = Number(this.props.carouselWidth) > 0 ? Number(this.props.carouselWidth) : 500;
+    const normalizedHeight = Number(this.props.carouselHeight);
+    const dynamicHeight = !(isFinite(normalizedHeight) && normalizedHeight > 0); // same logic as before, but tolerant of invalid input
     const intervalMs = parseInt(this.props.carouselSlideInterval, 10);     // use global parseInt for SPFx 1.5.1
     const transitionMs = parseInt(this.props.carouselTransitionInterval, 10);
 
@@ -208,7 +151,7 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
     };
 
     const containerStyle: React.CSSProperties = {
-      width: this.props.carouselWidth.toString() + 'px'
+      width: normalizedWidth.toString() + 'px'
       // If you need a fixed height when carouselHeight > 0, you can also add:
       // height: this.props.carouselHeight > 0 ? this.props.carouselHeight : undefined
     };
@@ -218,16 +161,17 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
         {this.state.imageData.length > 0 &&
           <div style={containerStyle}>
             <Slider {...settings}>
-              {this.state.imageData.map(d => {
+              {this.state.imageData.map((d, idx) => {
                 const guid = Guid.create().toString();
                 return (
                   <div key={guid}>
                     <img
                       src={d}
                       id={guid}
+                      className={this.props.imageIsCircle ? styles.imageCircle : styles.imageSquare}
                       style={{ width: '100%', display: 'block' }}
                       // onClickItem -> add onClick to slide content
-                      onClick={this._slideClicked.bind(this)}
+                      onClick={() => this._slideClicked(idx)}
                       alt=""
                       role="presentation"
                     />
@@ -251,8 +195,8 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
                 const thisCanvas: HTMLCanvasElement = document.createElement('canvas');
                 const thisCanvasContext: CanvasRenderingContext2D =  thisCanvas.getContext('2d') as any as CanvasRenderingContext2D;
                 const thisImage: HTMLImageElement = document.createElement('img');
-                thisImage.onload = (e) => {
-                    Logger.write(LOG_SOURCE + 'GetImages IMAGE ONLOAD:' + imgSrc + ',' + thisImage.width + ',' + thisImage.height, LogLevel.Info);
+                thisImage.onload = () => {
+                    this.logDiagnostic('GetImages IMAGE ONLOAD:' + imgSrc + ',' + thisImage.width + ',' + thisImage.height);
                       thisCanvasContext.beginPath();
                       thisCanvasContext.fillRect(0,0,thisImage.width,thisImage.height);
                       thisCanvasContext.fillStyle=this.props.carouselBackgroundColor;
@@ -266,7 +210,7 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
                     resolve(thisCanvas);
                 };
 
-                thisImage.onerror = (e) => {
+                thisImage.onerror = () => {
                     thisCanvas.width = this.props.carouselWidth;
                     thisCanvas.height = 100;
                     thisCanvas.setAttribute('originalImgSrc', imgSrc);
@@ -284,9 +228,10 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
         }))
         .then((canvases: Array<HTMLCanvasElement>) => {
             // All images have loaded; start processing the data provided
-            const maxWidth = this.props.carouselWidth;
-            const maxHeight = (this.props.carouselHeight > 0)?this.props.carouselHeight: canvases.reduce((t: number, n: HTMLCanvasElement) => {
-                const thisCanvasHeight = (this.props.carouselWidth / n.width) * n.height;
+            const maxWidth = Number(this.props.carouselWidth) > 0 ? Number(this.props.carouselWidth) : 500;
+            const normalizedHeight = Number(this.props.carouselHeight);
+            const maxHeight = (isFinite(normalizedHeight) && normalizedHeight > 0) ? normalizedHeight : canvases.reduce((t: number, n: HTMLCanvasElement) => {
+                const thisCanvasHeight = (maxWidth / n.width) * n.height;
                 return thisCanvasHeight > t ? thisCanvasHeight : t;
             }, 0);            
 
@@ -320,10 +265,10 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
     }
 
     // Callback for click-action on any slide
-    private _slideClicked(index: number, item: React.ReactNode): void {
-         Logger.write(LOG_SOURCE +  `Slides in SlideClick :` + this._slides, LogLevel.Info);
+    private _slideClicked(index: number): void {
+         this.logDiagnostic('Slide clicked, index: ' + index);
         const currentSlide: SlideItemModel = this._slides[index];
-        if(currentSlide.slideNavigationUrl) { window.open(currentSlide.slideNavigationUrl, '_blank'); }
+        if(currentSlide && currentSlide.slideNavigationUrl) { window.open(currentSlide.slideNavigationUrl, '_blank'); }
     }
 }
 

@@ -10,7 +10,7 @@ import { SPPermission } from '@microsoft/sp-page-context';
 import styles from './SharePointDynamicForm.module.scss';
 import { FormDesigner } from './FormDesigner';
 import { RichTextEditor } from './RichTextEditor';
-import { FormField, FormMode, FormSchema, FieldValue, AdvancedValidationRule } from '../../../formEngine/core/types';
+import { FormField, FormMode, FormSchema, FieldValue, FieldConfig, AdvancedValidationRule } from '../../../formEngine/core/types';
 import * as strings from 'SharePointDynamicFormWebPartStrings';
 
 type SPFxContext = any;
@@ -747,7 +747,7 @@ function parseAdvancedValidationRulesJson(raw: string | undefined): AdvancedVali
   }
 }
 
-function normalizeDateTimeLocalValue(value: any): string {
+function normalizeDateTimeLocalValue(value: any, timeZone?: string): string {
   if (value === undefined || value === null) {
     return '';
   }
@@ -755,6 +755,7 @@ function normalizeDateTimeLocalValue(value: any): string {
   if (!text) {
     return '';
   }
+  var zone = timeZone === 'local' ? 'local' : 'UTC';
 
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text)) {
     return text;
@@ -766,10 +767,13 @@ function normalizeDateTimeLocalValue(value: any): string {
   }
 
   var pad = function(num: number): string { return num < 10 ? '0' + String(num) : String(num); };
-  return parsed.getFullYear() + '-' + pad(parsed.getMonth() + 1) + '-' + pad(parsed.getDate()) + 'T' + pad(parsed.getHours()) + ':' + pad(parsed.getMinutes());
+  if (zone === 'local') {
+    return parsed.getFullYear() + '-' + pad(parsed.getMonth() + 1) + '-' + pad(parsed.getDate()) + 'T' + pad(parsed.getHours()) + ':' + pad(parsed.getMinutes());
+  }
+  return parsed.getUTCFullYear() + '-' + pad(parsed.getUTCMonth() + 1) + '-' + pad(parsed.getUTCDate()) + 'T' + pad(parsed.getUTCHours()) + ':' + pad(parsed.getUTCMinutes());
 }
 
-function normalizeDateOnlyValue(value: any): string {
+function normalizeDateOnlyValue(value: any, timeZone?: string): string {
   if (value === undefined || value === null) {
     return '';
   }
@@ -777,16 +781,80 @@ function normalizeDateOnlyValue(value: any): string {
   if (!text) {
     return '';
   }
-  var isoDate = /^(\d{4}-\d{2}-\d{2})/.exec(text);
-  if (isoDate) {
-    return isoDate[1];
+  var zone = timeZone === 'local' ? 'local' : 'UTC';
+
+  if (zone === 'UTC') {
+    var isoDate = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+    if (isoDate) {
+      return isoDate[1];
+    }
   }
+
   var parsed = new Date(text);
   if (isNaN(parsed.getTime())) {
     return text;
   }
   var pad = function(num: number): string { return num < 10 ? '0' + String(num) : String(num); };
-  return parsed.getFullYear() + '-' + pad(parsed.getMonth() + 1) + '-' + pad(parsed.getDate());
+  if (zone === 'local') {
+    return parsed.getFullYear() + '-' + pad(parsed.getMonth() + 1) + '-' + pad(parsed.getDate());
+  }
+  return parsed.getUTCFullYear() + '-' + pad(parsed.getUTCMonth() + 1) + '-' + pad(parsed.getUTCDate());
+}
+
+function normalizeTimeOnlyValue(value: any, timeZone?: string): string {
+  if (value === undefined || value === null) {
+    return '';
+  }
+  var text = String(value).trim();
+  if (!text) {
+    return '';
+  }
+  var zone = timeZone === 'local' ? 'local' : 'UTC';
+
+  if (/^\d{2}:\d{2}$/.test(text)) {
+    return text;
+  }
+
+  var parsed = new Date(text);
+  if (isNaN(parsed.getTime())) {
+    return text;
+  }
+  var pad = function(num: number): string { return num < 10 ? '0' + String(num) : String(num); };
+  return zone === 'local'
+    ? pad(parsed.getHours()) + ':' + pad(parsed.getMinutes())
+    : pad(parsed.getUTCHours()) + ':' + pad(parsed.getUTCMinutes());
+}
+
+/** Builds the ISO datetime string sent back to SharePoint for a datetime field, honoring its configured format/zone. */
+function buildDateTimePayloadValue(value: FieldValue, config?: FieldConfig): string | null {
+  if (!value) {
+    return null;
+  }
+  var text = String(value);
+  var zone = config && config.timeZone === 'local' ? 'local' : 'UTC';
+  var format = config && config.displayFormat;
+
+  if (format === 'timeOnly') {
+    var timeMatch = /^(\d{2}):(\d{2})/.exec(text);
+    if (!timeMatch) {
+      return null;
+    }
+    // anchor time-only values to a fixed reference date since SharePoint DateTime columns always store a full date
+    var isoAnchor = '1970-01-01T' + timeMatch[1] + ':' + timeMatch[2] + ':00' + (zone === 'UTC' ? 'Z' : '');
+    return new Date(isoAnchor).toISOString();
+  }
+
+  if (format === 'dateOnly') {
+    var dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+    if (!dateMatch) {
+      return null;
+    }
+    return new Date(dateMatch[1] + 'T00:00:00' + (zone === 'UTC' ? 'Z' : '')).toISOString();
+  }
+
+  var isoDateTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text) ? text + ':00' + (zone === 'UTC' ? 'Z' : '') : text;
+  var parsedDateTime = new Date(isoDateTime);
+  return isNaN(parsedDateTime.getTime()) ? null : parsedDateTime.toISOString();
 }
 
 function normalizeDefaultForField(field: FormField, value: any): FieldValue {
@@ -808,9 +876,13 @@ function normalizeDefaultForField(field: FormField, value: any): FieldValue {
       var boolText = String(value).trim().toLowerCase();
       return boolText === 'true' || boolText === '1' || boolText === 'yes';
     case 'datetime':
-      return field.config && field.config.displayFormat === 'dateOnly'
-        ? normalizeDateOnlyValue(value)
-        : normalizeDateTimeLocalValue(value);
+      if (field.config && field.config.displayFormat === 'dateOnly') {
+        return normalizeDateOnlyValue(value, field.config.timeZone);
+      }
+      if (field.config && field.config.displayFormat === 'timeOnly') {
+        return normalizeTimeOnlyValue(value, field.config.timeZone);
+      }
+      return normalizeDateTimeLocalValue(value, field.config && field.config.timeZone);
     case 'multiselect':
       if (Array.isArray(value)) {
         return value.map(function(entry) { return String(entry); });
@@ -1558,6 +1630,11 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     };
   }
 
+  private getPermissionDeniedMessage(schema?: FormSchema): string {
+    var configured = String(schema && schema.permissionDeniedMessage || '').trim();
+    return configured || strings.PermissionDeniedDefault;
+  }
+
   private renderDescriptionIcon(description: string): JSX.Element | null {
     if (!description) {
       return null;
@@ -1685,7 +1762,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         submitSuccess: null,
         canAddRecords: false,
         canEditRecords: false,
-        permissionStatusMessage: 'Permission gate unavailable because schema is not loaded.',
+        permissionStatusMessage: strings.PermissionDeniedDefault,
       });
       return;
     }
@@ -1845,7 +1922,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         error: null,
         canAddRecords: permissionResult.canAdd,
         canEditRecords: permissionResult.canEdit,
-        permissionStatusMessage: permissionResult.message,
+        permissionStatusMessage: this.getPermissionDeniedMessage(schema),
       });
       console.log('[SharePointDynamicForm] Form data loaded. Resolved Item ID: ' + resolvedItemId + ', Values: ', values);
     } catch (error) {
@@ -1861,7 +1938,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         error: error && error.message ? error.message : strings.LoadConfigFailed,
         canAddRecords: false,
         canEditRecords: false,
-        permissionStatusMessage: permissionFailureMessage,
+        permissionStatusMessage: this.getPermissionDeniedMessage(schema),
       });
     }
   }
@@ -2496,9 +2573,14 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         values[field.id] = rawValue.Url;
         this._urlFieldDescriptions[field.id] = rawValue.Description || '';
       } else if (field.type === 'datetime') {
-        values[field.id] = field.config && field.config.displayFormat === 'dateOnly'
-          ? normalizeDateOnlyValue(rawValue)
-          : normalizeDateTimeLocalValue(rawValue);
+        var loadedTimeZone = field.config && field.config.timeZone;
+        var loadedFormat = field.config && field.config.displayFormat;
+        values[field.id] = loadedFormat === 'dateOnly'
+          ? normalizeDateOnlyValue(rawValue, loadedTimeZone)
+          : loadedFormat === 'timeOnly'
+            ? normalizeTimeOnlyValue(rawValue, loadedTimeZone)
+            : normalizeDateTimeLocalValue(rawValue, loadedTimeZone);
+        console.log('[SharePointDynamicForm] Loaded datetime field "' + field.fieldName + '" (format=' + (loadedFormat || 'dateTime') + ', zone=' + (loadedTimeZone || 'UTC') + '): ' + values[field.id]);
       } else {
         values[field.id] = rawValue;
       }
@@ -2671,7 +2753,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       } else if (field.type === 'number') {
         payload[field.fieldName] = value === '' ? null : Number(value);
       } else if (field.type === 'datetime') {
-        payload[field.fieldName] = value ? new Date(String(value)).toISOString() : null;
+        payload[field.fieldName] = buildDateTimePayloadValue(value, field.config);
+        console.log('[SharePointDynamicForm] Prepared datetime field "' + field.fieldName + '" (format=' + (field.config && field.config.displayFormat || 'dateTime') + ', zone=' + (field.config && field.config.timeZone || 'UTC') + ') payload value: ' + payload[field.fieldName]);
       } else if (field.type === 'url') {
         payload[field.fieldName] = value ? { Url: String(value), Description: this._urlFieldDescriptions[field.id] || '' } : null;
       } else {
@@ -2726,7 +2809,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       var deniedMessage = 'Permission gate blocked submit. Mode=' + effectiveMode + ', canAdd=' + this.state.canAddRecords + ', canEdit=' + this.state.canEditRecords;
       this.logDiagnostic(deniedMessage);
       this.setState({
-        submitError: 'You do not have permission to perform this action.',
+        submitError: this.getPermissionDeniedMessage(schema),
         submitSuccess: null,
       });
       return;
@@ -2888,7 +2971,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       (field.fieldName && field.fieldName.toLowerCase() === linkedFieldTarget)
     );
     
-    var disabled = effectiveMode === 'view' || field.readOnly === true || isLinkedField;
+    var disabled = effectiveMode === 'view' || field.readOnly === true || field.disabled === true || isLinkedField;
     var errorMessage = this.state.fieldErrors[field.id];
     var placeholder = field.config && field.config.placeholder ? field.config.placeholder : undefined;
     var description = this.props.showFieldDescription ? (field.description || (field.config && field.config.helpText) || '') : '';
@@ -3048,18 +3131,50 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           </div>
         );
       case 'boolean':
+        var booleanText = field.config && field.config.booleanText ? field.config.booleanText : '';
+        var booleanLayoutStyle: React.CSSProperties = { display: 'flex', gap: '10px' };
+        if (labelPosition === 'bottom') {
+          booleanLayoutStyle.flexDirection = 'column-reverse';
+        } else if (labelPosition === 'left') {
+          booleanLayoutStyle.flexDirection = 'row';
+          booleanLayoutStyle.alignItems = 'center';
+        } else if (labelPosition === 'right') {
+          booleanLayoutStyle.flexDirection = 'row-reverse';
+          booleanLayoutStyle.justifyContent = 'flex-end';
+          booleanLayoutStyle.alignItems = 'center';
+        } else {
+          booleanLayoutStyle.flexDirection = 'column';
+        }
+        var booleanFieldLabelStyle: React.CSSProperties = Object.assign({}, labelStyle, {
+          flexShrink: 0,
+          marginBottom: 0,
+        });
+        var booleanControlStyle: React.CSSProperties = {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          width: 'fit-content',
+        };
+        var booleanTextStyle: React.CSSProperties = {};
+        if (field.inputFontSize) { booleanTextStyle.fontSize = field.inputFontSize; }
+        if (field.inputFontFamily) { booleanTextStyle.fontFamily = field.inputFontFamily; }
+        if (field.inputFontWeight) { booleanTextStyle.fontWeight = field.inputFontWeight as any; }
+        if (field.inputColor) { booleanTextStyle.color = field.inputColor; }
         return (
           <div style={fieldWrapperStyle}>
-            <label style={labelWrapperStyle}>
+            <div style={booleanLayoutStyle}>
+              <div style={booleanFieldLabelStyle}>{field.label}{this.renderDescriptionIcon(description)}</div>
+              <label style={booleanControlStyle}>
               <input
                 type="checkbox"
                 checked={value === true}
                 disabled={disabled}
+                aria-label={field.label}
                 onChange={(ev) => this.setFieldValue(field.id, ev.currentTarget.checked)}
-              />{' '}
-              <span style={labelBlockStyle}>{field.label}{this.renderDescriptionIcon(description)}</span>
-            </label>
-            <div style={labelStyle}>{value === true ? strings.FieldBooleanYes : strings.FieldBooleanNo}</div>
+              />
+                {booleanText && <span style={booleanTextStyle}>{booleanText}</span>}
+              </label>
+            </div>
             {this.renderFieldHelpAndError(description, errorMessage, labelPosition)}
           </div>
         );
@@ -3354,12 +3469,14 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         );
       case 'datetime':
         var dateOnly = !!(field.config && field.config.displayFormat === 'dateOnly');
+        var timeOnly = !!(field.config && field.config.displayFormat === 'timeOnly');
+        var dateTimeInputType = dateOnly ? 'date' : timeOnly ? 'time' : 'datetime-local';
         return (
           <div style={fieldWrapperStyle}>
             <label style={labelWrapperStyle}>
               <div style={labelBlockStyle}>{field.label}{this.renderDescriptionIcon(description)}</div>
               <input
-                type={dateOnly ? 'date' : 'datetime-local'}
+                type={dateTimeInputType}
                 disabled={disabled}
                 required={field.required === true}
                 value={value === undefined || value === null ? '' : String(value)}
@@ -3461,6 +3578,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     var canSubmit = effectiveMode !== 'view';
     var canSwitchToEdit = this.state.canEditRecords;
     var canSubmitByPermission = effectiveMode === 'edit' ? this.state.canEditRecords : this.state.canAddRecords;
+    var permissionDeniedForCurrentMode = effectiveMode === 'new' ? !this.state.canAddRecords : !this.state.canEditRecords;
     var disableSubmitButton = this.state.isSubmitting || !canSubmitByPermission;
     var disableEditButton = this.state.isSubmitting || !canSwitchToEdit;
     var addSubmitLabel =
@@ -3592,7 +3710,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
         {this.state.submitError && <MessageBar messageBarType={MessageBarType.error}>{this.state.submitError}</MessageBar>}
         {this.state.submitSuccess && <MessageBar messageBarType={MessageBarType.success}>{this.state.submitSuccess}</MessageBar>}
-        {(this.state.permissionStatusMessage && (!this.state.canAddRecords || !this.state.canEditRecords)) && (
+        {(this.state.permissionStatusMessage && permissionDeniedForCurrentMode) && (
           <MessageBar messageBarType={MessageBarType.warning}>{this.state.permissionStatusMessage}</MessageBar>
         )}
 

@@ -6,11 +6,17 @@ export interface IListControlViewOption {
     text: string;
     isDefault?: boolean;
 }
+export interface IListControlColumnConfiguration {
+    fieldName: string;
+    displayName: string;
+    width?: string;
+}
 export interface IListControlProps {
     context: any;
     listName: string;
     defaultViewId: string;
     views: IListControlViewOption[];
+    viewColumns: IListControlColumnConfiguration[];
     pageSize: number;
     isEditMode: boolean;
     showViewSelector: boolean;
@@ -71,6 +77,7 @@ export interface IListFieldDefinition {
     RealFieldName?: string;
     DisplayName?: string;
     Hidden?: string | boolean;
+    ConfiguredWidth?: string;
 }
 export interface IListControlState {
     selectedViewId: string;
@@ -110,6 +117,8 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private postJsonWithFallback(url, body);
     private buildViewIdCandidates(selectedViewId);
     private loadSelectedViewFieldNames(selectedViewId);
+    private getDisplayFields();
+    private getConfiguredColumnStyle(field);
     private getFieldsForConsumption(rawFields, viewFieldNames);
     private loadListFieldTypeMap(viewFieldNames);
     private loadListFieldTitleMap();

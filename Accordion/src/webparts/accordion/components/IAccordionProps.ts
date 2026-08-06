@@ -6,4 +6,14 @@ export interface IAccordionProps {
   itemContent: string;
   optionChoice: string;
   spfxContext: WebPartContext;
+  headerBackgroundColor: string;
+  headerTextColor: string;
+  headerFontBold: boolean;
+  contentBackgroundColor: string;
+  contentTextColor: string;
+  contentFontBold: boolean;
+  fontFamily: string;
+  fontStyle: string;
+  overrideCssUrl: string;
+  enableDiagnostics: boolean;
   }

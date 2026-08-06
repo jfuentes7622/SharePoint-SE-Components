@@ -47,7 +47,7 @@ export interface ISharePointDynamicFormWebPartProps {
   labelPosition?: 'top' | 'left';
   showFieldDescription?: boolean;
   enableDynamicDiagnostics?: boolean;
-  // 按钮配置
+  // Button configuration
   submitButtonLabel?: string;
   addSubmitButtonLabel?: string;
   editSubmitButtonLabel?: string;
@@ -366,7 +366,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         onSaveSchema: (schema) => this.saveSchema(schema),
         isPageEditMode: this.displayMode === DisplayMode.Edit,
         showFieldDescription: this.properties.showFieldDescription,
-        // 按钮配置
+        // Button configuration
         submitButtonLabel: this.properties.submitButtonLabel,
         addSubmitButtonLabel: this.properties.addSubmitButtonLabel,
         editSubmitButtonLabel: this.properties.editSubmitButtonLabel,

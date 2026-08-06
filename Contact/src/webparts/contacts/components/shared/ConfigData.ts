@@ -16,5 +16,6 @@ export type ConfigData = {
     displayPhotoField: string;
     imageLinkField: string;
     sVoipField : string;
-    imageIsCircle: boolean;
+    imageShape: string;
+    enableDiagnostics?: boolean;
 };

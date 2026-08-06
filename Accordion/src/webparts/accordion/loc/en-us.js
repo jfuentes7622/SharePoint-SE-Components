@@ -5,6 +5,7 @@ define([], function() {
     ListNameFieldLabel: "List",
     ItemNameFieldLabel: "Item",
     ItemContentFieldLabel: "ItemContent",
-    optionChoiceFieldLabel: "OptionChoice"
+    optionChoiceFieldLabel: "OptionChoice",
+    PropEnableDiagnosticsLabel: "Enable diagnostics logging"
   }
 });

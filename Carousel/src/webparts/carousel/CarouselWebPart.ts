@@ -13,7 +13,9 @@ import {
   IPropertyPaneConfiguration,
   PropertyPaneTextField, 
   PropertyPaneDropdown,
-  IPropertyPaneDropdownOption
+  IPropertyPaneDropdownOption,
+  PropertyPaneCheckbox,
+  PropertyPaneLabel
 } from '@microsoft/sp-webpart-base';
 
 import * as strings from 'CarouselWebPartStrings';
@@ -30,6 +32,8 @@ import {SPHttpClient,
 
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
 
+const packageSolutionConfig: any = require('../../../config/package-solution.json');
+
 export interface ICarouselWebPartProps {
   carouselWidth: number;
   carouselHeight: number;
@@ -38,6 +42,8 @@ export interface ICarouselWebPartProps {
   carouselSlideInterval: string;
   carouselSlideItems: Array<SlideItemModel>;
   carouselSlideLibrary: string;
+  imageIsCircle: boolean;
+  enableDiagnostics: boolean;
   recSvc: RecordSvc;
   spfxContext: WebPartContext;
 }
@@ -47,8 +53,23 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
   private _recordSvc: RecordSvc;
   private _siteLists: string[];
 
+  public constructor() {
+    super();
+    // Hack: to invoke correctly the onPropertyChange function outside this class
+    // we need to bind this object on it first
+    this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.properties.enableDiagnostics === false) {
+      return;
+    }
+    console.log('[CarouselWebPart] ' + message);
+  }
+
   public render(): void {
 
+    this.logDiagnostic('render() called');
     this._recordSvc = this.GetNewRecSvc();
 
      //workaround sharepoint's cache clobbering issue with uri fragments using history manipulation
@@ -64,10 +85,13 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
         window.history.replaceState({}, "", `?${searchParams.toString()}${window.location.hash}`);
       }
     });
-    
-    this.domElement.style.setProperty('--cWidth', (this.properties.carouselWidth !== undefined?this.properties.carouselWidth.toString():"500px"));
-    this.domElement.style.setProperty('--cHeight', (this.properties.carouselHeight !== undefined? this.properties.carouselHeight.toString():"200px"));
-   
+
+    const normalizedWidth = Number(this.properties.carouselWidth) > 0 ? Number(this.properties.carouselWidth) : 500;
+    const normalizedHeight = Number(this.properties.carouselHeight);
+
+    this.domElement.style.setProperty('--cWidth', `${normalizedWidth}px`);
+    this.domElement.style.setProperty('--cHeight', (isFinite(normalizedHeight) && normalizedHeight > 0) ? `${normalizedHeight}px` : 'auto');
+
     const element: React.ReactElement<ICarouselProps> = React.createElement(
       Carousel,
       {
@@ -78,6 +102,8 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
         carouselWidth: this.properties.carouselWidth,
         carouselHeight: this.properties.carouselHeight,
         carouselSlideLibrary: this.properties.carouselSlideLibrary,
+        imageIsCircle: this.properties.imageIsCircle,
+        enableDiagnostics: this.properties.enableDiagnostics !== false,
         spfxContext:this.context,
         recSvc: this._recordSvc
       }
@@ -88,23 +114,27 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
   }
 
   private async _getSiteLists(): Promise<string[]> {
-    const endpoint: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists?$select=Title&$filter=Hidden eq false&$orderby=Title&$BaseTemplate=109`;
+    this.logDiagnostic('_getSiteLists() fetching document libraries');
+    const endpoint: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists?$select=Title&$filter=Hidden eq false and BaseTemplate eq 101&$orderby=Title`;
     const rawResponse: SPHttpClientResponse = await this.context.spHttpClient.get(
       endpoint,
       SPHttpClient.configurations.v1);
   
-    return (await rawResponse.json()).value.map(
+    const lists: string[] = (await rawResponse.json()).value.map(
       (list: {Title: string}) => {
         return list.Title;
       }
     );
+    this.logDiagnostic('_getSiteLists() found ' + lists.length + ' library(ies)');
+    return lists;
   }
 
    private GetNewRecSvc(): RecordSvc {
     return new RecordSvc(
       <ConfigData>{        
         slideListName: this.properties.carouselSlideLibrary,
-        siteUrl: decodeURI(this.context.pageContext.web.absoluteUrl)
+        siteUrl: decodeURI(this.context.pageContext.web.absoluteUrl),
+        enableDiagnostics: this.properties.enableDiagnostics !== false
       },
       <SPContexts>{
         spHttpClient: this.context.spHttpClient,
@@ -116,6 +146,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
   }  
 
   protected onDispose(): void {
+    this.logDiagnostic('onDispose() called');
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
@@ -124,18 +155,51 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
   } */
 
   protected async onInit(): Promise<void> {
+    this.logDiagnostic('onInit() called');
     this._siteLists = await this._getSiteLists();
     return super.onInit();
   }
 
+  protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
+    this.logDiagnostic('onPropertyPaneFieldChanged: ' + propertyPath);
+    super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+    this.render();
+  }
+
+  private getWebPartVersion(): string {
+    const solutionVersion = packageSolutionConfig && packageSolutionConfig.solution
+      ? String(packageSolutionConfig.solution.version || '')
+      : '';
+    if (solutionVersion) {
+      return solutionVersion;
+    }
+
+    const manifestVersion = this.context && this.context.manifest ? String(this.context.manifest.version || '') : '';
+    if (manifestVersion && manifestVersion !== '*') {
+      return manifestVersion;
+    }
+
+    return 'Unknown';
+  }
+
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
+
     return {
       pages: [
         {
           header: {
-            description: strings.PropertyPaneDescription + ` v${this.context.manifest.version}`,
+            description: ''
           },
           groups: [
+            {
+              groupName: fullVersionLabel,
+              groupFields: [
+                PropertyPaneLabel('propertyPaneVersionInfo', {
+                  text: ' '
+                })
+              ]
+            },
             {
               groupName: 'Carousel Library',
               groupFields: [
@@ -174,9 +238,21 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                 }),
                 PropertyPaneTextField('carouselTransitionInterval', {
                   label: 'Transition Interval (duration of slide transition in mSeconds)'
-                })      
+                }),
+                PropertyPaneCheckbox('imageIsCircle', {
+                  text: 'Display images in a circle'
+                })
               ]
-            } 
+            },
+            {
+              groupName: 'Diagnostics',
+              groupFields: [
+                PropertyPaneCheckbox('enableDiagnostics', {
+                  text: strings.PropEnableDiagnosticsLabel,
+                  checked: this.properties.enableDiagnostics !== false
+                })
+              ]
+            }
 
           ]
         }

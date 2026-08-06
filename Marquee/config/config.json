@@ -5,8 +5,8 @@
     "km-marquee-web-part": {
       "components": [
         {
-          "entrypoint": "./lib/webparts/kmMarquee/KmMarqueeWebPart.js",
-          "manifest": "./src/webparts/kmMarquee/KmMarqueeWebPart.manifest.json"
+          "entrypoint": "./lib/webparts/kmMarquee/MarqueeWebPart.js",
+          "manifest": "./src/webparts/kmMarquee/MarqueeWebPart.manifest.json"
         }
       ]
     }

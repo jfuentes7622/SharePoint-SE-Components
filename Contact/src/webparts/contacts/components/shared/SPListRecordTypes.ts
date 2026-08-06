@@ -13,7 +13,7 @@ export type personnelRecord = {
     displayPhoto: boolean;
     imageLink: string;
     sVoip : string;
-    imageIsCircle: boolean;
+    imageShape: string;
   };
   
   export type fieldInfo = {

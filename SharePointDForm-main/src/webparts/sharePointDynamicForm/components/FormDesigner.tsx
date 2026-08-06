@@ -500,6 +500,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       description: spField.description,
       required: spField.required,
       readOnly: spField.readOnly,
+      disabled: false,
       config: Object.keys(config).length > 0 ? config : undefined,
     };
 
@@ -516,6 +517,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       fieldName: createId('richtext'),
       required: false,
       readOnly: false,
+      disabled: false,
       defaultValue: '',
       config: {
         helpText: ''
@@ -724,21 +726,41 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
                       // Determine label position
                       var previewLabelPosition = field.labelPosition || (schema.theme && schema.theme.labelPosition) || 'top';
-                      var fieldContentStyle: React.CSSProperties = previewLabelPosition === 'left'
-                        ? { display: 'flex', gap: '16px', alignItems: 'flex-start' }
-                        : { display: 'block' };
+                      var fieldContentStyle: React.CSSProperties = { display: 'flex', gap: '10px' };
+                      if (field.type === 'boolean' && previewLabelPosition === 'bottom') {
+                        fieldContentStyle.flexDirection = 'column-reverse';
+                      } else if (previewLabelPosition === 'left') {
+                        fieldContentStyle.flexDirection = 'row';
+                        fieldContentStyle.alignItems = 'center';
+                      } else if (field.type === 'boolean' && previewLabelPosition === 'right') {
+                        fieldContentStyle.flexDirection = 'row-reverse';
+                        fieldContentStyle.justifyContent = 'flex-end';
+                        fieldContentStyle.alignItems = 'center';
+                      } else {
+                        fieldContentStyle.flexDirection = 'column';
+                      }
                       var previewLabelStyle: React.CSSProperties = Object.assign(
                         {},
                         labelStyle,
-                        previewLabelPosition === 'left' ? { flexShrink: 0, minWidth: '100px', paddingTop: '2px' } : { marginBottom: '6px' }
+                        previewLabelPosition === 'left' || previewLabelPosition === 'right'
+                          ? { flexShrink: 0, minWidth: '100px' }
+                          : {}
                       );
+                      var previewBooleanText = field.config && field.config.booleanText ? field.config.booleanText : '';
 
                       return (
                         <div key={field.id} style={fieldCellStyle}>
                           <div style={fieldWrapperStyle}>
                             <div style={fieldContentStyle}>
                               <div style={previewLabelStyle}>{field.label}</div>
-                              <div style={inputStyle}>{getFieldTypeLabel(field.type)}</div>
+                              {field.type === 'boolean' ? (
+                                <label style={Object.assign({}, inputStyle, { display: 'inline-flex', alignItems: 'center', gap: '6px', width: 'fit-content', marginTop: 0 })}>
+                                  <input type="checkbox" checked={field.defaultValue === true} readOnly={true} />
+                                  {previewBooleanText && <span>{previewBooleanText}</span>}
+                                </label>
+                              ) : (
+                                <div style={inputStyle}>{getFieldTypeLabel(field.type)}</div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1056,12 +1078,19 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
             className={styles.designerInput}
             value={field.labelPosition || 'top'}
             onChange={(ev) => this.updateSelectedField(function(nextField) {
-              nextField.labelPosition = (ev.currentTarget.value === 'left' ? 'left' : 'top') || undefined;
+              var nextPosition = ev.currentTarget.value;
+              nextField.labelPosition = (
+                nextPosition === 'bottom' || nextPosition === 'left' || nextPosition === 'right'
+                  ? nextPosition
+                  : 'top'
+              ) as 'top' | 'bottom' | 'left' | 'right';
               return nextField;
             })}
           >
             <option value="top">Above input (top)</option>
+            {field.type === 'boolean' && <option value="bottom">Below input (bottom)</option>}
             <option value="left">Next to input (left)</option>
+            {field.type === 'boolean' && <option value="right">After input (right)</option>}
           </select>
 
           {spField && spField.required ? (
@@ -1110,6 +1139,19 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
             />
             <span>{strings.DesignerShowStep}</span>
           </label>
+
+          <label className={styles.designerCheckboxRow}>
+            <input
+              type="checkbox"
+              checked={field.disabled !== true}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.disabled = !ev.currentTarget.checked;
+                return nextField;
+              })}
+            />
+            <span>{strings.PropertyPanelFieldEnabled}</span>
+          </label>
+          <div className={styles.designerPanelHint}>{strings.PropertyPanelFieldEnabledHint}</div>
 
           <label className={styles.designerFormLabel}>{strings.PropertyPanelHelpText}</label>
           <textarea
@@ -1192,21 +1234,48 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                 className={styles.designerInput}
                 value={field.config && field.config.displayFormat || 'dateTime'}
                 onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  var nextFormat = ev.currentTarget.value === 'dateOnly' || ev.currentTarget.value === 'timeOnly' ? ev.currentTarget.value : 'dateTime';
                   nextField.config = nextField.config || {};
-                  nextField.config.displayFormat = ev.currentTarget.value === 'dateOnly' ? 'dateOnly' : 'dateTime';
-                  if (nextField.config.displayFormat === 'dateOnly' && nextField.defaultValue) {
+                  nextField.config.displayFormat = nextFormat as 'dateOnly' | 'dateTime' | 'timeOnly';
+                  if (nextFormat === 'dateOnly' && nextField.defaultValue) {
                     nextField.defaultValue = String(nextField.defaultValue).substring(0, 10);
                   }
+                  if (nextFormat === 'timeOnly' && nextField.defaultValue) {
+                    var defaultText = String(nextField.defaultValue);
+                    var timeIndex = defaultText.indexOf('T');
+                    nextField.defaultValue = timeIndex >= 0 ? defaultText.substring(timeIndex + 1, timeIndex + 6) : defaultText;
+                  }
+                  console.log('[FormDesigner] datetime field "' + nextField.label + '" format changed to: ' + nextFormat);
                   return nextField;
                 })}
               >
                 <option value="dateOnly">{strings.PropertyPanelDateFormatDateOnly}</option>
                 <option value="dateTime">{strings.PropertyPanelDateFormatDateTime}</option>
+                <option value="timeOnly">{strings.PropertyPanelDateFormatTimeOnly}</option>
               </select>
+              {(!field.config || field.config.displayFormat !== 'dateOnly') && (
+                <div>
+                  <label className={styles.designerFormLabel}>{strings.PropertyPanelTimeZone}</label>
+                  <select
+                    className={styles.designerInput}
+                    value={(field.config && field.config.timeZone) || 'UTC'}
+                    onChange={(ev) => this.updateSelectedField(function(nextField) {
+                      var nextZone = (ev.currentTarget.value === 'local' ? 'local' : 'UTC') as 'UTC' | 'local';
+                      nextField.config = nextField.config || {};
+                      nextField.config.timeZone = nextZone;
+                      console.log('[FormDesigner] datetime field "' + nextField.label + '" time zone changed to: ' + nextZone);
+                      return nextField;
+                    })}
+                  >
+                    <option value="UTC">{strings.PropertyPanelTimeZoneUtc}</option>
+                    <option value="local">{strings.PropertyPanelTimeZoneLocal}</option>
+                  </select>
+                </div>
+              )}
               <label className={styles.designerFormLabel}>{strings.PropertyPanelDefaultDateTime}</label>
               <input
                 className={styles.designerInput}
-                type={field.config && field.config.displayFormat === 'dateOnly' ? 'date' : 'datetime-local'}
+                type={field.config && field.config.displayFormat === 'dateOnly' ? 'date' : field.config && field.config.displayFormat === 'timeOnly' ? 'time' : 'datetime-local'}
                 value={scalarDefault}
                 title={strings.PropertyPanelDefaultDateTime}
                 onChange={(ev) => this.updateSelectedField(function(nextField) {
@@ -1218,17 +1287,32 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
           )}
 
           {field.type === 'boolean' && (
-            <label className={styles.designerCheckboxRow}>
+            <div>
+              <label className={styles.designerCheckboxRow}>
+                <input
+                  type="checkbox"
+                  checked={field.defaultValue === true}
+                  onChange={(ev) => this.updateSelectedField(function(nextField) {
+                    nextField.defaultValue = ev.currentTarget.checked;
+                    return nextField;
+                  })}
+                />
+                <span>{strings.PropertyPanelDefaultBoolean}</span>
+              </label>
+              <label className={styles.designerFormLabel}>{strings.PropertyPanelBooleanText}</label>
               <input
-                type="checkbox"
-                checked={field.defaultValue === true}
+                className={styles.designerInput}
+                type="text"
+                value={field.config && field.config.booleanText ? field.config.booleanText : ''}
+                placeholder={strings.PropertyPanelBooleanTextPlaceholder}
                 onChange={(ev) => this.updateSelectedField(function(nextField) {
-                  nextField.defaultValue = ev.currentTarget.checked;
+                  nextField.config = nextField.config || {};
+                  nextField.config.booleanText = ev.currentTarget.value;
                   return nextField;
                 })}
               />
-              <span>{strings.PropertyPanelDefaultBoolean}</span>
-            </label>
+              <div className={styles.designerPanelHint}>{strings.PropertyPanelBooleanTextHint}</div>
+            </div>
           )}
 
           {field.type === 'dropdown' && (
@@ -1636,6 +1720,21 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     var theme = (this.props.schema && this.props.schema.theme) || {};
     return (
       <div>
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>{strings.PropertyPanelFormMessages}</div>
+          <label className={styles.designerFormLabel}>{strings.PropertyPanelPermissionDeniedMessage}</label>
+          <textarea
+            className={styles.designerTextarea}
+            value={this.props.schema.permissionDeniedMessage || strings.PermissionDeniedDefault}
+            placeholder={strings.PermissionDeniedDefault}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              nextForm.permissionDeniedMessage = ev.currentTarget.value || undefined;
+              return nextForm;
+            })}
+          />
+          <div className={styles.designerPanelHint}>{strings.PropertyPanelPermissionDeniedMessageHint}</div>
+        </div>
+
         <div className={styles.designerPanelSection}>
           <div className={styles.designerPanelTitle}>Form Font Settings</div>
 

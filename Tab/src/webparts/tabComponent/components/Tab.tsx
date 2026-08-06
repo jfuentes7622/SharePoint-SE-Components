@@ -3,8 +3,6 @@ import * as React from 'react';
 import styles from '../components/TabComponent.module.scss';
 import { ITabGlobalFontSettings, ITabVisualSettings } from './ITabComponentProps';
 
-import { Logger, LogLevel } from 'sp-pnp-js';
-
 export interface ITabProps {
     TabIndex: number;
     TabText: string;
@@ -12,21 +10,23 @@ export interface ITabProps {
   TabSettings?: ITabVisualSettings;
     GlobalFontSettings: ITabGlobalFontSettings;
     TabClickCallback: (tabIndex: number) => void;
+    EnableDiagnostics?: boolean;
 }
-
-const LOG_SOURCE: string = 'KM Tabs - ';
-  
-  declare global {
-    interface Window { 
-         iskmActiveLog: boolean;
-    }
-  }
 
 export default class Tab extends React.Component<ITabProps, {}> {
   private tabLabelRef: HTMLSpanElement | undefined;
   private tabContentRef: HTMLSpanElement | undefined;
 
+  private logDiagnostic(message: string): void {
+    if (this.props.EnableDiagnostics === false) {
+      return;
+    }
+
+    console.log('[Tab] ' + message);
+  }
+
   public componentDidMount(): void {
+    this.logDiagnostic('Mounted tab "' + this.props.TabText + '" (index=' + String(this.props.TabIndex) + ').');
     this.applyDynamicStyles();
   }
 
@@ -37,17 +37,10 @@ export default class Tab extends React.Component<ITabProps, {}> {
   }
 
     public render(): React.ReactElement<ITabProps> {
-        if (!window.iskmActiveLog || window.iskmActiveLog === undefined) {
-            Logger.activeLogLevel = LogLevel.Error;
-          }
-          else {Logger.activeLogLevel=LogLevel.Info;
-        }
-
         const tabSettings: ITabVisualSettings = this.props.TabSettings || {};
         const hasImage: boolean = !!tabSettings.imageUrl;
         const showText: boolean = !(tabSettings.onlyImage === true);
     
-        Logger.write(LOG_SOURCE + 'In Tab.tx Render', LogLevel.Info);
         return (
           <li onClick={this.callback.bind(this)} className={styles.tab} role='tab'>    
             <span

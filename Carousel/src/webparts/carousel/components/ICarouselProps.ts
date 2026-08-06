@@ -10,6 +10,8 @@ export interface ICarouselProps {
   carouselSlideItems: Array<SlideItemModel>;
   carouselTransitionInterval: string;
   carouselSlideLibrary: string;
+  imageIsCircle: boolean;
+  enableDiagnostics: boolean;
   spfxContext: WebPartContext;
   recSvc: RecordSvc;
 }

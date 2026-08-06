@@ -14,6 +14,7 @@ import LoaderProvider from "./LoaderService";
  */
 export interface IBrandingApplicationCustomizerProperties {
   rootUrl:string;
+  enableDiagnostics?: boolean;
 }
 
 const LogSource:string = "BrandingApplicationCustomizer";
@@ -25,12 +26,27 @@ export default class BrandingApplicationCustomizer
   
   private LoaderProviderService: LoaderProvider;
 
+  private logDiagnostic(message: string): void {
+    if (this.properties && this.properties.enableDiagnostics === false) {
+      return;
+    }
+
+    console.log('[BrandingApplicationCustomizer] ' + message);
+  }
+
   public async onInit(): Promise<void> {
-    
+
+    this.logDiagnostic('onInit started. rootUrl=' + String(this.properties.rootUrl || '(none)'));
     Log.info(LogSource,"Starting int");
-    this.LoaderProviderService = new LoaderProvider({context: this.context, rootUrl: this.properties.rootUrl});
+    this.LoaderProviderService = new LoaderProvider({
+      context: this.context,
+      rootUrl: this.properties.rootUrl,
+      enableDiagnostics: this.properties.enableDiagnostics
+    });
     await this.LoaderProviderService.LoadFiles(true);
+    this.logDiagnostic('Initial LoadFiles(true) completed.');
     this.context.placeholderProvider.changedEvent.add(this.LoaderProviderService, this.LoaderProviderService.render);
+    this.logDiagnostic('placeholderProvider.changedEvent handler registered.');
 
     return Promise.resolve();
   }

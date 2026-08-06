@@ -4,6 +4,9 @@ declare interface IContactsWebPartStrings {
   ListConfigGroupName: string;
   ListChoicesGroupName: string;
   CommonGroupName: string;
+  HeaderStyleGroupName: string;
+  TitleStyleGroupName: string;
+  PropEnableDiagnosticsLabel: string;
   DirectorateFieldLabel: string;
   DivisionFieldLabel: string;
   EucomListUrl: string;

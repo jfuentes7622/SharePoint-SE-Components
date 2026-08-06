@@ -19,7 +19,8 @@ export type ConfigData = {
   displayPhotoField: string;
   imageLinkField: string;
   sVoipField : string;
-  imageIsCircle: boolean;
+  imageShape: string;
+  enableDiagnostics?: boolean;
 };
 
 export interface IContactsProps {
@@ -43,6 +44,7 @@ export interface IContactsProps {
   displayPhotoField: string;
   imageLinkField: string;
   sVoipField : string;
+  enableDiagnostics: boolean;
 }
 
 export interface IRecord{

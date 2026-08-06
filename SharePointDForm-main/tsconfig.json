@@ -28,8 +28,7 @@
     "src/webparts/sharePointDynamicForm/SharePointDynamicFormWebPart.ts",
     "src/webparts/sharePointDynamicForm/components/SharePointDynamicForm.tsx",
     "src/webparts/sharePointDynamicForm/loc/mystrings.d.ts",
-    "src/webparts/sharePointDynamicForm/loc/en-us.js",
-    "src/webparts/sharePointDynamicForm/loc/zh-cn.js"
+    "src/webparts/sharePointDynamicForm/loc/en-us.js"
   ],
   "exclude": [
     "config",

@@ -6,37 +6,18 @@ import { WebPartTitle } from '@pnp/spfx-controls-react/lib/WebPartTitle';
 import { Placeholder } from '@pnp/spfx-controls-react/lib/Placeholder';
 import { ITilesProps } from './ITilesProps';
 
-/* import {
-  Logger,
-  ConsoleListener,
-  LogLevel
-} from "@pnp/logging"; */
-
-import { Logger, ConsoleListener, LogLevel } from 'sp-pnp-js';
-
-declare global {
-  interface Window { 
-       iskmActiveLog: boolean;
-  }
-}
-
-const LOG_SOURCE: string = 'KM Tiles- ';
-//import PnPTelemetry from "@pnp/telemetry-js";
-
 export class Tiles extends React.Component<ITilesProps, {}> {
 
-  public render(): React.ReactElement<ITilesProps> {
-    Logger.subscribe(new ConsoleListener());
-    if (!window.iskmActiveLog || window.iskmActiveLog===undefined) {
-      Logger.activeLogLevel = LogLevel.Error;
+  private logDiagnostic(message: string): void {
+    if (this.props.enableDiagnostics === false) {
+      return;
     }
-    else {Logger.activeLogLevel=LogLevel.Info;}
 
-   // const telemetry = PnPTelemetry.getInstance();
-    //telemetry.optOut();
+    console.log('[Tiles] ' + message);
+  }
 
-    Logger.write(LOG_SOURCE + 'In Tiles Render', LogLevel.Info);
-    Logger.write(LOG_SOURCE + 'this.props.title:' + this.props.title);
+  public render(): React.ReactElement<ITilesProps> {
+    this.logDiagnostic('render() called. title=' + this.props.title + ', tile count=' + String(this.props.collectionData ? this.props.collectionData.length : 0));
     return (
       <div className={styles.tiles}>
         <WebPartTitle displayMode={this.props.displayMode}
@@ -48,7 +29,21 @@ export class Tiles extends React.Component<ITilesProps, {}> {
             <div className={styles.tilesList}>
               {
                 this.props.collectionData.map((tile, idx) =>
-                  <Tile key={idx} item={tile} height={this.props.tileHeight} tileEffect={this.props.tileEffect} />)
+                  <Tile key={idx}
+                    item={tile}
+                    tileEffect={this.props.tileEffect}
+                    tileShape={this.props.tileShape}
+                    backgroundColor={this.props.backgroundColor}
+                    textColor={this.props.textColor}
+                    hoverColor={this.props.hoverColor}
+                    hoverSameAsBackground={this.props.hoverSameAsBackground}
+                    hoverTransition={this.props.hoverTransition}
+                    fontFamily={this.props.fontFamily}
+                    fontStyle={this.props.fontStyle}
+                    fontBold={this.props.fontBold}
+                    fontSize={this.props.fontSize}
+                    tileWidth={this.props.tileWidth}
+                    tileHeight={this.props.tileHeight} />)
               }
             </div>
           ) : (

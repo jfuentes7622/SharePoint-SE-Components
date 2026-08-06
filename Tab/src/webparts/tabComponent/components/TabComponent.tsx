@@ -3,30 +3,21 @@ import styles from './TabComponent.module.scss';
 import { ITabComponentProps,ITabControlState } from './ITabComponentProps';
 
 import Tab from './Tab';
-import { Logger, LogLevel } from 'sp-pnp-js';
-
-  const LOG_SOURCE: string = 'KM Tabs - ';
-  
-  declare global {
-    interface Window { 
-         iskmActiveLog: boolean;
-    }
-  }
 
 export default class TabControl extends React.Component<ITabComponentProps, ITabControlState> {
   constructor(props: ITabComponentProps, state: ITabControlState) {
       super(props);
       this.state = { SelectedTab: 0 };
 
-            if (!window.iskmActiveLog || window.iskmActiveLog === undefined) {
-            console.log("if");
-          Logger.activeLogLevel = LogLevel.Error;
-        }
-        else {Logger.activeLogLevel=LogLevel.Info;
-            console.log("else");
-      }
-      
-      Logger.write(LOG_SOURCE + 'In TabComponent.tsx constructor', LogLevel.Info);
+      this.logDiagnostic('Constructor invoked. Tab count=' + String(this.props.TabHeaders.length));
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.props.EnableDiagnostics === false) {
+      return;
+    }
+
+    console.log('[TabComponent] ' + message);
   }
 
 
@@ -39,32 +30,15 @@ export default class TabControl extends React.Component<ITabComponentProps, ITab
   } */
   public componentDidUpdate(prevProps: ITabComponentProps, prevState: ITabControlState): void {
       //if properties have changes bind it
-      Logger.write(LOG_SOURCE + 'ComponentDid Update!', LogLevel.Info);
-      Logger.write(LOG_SOURCE + "thisState:" + this.state.SelectedTab.toString(), LogLevel.Info);
-      Logger.write(LOG_SOURCE + "PrevState:" + prevState.SelectedTab.toString(), LogLevel.Info);
       if (this.state.SelectedTab !== prevState.SelectedTab) {
+        this.logDiagnostic('Selected tab changed from ' + String(prevState.SelectedTab) + ' to ' + String(this.state.SelectedTab) + '.');
         this.forceUpdate();
       }
     } 
   
   public render(): React.ReactElement<ITabComponentProps> {
-    /*
-      const telemetry = PnPTelemetry.getInstance();
-      telemetry.optOut();
-
-      Logger.subscribe(ConsoleListener());
-      if (!window.iskmActiveLog || window.iskmActiveLog==undefined) {
-        console.log("if render");
-          Logger.activeLogLevel = LogLevel.Error;
-        }
-        else {Logger.activeLogLevel=LogLevel.Info;
-            console.log("else render");
-      }
-      */
-
-      Logger.write(LOG_SOURCE + 'In TabComponent.tsx Render', LogLevel.Info);
       return (
-          <div id='ISKMTabControl' className={styles.tabControl}>
+          <div id='TabControl' className={styles.tabControl}>
               <div className='cd-tabs'>
                   <nav>
                       <ul className='cd-tabs-navigation' role='tablist'>
@@ -86,6 +60,7 @@ export default class TabControl extends React.Component<ITabComponentProps, ITab
                                           TabSettings={this.props.TabConfigs[i]}
                                           GlobalFontSettings={this.props.GlobalFontSettings}
                                           TabClickCallback={this.tabClicked.bind(this)}
+                                          EnableDiagnostics={this.props.EnableDiagnostics}
                                       />
                                   );
                               })
@@ -142,6 +117,7 @@ export default class TabControl extends React.Component<ITabComponentProps, ITab
   private tabClicked(tabIndex: number): void {
       //Set New tab
       if (this.state.SelectedTab !== tabIndex) {
+          this.logDiagnostic('Tab clicked. Index=' + String(tabIndex) + ', Header="' + (this.props.TabHeaders[tabIndex] || '') + '".');
           this.setState({ SelectedTab: tabIndex });
           
       }      

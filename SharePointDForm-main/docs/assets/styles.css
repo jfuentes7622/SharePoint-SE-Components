@@ -13,7 +13,7 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: "Segoe UI", system-ui, sans-serif;
   color: var(--text);
   background: radial-gradient(1200px 600px at 20% -10%, #eef4fb, var(--bg));
 }
@@ -39,19 +39,9 @@ h1 {
   margin: 0 0 8px;
 }
 
-.sub {
-  margin: 0 0 12px;
-  color: var(--muted);
-}
-
 .lead {
   font-size: 16px;
   margin: 0 0 8px;
-}
-
-.lead.en {
-  font-size: 14px;
-  color: var(--muted);
 }
 
 .actions {
@@ -94,18 +84,6 @@ h1 {
   }
 }
 
-.lang-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-bottom: 20px;
-}
-
-.lang-en h2 {
-  font-weight: 500;
-  color: var(--muted);
-}
-
 .card-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -118,12 +96,6 @@ h1 {
   border-radius: 12px;
   background: var(--card);
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
-}
-
-.card .en {
-  color: var(--muted);
-  margin: 6px 0 0;
-  font-size: 14px;
 }
 
 .section.alt {
@@ -160,12 +132,6 @@ h1 {
   font-weight: 700;
 }
 
-.steps .en {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 6px 0 0;
-}
-
 .tag-row {
   display: flex;
   flex-wrap: wrap;
@@ -185,12 +151,6 @@ h1 {
   gap: 14px;
 }
 
-.faq .en {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 6px 0 0;
-}
-
 .cta {
   display: flex;
   align-items: center;
@@ -199,10 +159,6 @@ h1 {
 }
 
 @media (max-width: 900px) {
-  .lang-pair {
-    grid-template-columns: 1fr;
-  }
-
   .card-grid {
     grid-template-columns: 1fr 1fr;
   }

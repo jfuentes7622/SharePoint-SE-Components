@@ -63,6 +63,7 @@ export interface FormSchema {
   cancelButtonLabel?: string;
   cancelRedirectUrl?: string;
   onSubmitMessage?: string;
+  permissionDeniedMessage?: string;
   submitRedirectUrl?: string;
   submitRedirectDelayMs?: number;
   theme?: FormTheme;
@@ -112,9 +113,9 @@ export interface FormStep {
   title: string;
   description?: string;
   showTitle?: boolean; // default true
-  fields: (FormField | null)[]; // 允许 null 占位符以保持网格布局的正确位置
-  visible?: boolean; // 步骤是否可见（用于欢迎页等场景）
-  theme?: FormTheme; // 步骤级别的布局配置，覆盖全局配置
+  fields: (FormField | null)[]; // allow null placeholders to preserve correct grid layout positions
+  visible?: boolean; // whether the step is visible (e.g. for welcome-page scenarios)
+  theme?: FormTheme; // step-level layout config, overrides the global config
 }
 
 export interface FormField {
@@ -127,13 +128,14 @@ export interface FormField {
   required?: boolean | FilterExpression;
   requiredMessage?: string;
   readOnly?: boolean | FilterExpression;
+  disabled?: boolean;
   onChange?: FieldAction[];
   validation?: ValidationRule[];
   config?: FieldConfig;
-  columnSpan?: number; // 字段占据的列数，默认为1（占据整行或根据网格列数）
+  columnSpan?: number; // number of columns the field spans, defaults to 1 (full row or based on grid column count)
   defaultValue?: FieldValue;
-  startNewRow?: boolean; // 是否在网格布局中开始新行
-  labelPosition?: 'top' | 'left'; // override global labelPosition from theme
+  startNewRow?: boolean; // whether to start a new row in the grid layout
+  labelPosition?: 'top' | 'bottom' | 'left' | 'right'; // override global labelPosition from theme
   // Font settings for field label
   labelFontSize?: number; // in pixels
   labelFontFamily?: string;
@@ -160,7 +162,8 @@ export interface FieldConfig {
   min?: number;
   max?: number;
   decimals?: number;
-  displayFormat?: 'dateOnly' | 'dateTime';
+  displayFormat?: 'dateOnly' | 'dateTime' | 'timeOnly';
+  timeZone?: 'UTC' | 'local'; // applies to dateTime/timeOnly display formats; defaults to 'UTC' (Zulu)
   choices?: string[];
   choiceDisplay?: 'dropdown' | 'radio' | 'checkboxes';
   exclusiveChoiceValue?: string;
@@ -174,6 +177,7 @@ export interface FieldConfig {
   itemId?: number;
   accepts?: string;
   allowAttachmentDelete?: boolean;
+  booleanText?: string;
 }
 
 export type FieldAction =

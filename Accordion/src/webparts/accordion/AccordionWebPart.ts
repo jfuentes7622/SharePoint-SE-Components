@@ -7,6 +7,8 @@ import {
   PropertyPaneTextField,IWebPartContext,
   IPropertyPaneDropdownOption,
   PropertyPaneDropdown,
+  PropertyPaneCheckbox,
+  PropertyPaneLabel,
   WebPartContext
 } from '@microsoft/sp-webpart-base';
 
@@ -14,11 +16,18 @@ import {SPHttpClient,
        SPHttpClientResponse,
       }  from '@microsoft/sp-http';
 
+import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
+import { PropertyFieldToggleWithCallout } from '@pnp/spfx-property-controls/lib/PropertyFieldToggleWithCallout';
+import { PropertyFieldDropdownWithCallout } from '@pnp/spfx-property-controls/lib/PropertyFieldDropdownWithCallout';
+import { PropertyFieldTextWithCallout } from '@pnp/spfx-property-controls/lib/PropertyFieldTextWithCallout';
+
 require('./Accordion.css');
 
 import * as strings from 'AccordionWebPartStrings';
 import Accordion from './components/Accordion';
 import { IAccordionProps } from './components/IAccordionProps';
+
+const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface IAccordionWebPartProps {
     listName: string;
@@ -26,6 +35,16 @@ export interface IAccordionWebPartProps {
   itemContent: string;
   optionChoice: string;
   spfxContext: WebPartContext;
+  headerBackgroundColor: string;
+  headerTextColor: string;
+  headerFontBold: boolean;
+  contentBackgroundColor: string;
+  contentTextColor: string;
+  contentFontBold: boolean;
+  fontFamily: string;
+  fontStyle: string;
+  overrideCssUrl: string;
+  enableDiagnostics: boolean;
 }
 
 const LOG_SOURCE: string = 'Accordion - ';
@@ -41,7 +60,11 @@ private options: IPropertyPaneDropdownOption[];
 private optionsDropDownDisabled: boolean=true;
 
   public render(): void { 
-    
+
+    this.logDiagnostic('render() called. optionChoice=' + String(this.properties.optionChoice) + ', listName=' + String(this.properties.listName || '(none)'));
+
+    this._applyOverrideStylesheet();
+
     const element: React.ReactElement<IAccordionProps > = React.createElement(
       Accordion,
       {
@@ -49,18 +72,43 @@ private optionsDropDownDisabled: boolean=true;
         itemName: this.properties.itemName,
         itemContent: this.properties.itemContent,
         optionChoice: this.properties.optionChoice,
-        spfxContext:this.context
+        spfxContext:this.context,
+        headerBackgroundColor: this.properties.headerBackgroundColor || '#f0f0f0',
+        headerTextColor: this.properties.headerTextColor || '#000000',
+        headerFontBold: this.properties.headerFontBold || false,
+        contentBackgroundColor: this.properties.contentBackgroundColor || '#ffffff',
+        contentTextColor: this.properties.contentTextColor || '#000000',
+        contentFontBold: this.properties.contentFontBold || false,
+        fontFamily: this.properties.fontFamily || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+        fontStyle: this.properties.fontStyle || 'normal',
+        overrideCssUrl: this.properties.overrideCssUrl || '',
+        enableDiagnostics: this.properties.enableDiagnostics !== false
          }
     );
 
     ReactDom.render(element, this.domElement);
   }
 
+  private _applyOverrideStylesheet(): void {
+    if (this.properties.overrideCssUrl) {
+      this.logDiagnostic('Applying override stylesheet: ' + this.properties.overrideCssUrl);
+      const existingLink: HTMLElement = document.getElementById('accordion-override-css');
+      if (existingLink) {
+        existingLink.remove();
+      }
+      const link: HTMLLinkElement = document.createElement('link');
+      link.id = 'accordion-override-css';
+      link.rel = 'stylesheet';
+      link.href = this.properties.overrideCssUrl;
+      document.head.appendChild(link);
+    }
+  }
+
   protected onPropertyPaneConfigurationStart():void {
     this.listsDropDownDisabled=!this.lists;
     this.itemsDropDownDisabled=!this.properties.listName || !this.items;
-    console.info(LOG_SOURCE+ 'List Name:' + this.properties.listName);
-    console.info(LOG_SOURCE+'items:' + this.items);
+    this.logDiagnostic('onPropertyPaneConfigurationStart called. List Name: ' + this.properties.listName);
+    this.logDiagnostic('Cached items: ' + this.items);
     if (this.lists) {
       return;
     }
@@ -100,6 +148,7 @@ private optionsDropDownDisabled: boolean=true;
   }
 
   protected onPropertyPaneFieldChanged(propertyPath:string, oldValue: any, newValue:any): void {
+    this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
     if(propertyPath==='listName' && newValue) {
       //push new list value
       super.onPropertyPaneFieldChanged(propertyPath,oldValue,newValue);
@@ -154,6 +203,7 @@ private optionsDropDownDisabled: boolean=true;
     }
   }
    private async fetchLists(url:string): Promise<any> {
+       this.logDiagnostic('fetchLists() requesting url: ' + url);
        return this.context.spHttpClient.get(url, SPHttpClient.configurations.v1)
        .then ((response:SPHttpClientResponse) => {
          if (response.ok) {
@@ -183,7 +233,7 @@ private optionsDropDownDisabled: boolean=true;
     private async loadLists(): Promise<IPropertyPaneDropdownOption[]> {
   const currentWebUrl = this.context.pageContext.web.absoluteUrl;
   const url = `${currentWebUrl}/_api/web/lists?$filter=Hidden eq false and BaseTemplate eq 100`;
-  console.info('LOG_SOURCE LoadList url: ' + url);
+  this.logDiagnostic('loadLists() url: ' + url);
 
   return this.fetchLists(url).then((response) => {
     const options: IPropertyPaneDropdownOption[] = [];
@@ -195,10 +245,11 @@ private optionsDropDownDisabled: boolean=true;
     }
 
     (response.value as ICustomList[]).map((list) => {
-      console.info('LOG_SOURCE Found list with title: ' + list.Title);
+      this.logDiagnostic('loadLists() found list with title: ' + list.Title);
       options.push({ key: list.Id, text: list.Title });
     });
 
+    this.logDiagnostic('loadLists() completed. Count=' + String(options.length));
     return options;
   });
 }
@@ -207,14 +258,14 @@ private optionsDropDownDisabled: boolean=true;
     private loadItems(listTitle: string): Promise<IPropertyPaneDropdownOption[]> {
     // giving only single line option for header
      let url=this.context.pageContext.web.absoluteUrl + "/_api/web/lists/GetById('"+ listTitle +"')/fields?$select=Title, InternalName&$filter=(((FieldTypeKind eq 2 and FromBaseType eq false) and (Hidden eq false)) or StaticName eq 'Title')";
-     console.info (LOG_SOURCE + "Items url: " + url);
+     this.logDiagnostic('loadItems() url: ' + url);
      return this.fetchLists(url).then((response) => {
       let options: Array<IPropertyPaneDropdownOption> = new Array<IPropertyPaneDropdownOption>();
         response.value.map((items:any) => {
-        console.info(LOG_SOURCE + "Found Item Title:" + items.Title);
-        console.info(LOG_SOURCE+ "Found Internal ColumnName:" + items.InternalName);
+        this.logDiagnostic('loadItems() found item title: ' + items.Title + ', internal name: ' + items.InternalName);
         options.push({key: items.InternalName, text: items.Title}); 
     });
+    this.logDiagnostic('loadItems() completed. Count=' + String(options.length));
     return options;
     });
    }
@@ -222,15 +273,15 @@ private optionsDropDownDisabled: boolean=true;
    private loadContents(listTitle: string): Promise<IPropertyPaneDropdownOption[]> {
      //can be a single line or multiline column 
     let url=this.context.pageContext.web.absoluteUrl + "/_api/web/lists/GetById('"+ listTitle +"')/fields?$filter=(((FieldTypeKind eq 3 or FieldTypeKind eq 2) and (FromBaseType eq false) and (Hidden eq false)) or StaticName eq 'Title')";
-    console.info (LOG_SOURCE + "contents url: " + url);
+    this.logDiagnostic('loadContents() url: ' + url);
     return this.fetchLists(url).then((response) => {
      let options: Array<IPropertyPaneDropdownOption> = new Array<IPropertyPaneDropdownOption>();
       response.value.map((contents:any) => {
-      console.info (LOG_SOURCE + "Found Item Title:" + contents.Title);
-      console.info(LOG_SOURCE+"Found Column InternalName:" + contents.InternalName);
+      this.logDiagnostic('loadContents() found item title: ' + contents.Title + ', internal name: ' + contents.InternalName);
       options.push({key: contents.InternalName, text: contents.Title});
       
    });
+   this.logDiagnostic('loadContents() completed. Count=' + String(options.length));
    return options;
    }); 
   }
@@ -254,6 +305,8 @@ private optionsDropDownDisabled: boolean=true;
   
 
 protected async onInit(): Promise<void> {
+  this.logDiagnostic('onInit() started. listName=' + String(this.properties.listName || '(none)'));
+
   this.properties.listName = this.properties.listName && this.properties.listName.trim() !== '' 
     ? this.properties.listName 
     : '';
@@ -270,10 +323,12 @@ protected async onInit(): Promise<void> {
     ? this.properties.optionChoice 
        : 'single';
 
+  this.logDiagnostic('onInit() completed. optionChoice=' + this.properties.optionChoice);
   return super.onInit();
 }
   
   protected onDispose(): void {
+    this.logDiagnostic('onDispose() called. Unmounting component.');
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
@@ -291,13 +346,22 @@ public serialize(): any {
 }
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
     return {
       pages: [
         {
           header: {
-            description: strings.PropertyPaneDescription + ` v${this.context.manifest.version}`,
+            description: ''
           },
           groups: [
+            {
+              groupName: fullVersionLabel,
+              groupFields: [
+                PropertyPaneLabel('propertyPaneVersionInfo', {
+                  text: ' '
+                })
+              ]
+            },
             {
               groupName: "Configuration:",
               groupFields: [
@@ -322,10 +386,151 @@ public serialize(): any {
                   disabled: this.optionsDropDownDisabled
                 })
               ]
+            },
+            {
+              groupName: "Header Styling:",
+              groupFields: [
+                PropertyFieldColorPicker('headerBackgroundColor', {
+                  label: 'Header Background Color',
+                  selectedColor: this.properties.headerBackgroundColor,
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  isHidden: false,
+                  alphaSliderHidden: true,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'headerBackgroundColor'
+                }),
+                PropertyFieldColorPicker('headerTextColor', {
+                  label: 'Header Text Color',
+                  selectedColor: this.properties.headerTextColor,
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  isHidden: false,
+                  alphaSliderHidden: true,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'headerTextColor'
+                }),
+                PropertyFieldToggleWithCallout('headerFontBold', {
+                  key: 'headerFontBold',
+                  label: 'Header Bold Text',
+                  checked: !!this.properties.headerFontBold,
+                  onText: 'On',
+                  offText: 'Off'
+                })
+              ]
+            },
+            {
+              groupName: "Content Styling:",
+              groupFields: [
+                PropertyFieldColorPicker('contentBackgroundColor', {
+                  label: 'Content Background Color',
+                  selectedColor: this.properties.contentBackgroundColor,
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  isHidden: false,
+                  alphaSliderHidden: true,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'contentBackgroundColor'
+                }),
+                PropertyFieldColorPicker('contentTextColor', {
+                  label: 'Content Text Color',
+                  selectedColor: this.properties.contentTextColor,
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  isHidden: false,
+                  alphaSliderHidden: true,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'contentTextColor'
+                }),
+                PropertyFieldToggleWithCallout('contentFontBold', {
+                  key: 'contentFontBold',
+                  label: 'Content Bold Text',
+                  checked: !!this.properties.contentFontBold,
+                  onText: 'On',
+                  offText: 'Off'
+                })
+              ]
+            },
+            {
+              groupName: "Font Settings:",
+              groupFields: [
+                PropertyFieldDropdownWithCallout('fontFamily', {
+                  key: 'fontFamily',
+                  label: 'Font Family',
+                  selectedKey: this.properties.fontFamily,
+                  options: [
+                    { key: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", text: 'Segoe UI' },
+                    { key: 'Arial, Helvetica, sans-serif', text: 'Arial' },
+                    { key: "'Trebuchet MS', Helvetica, sans-serif", text: 'Trebuchet MS' },
+                    { key: "'Georgia', serif", text: 'Georgia' },
+                    { key: "'Times New Roman', Times, serif", text: 'Times New Roman' },
+                    { key: "'Courier New', Courier, monospace", text: 'Courier New' }
+                  ]
+                }),
+                PropertyFieldDropdownWithCallout('fontStyle', {
+                  key: 'fontStyle',
+                  label: 'Font Style',
+                  selectedKey: this.properties.fontStyle,
+                  options: [
+                    { key: 'normal', text: 'Normal' },
+                    { key: 'italic', text: 'Italic' },
+                    { key: 'oblique', text: 'Oblique' }
+                  ]
+                })
+              ]
+            },
+            {
+              groupName: "Advanced:",
+              groupFields: [
+                PropertyFieldTextWithCallout('overrideCssUrl', {
+                  key: 'overrideCssUrl',
+                  label: 'Override CSS URL',
+                  value: this.properties.overrideCssUrl,
+                  placeholder: 'https://contoso.com/styles/accordion-overrides.css',
+                  calloutContent: 'Optional stylesheet URL loaded after web part CSS to override component styles.'
+                })
+              ]
+            },
+            {
+              groupName: 'Diagnostics',
+              groupFields: [
+                PropertyPaneCheckbox('enableDiagnostics', {
+                  text: strings.PropEnableDiagnosticsLabel,
+                  checked: this.properties.enableDiagnostics !== false
+                })
+              ]
             }
           ]
         }
       ]
     };
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.properties.enableDiagnostics === false) {
+      return;
+    }
+
+    console.log('[AccordionWebPart] ' + message);
+  }
+
+  private getWebPartVersion(): string {
+    const solutionVersion = packageSolutionConfig && packageSolutionConfig.solution
+      ? String(packageSolutionConfig.solution.version || '')
+      : '';
+    if (solutionVersion) {
+      return solutionVersion;
+    }
+
+    const manifestVersion = this.context && this.context.manifest ? String(this.context.manifest.version || '') : '';
+    if (manifestVersion && manifestVersion !== '*') {
+      return manifestVersion;
+    }
+
+    return 'Unknown';
   }
 }

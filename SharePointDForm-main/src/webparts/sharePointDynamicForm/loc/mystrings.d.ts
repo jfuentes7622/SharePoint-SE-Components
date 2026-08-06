@@ -208,6 +208,10 @@ declare interface ISharePointDynamicFormWebPartStrings {
   FieldTaxonomyPlaceholder: string;
   FieldBooleanYes: string;
   FieldBooleanNo: string;
+  PermissionDeniedDefault: string;
+  PropertyPanelFormMessages: string;
+  PropertyPanelPermissionDeniedMessage: string;
+  PropertyPanelPermissionDeniedMessageHint: string;
   ValidationRequired: string;
   ValidationMinLength: string;
   ValidationMaxLength: string;
@@ -264,6 +268,8 @@ declare interface ISharePointDynamicFormWebPartStrings {
   PropertyPanelFieldRequiredLocked: string;
   PropertyPanelFieldRequiredMessage: string;
   PropertyPanelFieldRequiredMessagePlaceholder: string;
+  PropertyPanelFieldEnabled: string;
+  PropertyPanelFieldEnabledHint: string;
   PropertyPanelFieldMaxLength: string;
   PropertyPanelFieldChoices: string;
   PropertyPanelFieldLookupList: string;
@@ -283,7 +289,14 @@ declare interface ISharePointDynamicFormWebPartStrings {
   PropertyPanelDateFormat: string;
   PropertyPanelDateFormatDateOnly: string;
   PropertyPanelDateFormatDateTime: string;
+  PropertyPanelDateFormatTimeOnly: string;
+  PropertyPanelTimeZone: string;
+  PropertyPanelTimeZoneUtc: string;
+  PropertyPanelTimeZoneLocal: string;
   PropertyPanelDefaultBoolean: string;
+  PropertyPanelBooleanText: string;
+  PropertyPanelBooleanTextPlaceholder: string;
+  PropertyPanelBooleanTextHint: string;
   PropertyPanelDefaultChoice: string;
   PropertyPanelDefaultChoiceEmpty: string;
   PropertyPanelDefaultMultiSelect: string;

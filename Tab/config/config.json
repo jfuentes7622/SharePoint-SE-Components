@@ -2,18 +2,18 @@
   "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/config.2.0.schema.json",
   "version": "2.0",
   "bundles": {
-    "km-marquee-web-part": {
+    "tab-component-web-part": {
       "components": [
         {
-          "entrypoint": "./lib/webparts/kmMarquee/KmMarqueeWebPart.js",
-          "manifest": "./src/webparts/kmMarquee/KmMarqueeWebPart.manifest.json"
+          "entrypoint": "./lib/webparts/tabComponent/TabComponentWebPart.js",
+          "manifest": "./src/webparts/tabComponent/TabComponentWebPart.manifest.json"
         }
       ]
     }
   },
   "externals": {"sp-client-custom-fields": "node_modules/sp-client-custom-fields/dist/sp-client-custom-fields.bundle.js"},
   "localizedResources": {
-    "KmMarqueeWebPartStrings": "lib/webparts/kmMarquee/loc/{locale}.js",
+    "TabComponentWebPartStrings": "lib/webparts/tabComponent/loc/{locale}.js",
     "sp-client-custom-fields/strings": "node_modules/sp-client-custom-fields/lib/loc/{locale}.js",
     "PropertyControlStrings": "node_modules/@pnp/spfx-property-controls/lib/loc/{locale}.js"
   }

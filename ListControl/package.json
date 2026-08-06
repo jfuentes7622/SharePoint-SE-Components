@@ -23,6 +23,7 @@
     "@pnp/spfx-property-controls": "^1.5.1",
     "react": "15.6.2",
     "react-dom": "15.6.2",
+    "sp-client-custom-fields": "^1.3.7",
     "tslib": "^1.8.0"
   },
   "devDependencies": {

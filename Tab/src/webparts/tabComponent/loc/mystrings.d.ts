@@ -20,6 +20,8 @@ declare interface ITabComponentWebPartStrings {
   SelectedColor: string;
   ErrorClassicSharePoint: string;
   TabType:string;
+  DiagnosticsGroupName: string;
+  PropEnableDiagnosticsLabel: string;
 }
 
 declare module 'TabComponentWebPartStrings' {

@@ -9,5 +9,5 @@ export type PersonObjectModel = {
     displayPhoto: boolean;
     imageWidth?: number;
     sVoip : string;
-    imageIsCircle:boolean;
+    imageShape: string;
 };

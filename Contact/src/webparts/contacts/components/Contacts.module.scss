@@ -43,6 +43,10 @@
   border-radius: 0;
 }
 
+.imageRounded {
+  border-radius: 12px;
+}
+
 .ContactImages {
   align-items: flex-end;
   //top head of the blocks/panels on left side of the org page
@@ -61,6 +65,12 @@
     padding-bottom: 4px;
     padding-left: 16px;
     padding-right: 16px;
+    font-family: var(--PersonnelPanelHeaderFontFamily, "Segoe UI");
+    font-style: var(--PersonnelPanelHeaderFontStyle, normal);
+    font-weight: var(--PersonnelPanelHeaderFontWeight, bold);
+    text-align: var(--PersonnelPanelHeaderTextAlign, left);
+    border-top-left-radius: var(--PersonnelPanelHeaderTopRadius, 8px);
+    border-top-right-radius: var(--PersonnelPanelHeaderTopRadius, 8px);
   }
 
   .personnelFrame {
@@ -87,8 +97,10 @@
     }
 
     .personnelTitle {
-      color: rgb(51, 51, 51);
-      font-weight: bold;
+      color: var(--PersonnelTileTitleColor, rgb(51, 51, 51));
+      font-family: var(--PersonnelTileTitleFontFamily, '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif');
+      font-style: var(--PersonnelTileTitleFontStyle, normal);
+      font-weight: var(--PersonnelTileTitleFontWeight, bold);
     }
 
     .personnelName {
@@ -108,6 +120,10 @@
     .personnelBioLink {
       cursor: pointer;
       text-decoration: underline;
+    }
+
+    .personnelInfoArea {
+      background-color: var(--PersonnelTileInfoBackgroundColor, transparent);
     }
   }
 

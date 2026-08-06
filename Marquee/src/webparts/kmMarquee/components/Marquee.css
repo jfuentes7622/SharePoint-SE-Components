@@ -1,0 +1,32 @@
+* { box-sizing: border-box; }
+
+
+body,
+html { overflow-x: hidden; }
+
+.bar {
+  position: relative;
+  top: 0;
+  left: 0;
+
+  width: 100%;
+  padding: 5px;
+  box-sizing: border-box;
+} 
+
+.bar_content {
+  display: block; /* Important to give the content a width */
+
+  width: 100%;
+  white-space: nowrap;
+}
+
+/* Content travels from right to left across the screen */
+@keyframes moveLeft {
+  to { transform: translateX(-100%); }
+}
+
+/* Content travels from left to right across the screen */
+@keyframes moveRight {
+  to { transform: translateX(100%); }
+}

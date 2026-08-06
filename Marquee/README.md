@@ -1,73 +1,65 @@
-# km-marquee
+# SPS Marquee
 
-## Summary
-
-Short summary on functionality and used technologies.
-
-[picture of the solution in action, if possible]
-
-## Used SharePoint Framework Version
-
-![version](https://img.shields.io/badge/version-1.18.2-green.svg)
-
-## Applies to
-
-- [SharePoint Framework](https://aka.ms/spfx)
-- [Microsoft 365 tenant](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-
-> Get your own free development tenant by subscribing to [Microsoft 365 developer program](http://aka.ms/o365devprogram)
-
-## Prerequisites
-
-> Any special pre-requisites?
-
-## Solution
-
-| Solution    | Author(s)                                               |
-| ----------- | ------------------------------------------------------- |
-| folder name | Author details (name, company, twitter alias with link) |
-
-## Version history
-
-| Version | Date             | Comments        |
-| ------- | ---------------- | --------------- |
-| 1.1     | March 10, 2021   | Update comment  |
-| 1.0     | January 29, 2021 | Initial release |
-
-## Disclaimer
-
-**THIS CODE IS PROVIDED _AS IS_ WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.**
-
----
-
-## Minimal Path to Awesome
-
-- Clone this repository
-- Ensure that you are at the solution folder
-- in the command-line run:
-  - **npm install**
-  - **gulp serve**
-
-> Include any additional steps as needed.
+SPFx 1.5.1 scrolling-announcement web part for SharePoint Server Subscription Edition. The marquee is injected into the configured SharePoint page header area so it can span beyond the web part canvas.
 
 ## Features
 
-Description of the extension that expands upon high-level summary above.
+- Display a static announcement or cycle through messages from a SharePoint list.
+- Select the list column that contains message text.
+- Configure how long each list message remains active.
+- Customize colors, typography, height, speed, and scroll direction.
+- Enable or disable the marquee without removing the web part.
+- Render list-sourced content as plain text so stored HTML is not interpreted.
+- Enable diagnostic console logging for troubleshooting.
 
-This extension illustrates the following concepts:
+## Configuration
 
-- topic 1
-- topic 2
-- topic 3
+### Content
 
-> Notice that better pictures and documentation will increase the sample usage and the value you are providing for others. Thanks for your submissions advance.
+| Property | Description | Default |
+|---|---|---|
+| `description` | Static scrolling text. The value is limited to 250 characters and HTML tags are rejected. It is also used as the fallback when a list source is not fully configured. | Empty |
+| `listName` | Optional SharePoint list containing dynamic messages. | Empty |
+| `messageField` | Column whose values are displayed. Available columns are loaded after selecting a list. | Empty |
+| `messageDuration` | Seconds each list message is displayed before advancing to the next message. | `8` |
 
-> Share your web part with others through Microsoft 365 Patterns and Practices program to get visibility and exposure. More details on the community, open-source projects and other activities from http://aka.ms/m365pnp.
+When both `listName` and `messageField` are selected, the web part loads up to 100 list items in item-ID order and cycles through their non-empty message values. Clear either setting to return to the static announcement.
 
-## References
+### Appearance And Behavior
 
-- [Getting started with SharePoint Framework](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-- [Building for Microsoft teams](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/build-for-teams-overview)
-- [Use Microsoft Graph in your solution](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/web-parts/get-started/using-microsoft-graph-apis)
-- [Publish SharePoint Framework applications to the Marketplace](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/publish-to-marketplace-overview)
-- [Microsoft 365 Patterns and Practices](https://aka.ms/m365pnp) - Guidance, tooling, samples and open-source controls for your Microsoft 365 development
+| Property | Description | Default |
+|---|---|---|
+| `marqueeActive` | Shows or hides the marquee. | Enabled |
+| `marqueeBackColor` | Marquee background color, including optional alpha transparency. | `#333333` |
+| `marqueeTextColor` | Announcement text color, including optional alpha transparency. | `#FAFAFA` |
+| `fontFamily` | Announcement font family. | `Segoe UI` |
+| `fontSize` | CSS font size applied to announcement text. | `13px` |
+| `fontStyle` | Normal, italic, or oblique text. | `normal` |
+| `fontBold` | Uses bold announcement text. | Enabled |
+| `marqueeHeight` | CSS height/minimum height for the marquee bar. | `32px` |
+| `scrollSpeed` | Seconds required for one complete pass; lower values move faster. | `50` |
+| `scrollDirection` | Scrolls left or right. | `left` |
+| `enableDiagnostics` | Writes lifecycle and data-loading details to the browser console. | Enabled |
+
+## Requirements
+
+- SharePoint Server Subscription Edition
+- SharePoint Framework 1.5.1
+- Node.js 10.24.x and npm 6.x for local builds
+- Read access to the selected list and message column when list-backed mode is used
+
+## Build And Package
+
+From the `Marquee` folder:
+
+```powershell
+npm install
+gulp bundle --ship
+gulp package-solution --ship
+```
+
+The deployable package is generated under `sharepoint/solution/`.
+
+## Disclaimer
+
+This code is provided as-is without warranty of any kind, either express or implied.

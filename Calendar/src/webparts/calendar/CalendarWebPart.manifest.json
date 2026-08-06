@@ -16,11 +16,16 @@
   "preconfiguredEntries": [{
     "groupId": "5c03119e-3074-46fd-976b-c60198311f70", // Other
     "group": { "default": "Other" },
-    "title": { "default": "Calendar" },
-    "description": { "default": "Custom Calendar" },
-    "officeFabricIconFontName": "Page",
+    "title": { "default": "SPS Calendar" },
+    "description": { "default": "Displays events from a SharePoint list in a calendar view" },
+    "officeFabricIconFontName": "Calendar",
     "properties": {
-      "description": "Calendar"
+      "title": "Calendar",
+      "listName": "",
+      "defaultView": "dayGridMonth",
+      "showWeekends": true,
+      "calendarHeight": 600,
+      "enableDiagnostics": false
     }
   }]
 }

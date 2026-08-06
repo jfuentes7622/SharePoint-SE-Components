@@ -3,7 +3,7 @@
     "solution": {
         "name": "SPS Tiles",
         "id": "9e6094a4-d8f2-4ce6-ac3f-312a37aeecee",
-        "version": "2.0.0.0",
+        "version": "2.1.0.0",
             "includeClientSideAssets": true,
     "skipFeatureDeployment": true 
     },

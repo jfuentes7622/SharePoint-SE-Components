@@ -1,89 +1,44 @@
-# eucom-km-spo-contacts
+# SPS Contacts
 
-## Summary
-
-Short summary on functionality and used technologies.
-
-[picture of the solution in action, if possible]
-
-## Used SharePoint Framework Version
-
-![version](https://img.shields.io/badge/version-1.18.2-green.svg)
-
-## Applies to
-
-- [SharePoint Framework](https://aka.ms/spfx)
-- [Microsoft 365 tenant](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-
-> Get your own free development tenant by subscribing to [Microsoft 365 developer program](http://aka.ms/o365devprogram)
-
-## Prerequisites
-
-Requires a very strict list structure as follows:
-    Id: string;
-    Title: string;
-    directorate: string;
-    division: string;
-    branch: string;
-    group: choice field in SP;
-    groupHeiarchyValue: number;
-    name: string;
-    eMail: string;
-    phoneNumber: string;
-    bioLink: string;
-    displayPhoto: boolean;
-    imageLink: string;
-    sVoip : string;
-
-DisplayNames above canbe different case but must be spelled exactly as above, for example phonenumber not "phone number", biolink not "Bio link".
-
-## Solution
-
-| Solution    | Author(s)                                               |
-| ----------- | ------------------------------------------------------- |
-| folder name | Author details (name, company, twitter alias with link) |
-
-## Version history
-
-| Version | Date             | Comments        |
-| ------- | ---------------- | --------------- |
-| 1.1     | March 10, 2021   | Update comment  |
-| 1.0     | January 29, 2021 | Initial release |
-
-## Disclaimer
-
-**THIS CODE IS PROVIDED _AS IS_ WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.**
-
----
-
-## Minimal Path to Awesome
-
-- Clone this repository
-- Ensure that you are at the solution folder
-- in the command-line run:
-  - **npm install**
-  - **gulp serve**
-
-> Include any additional steps as needed.
+SPFx 1.5.1 personnel directory web part for SharePoint Server Subscription Edition.
 
 ## Features
 
-Description of the extension that expands upon high-level summary above.
+- Load contacts from a SharePoint list or maintain inline contact entries in the property pane.
+- Filter contacts through directorate and division hierarchy.
+- Display job title, name, email, phone, VOIP, biography link, and optional photo.
+- Render photos as square, rounded, or circular images.
+- Customize card headers, titles, information areas, fonts, colors, alignment, and corners.
+- Load an optional override stylesheet.
+- Enable diagnostic console logging for list, record, and image services.
 
-This extension illustrates the following concepts:
+## Data Source
 
-- topic 1
-- topic 2
-- topic 3
+Enable **Use Existing List** to select a SharePoint list and map the job title, directorate, and division columns. The remaining contact fields follow the component's contact schema, including name, email, phone number, biography link, image link, display-photo flag, VOIP, group, and display order.
 
-> Notice that better pictures and documentation will increase the sample usage and the value you are providing for others. Thanks for your submissions advance.
+Disable **Use Existing List** to enter contact records directly in the property-pane collection editor.
 
-> Share your web part with others through Microsoft 365 Patterns and Practices program to get visibility and exposure. More details on the community, open-source projects and other activities from http://aka.ms/m365pnp.
+## Appearance
 
-## References
+| Property | Description |
+|---|---|
+| `imageShape` | Contact image shape: `square`, `rounded`, or `circle`. |
+| `imageWidth` | Contact image size in pixels. |
+| `PersonnelPanelHeaderBackColor` / `PersonnelPanelHeaderTextColor` | Card header colors. |
+| `headerFontFamily` / `headerFontStyle` / `headerFontBold` | Header typography. |
+| `headerAlignment` / `headerTopCorners` | Header alignment and corner style. |
+| `tileTitleColor` | Job-title text color. |
+| `titleFontFamily` / `titleFontStyle` / `titleFontBold` | Job-title typography. |
+| `tileInfoBackgroundColor` | Background behind contact details. |
+| `overridecss` | Optional external stylesheet URL. |
+| `enableDiagnostics` | Writes contact loading and rendering details to the browser console. |
 
-- [Getting started with SharePoint Framework](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-- [Building for Microsoft teams](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/build-for-teams-overview)
-- [Use Microsoft Graph in your solution](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/web-parts/get-started/using-microsoft-graph-apis)
-- [Publish SharePoint Framework applications to the Marketplace](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/publish-to-marketplace-overview)
-- [Microsoft 365 Patterns and Practices](https://aka.ms/m365pnp) - Guidance, tooling, samples and open-source controls for your Microsoft 365 development
+## Build And Package
+
+```powershell
+npm install
+gulp bundle --ship
+gulp package-solution --ship
+```
+
+The deployable package is generated under `sharepoint/solution/`.

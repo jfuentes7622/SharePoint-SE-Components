@@ -1,73 +1,44 @@
-# branding
+# KM World Clock Banner
 
-## Summary
-
-Short summary on functionality and used technologies.
-
-[picture of the solution in action, if possible]
-
-## Used SharePoint Framework Version
-
-![version](https://img.shields.io/badge/version-1.20.0-green.svg)
-
-## Applies to
-
-- [SharePoint Framework](https://aka.ms/spfx)
-- [Microsoft 365 tenant](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-
-> Get your own free development tenant by subscribing to [Microsoft 365 developer program](http://aka.ms/o365devprogram)
-
-## Prerequisites
-
-> Any special pre-requisites?
-
-## Solution
-
-| Solution    | Author(s)                                               |
-| ----------- | ------------------------------------------------------- |
-| folder name | Author details (name, company, twitter alias with link) |
-
-## Version history
-
-| Version | Date             | Comments        |
-| ------- | ---------------- | --------------- |
-| 1.1     | March 10, 2021   | Update comment  |
-| 1.0     | January 29, 2021 | Initial release |
-
-## Disclaimer
-
-**THIS CODE IS PROVIDED _AS IS_ WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.**
-
----
-
-## Minimal Path to Awesome
-
-- Clone this repository
-- Ensure that you are at the solution folder
-- in the command-line run:
-  - **npm install**
-  - **gulp serve**
-
-> Include any additional steps as needed.
+SPFx 1.5.1 Application Customizer for SharePoint Server Subscription Edition. It injects centrally managed header/footer content and a live multi-timezone clock banner into classic and modern pages.
 
 ## Features
 
-Description of the extension that expands upon high-level summary above.
+- Render multiple clocks from a SharePoint list.
+- Show digital clocks only or combine digital and analog clocks.
+- Use 12-hour or 24-hour time and optionally show weekday names.
+- Target classic pages, modern communication sites, and modern team sites.
+- Load header HTML, footer HTML, settings, and additional assets from Site Assets.
+- Point multiple sites at a central configuration location through `rootUrl`.
+- Enable diagnostic console logging across the customizer, loader, and clock component.
 
-This extension illustrates the following concepts:
+## Configuration
 
-- topic 1
-- topic 2
-- topic 3
+### Extension Properties
 
-> Notice that better pictures and documentation will increase the sample usage and the value you are providing for others. Thanks for your submissions advance.
+| Property | Description |
+|---|---|
+| `rootUrl` | Optional root site/web application URL containing the shared Site Assets configuration. When omitted, the current site is used. |
+| `enableDiagnostics` | Writes initialization, asset-loading, and clock-list details to the browser console. Enabled unless explicitly set to `false`. |
 
-> Share your web part with others through Microsoft 365 Patterns and Practices program to get visibility and exposure. More details on the community, open-source projects and other activities from http://aka.ms/m365pnp.
+### Settings File
 
-## References
+| Setting | Description |
+|---|---|
+| `spList` | SharePoint list containing clock locations and timezone values. |
+| `digitalOnly` | Hides analog clock faces when enabled. |
+| `hour12` | Uses 12-hour time with AM/PM instead of 24-hour time. |
+| `displayDay` | Shows the weekday name. |
+| `ClassicBannerId` / `ClassicFooterId` | Target element IDs on classic pages. |
+| `ModernBannerComId` / `ModernFooterComId` | Target element IDs on modern communication sites. |
+| `ModernBannerTeamId` / `ModernFooterTeamId` | Target element IDs on modern team sites. |
 
-- [Getting started with SharePoint Framework](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-- [Building for Microsoft teams](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/build-for-teams-overview)
-- [Use Microsoft Graph in your solution](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/web-parts/get-started/using-microsoft-graph-apis)
-- [Publish SharePoint Framework applications to the Marketplace](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/publish-to-marketplace-overview)
-- [Microsoft 365 Patterns and Practices](https://aka.ms/m365pnp) - Guidance, tooling, samples and open-source controls for your Microsoft 365 development
+## Build And Package
+
+```powershell
+npm install
+gulp bundle --ship
+gulp package-solution --ship
+```
+
+The deployable package is generated under `sharepoint/solution/`.

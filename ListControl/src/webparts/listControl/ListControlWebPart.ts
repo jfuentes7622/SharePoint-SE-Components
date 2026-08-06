@@ -15,9 +15,10 @@ import {
 } from '@microsoft/sp-webpart-base';
 import { PropertyPaneCustomField } from '@microsoft/sp-webpart-base/lib/propertyPane/propertyPaneFields/propertyPaneCustomField/PropertyPaneCustomField';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
+import { PropertyFieldCustomList, CustomListFieldType } from 'sp-client-custom-fields/lib/PropertyFieldCustomList';
 
 import * as strings from 'ListControlWebPartStrings';
-import { ListControl, IListControlViewOption } from './components/ListControl';
+import { ListControl, IListControlColumnConfiguration, IListControlViewOption } from './components/ListControl';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -40,6 +41,7 @@ export interface IListControlWebPartProps {
   instanceName?: string;
   listName: string;
   viewId: string;
+  viewColumns?: IListControlColumnConfiguration[];
   pageSize?: number | string;
   showViewSelector: boolean;
   showRefresh: boolean;
@@ -143,6 +145,19 @@ function normalizePageSize(value: number | string | undefined): number {
   return !isNaN(parsed) && parsed > 0 ? parsed : 0;
 }
 
+function normalizeStringCollection(value: any): string[] {
+  var source = value && value.results ? value.results : value;
+  if (!Array.isArray(source)) {
+    return [];
+  }
+
+  return source.map(function(item: any) {
+    return String(item && item.Name !== undefined ? item.Name : item || '');
+  }).filter(function(item: string) {
+    return !!item;
+  });
+}
+
 export default class ListControlWebPart extends BaseClientSideWebPart<IListControlWebPartProps> {
   private _lists: IDropdownOption[] = [];
   private _views: IListControlViewOption[] = [];
@@ -222,6 +237,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       listName: this.properties.listName || '',
       defaultViewId: this.properties.viewId || '',
       views: this._views,
+      viewColumns: this.properties.viewColumns || [],
       pageSize: normalizePageSize(this.properties.pageSize),
       isEditMode: this.displayMode === DisplayMode.Edit,
       showViewSelector: this.properties.showViewSelector !== false,
@@ -291,7 +307,12 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       if (this.properties.listName) {
         this.logDiagnostic('Loading views for configured list: ' + String(this.properties.listName));
         return this.loadViews(this.properties.listName).then(() => {
-          return this.loadListFields(this.properties.listName);
+          return this.loadListFields(this.properties.listName).then(() => {
+            if ((!this.properties.viewColumns || this.properties.viewColumns.length === 0) && this.properties.viewId) {
+              return this.loadViewColumns(this.properties.listName, this.properties.viewId);
+            }
+            return Promise.resolve();
+          });
         });
       }
       return Promise.resolve();
@@ -322,6 +343,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
 
     if (propertyPath === 'listName' && oldValue !== newValue) {
       this.properties.viewId = '';
+      this.properties.viewColumns = [];
       this.properties.filterDesignerField = '';
       this.properties.conditionalStyleApplyField = '';
       this.properties.conditionalStyleConditionField = '';
@@ -331,6 +353,17 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       if (newValue) {
         this.loadViews(String(newValue));
         this.loadListFields(String(newValue));
+      }
+      return;
+    }
+
+    if (propertyPath === 'viewId' && oldValue !== newValue) {
+      this.properties.viewColumns = [];
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.context.propertyPane.refresh();
+      this.render();
+      if (this.properties.listName && newValue) {
+        this.loadViewColumns(this.properties.listName, String(newValue));
       }
       return;
     }
@@ -758,6 +791,21 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
                   label: strings.PropViewLabel,
                   options: this._views.length > 0 ? this._views : [{ key: '', text: strings.PropNoViews }],
                   selectedKey: this.properties.viewId || ''
+                }),
+                PropertyFieldCustomList('viewColumns', {
+                  key: 'listControlViewColumns-' + String(this.properties.viewId || 'none'),
+                  label: strings.PropViewColumnsLabel,
+                  headerText: strings.PropViewColumnsHeader,
+                  value: this.properties.viewColumns || [],
+                  context: this.context,
+                  properties: this.properties,
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  render: this.render.bind(this),
+                  fields: [
+                    { id: 'fieldName', title: strings.PropViewColumnField, required: true, type: CustomListFieldType.string },
+                    { id: 'displayName', title: strings.PropViewColumnDisplayName, required: true, type: CustomListFieldType.string },
+                    { id: 'width', title: strings.PropViewColumnWidth, required: false, type: CustomListFieldType.string }
+                  ]
                 }),
                 PropertyPaneTextField('pageSize', {
                   label: strings.PropPageSizeLabel,
@@ -2218,6 +2266,10 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
         this.logDiagnostic('Auto-selected default viewId=' + String(this.properties.viewId));
       }
 
+      if (this.properties.viewId && (!this.properties.viewColumns || this.properties.viewColumns.length === 0)) {
+        await this.loadViewColumns(listName, this.properties.viewId);
+      }
+
       this.logDiagnostic('Loaded views successfully. Count=' + String(this._views.length));
       this.context.propertyPane.refresh();
       this.render();
@@ -2225,6 +2277,64 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error && error.message ? error.message : String(error)));
       this._views = [];
       this.context.propertyPane.refresh();
+    }
+  }
+
+  private async loadViewColumns(listName: string, viewId: string): Promise<void> {
+    if (!listName || !viewId) {
+      this.properties.viewColumns = [];
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
+
+    try {
+      var webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+      var listPath = "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')";
+      var normalizedViewId = String(viewId).replace(/[{}]/g, '');
+      var viewData = await this.getJsonWithAcceptFallback(
+        webUrl + listPath + "/views/getById('" + encodeURIComponent(normalizedViewId) + "')/ViewFields"
+      );
+      var viewFields = normalizeStringCollection(viewData && viewData.value);
+      if (viewFields.length === 0) {
+        viewFields = normalizeStringCollection(viewData && viewData.Items);
+      }
+      if (viewFields.length === 0) {
+        viewFields = normalizeStringCollection(viewData && viewData.d && viewData.d.Items);
+      }
+
+      var fieldData = await this.getJsonWithAcceptFallback(webUrl + listPath + "/fields?$select=InternalName,Title");
+      var fields = fieldData && fieldData.value ? fieldData.value : [];
+      if (!fields || fields.length === 0) {
+        fields = fieldData && fieldData.d && fieldData.d.results ? fieldData.d.results : [];
+      }
+      var titleByName: { [fieldName: string]: string } = {};
+      fields.forEach(function(field: any) {
+        var internalName = String(field.InternalName || '');
+        if (internalName) {
+          titleByName[internalName] = String(field.Title || internalName);
+        }
+      });
+
+      if (this.properties.listName !== listName || this.properties.viewId !== viewId) {
+        return;
+      }
+
+      this.properties.viewColumns = viewFields.map(function(fieldName: string) {
+        return {
+          fieldName: fieldName,
+          displayName: titleByName[fieldName] || fieldName,
+          width: ''
+        };
+      });
+      this.logDiagnostic('Initialized view column collection. Count=' + String(this.properties.viewColumns.length));
+      this.context.propertyPane.refresh();
+      this.render();
+    } catch (error) {
+      this.properties.viewColumns = [];
+      this.context.propertyPane.refresh();
+      this.render();
+      this.logDiagnostic('Failed to initialize columns for view ' + viewId + ': ' + (error && error.message ? error.message : String(error)));
     }
   }
 

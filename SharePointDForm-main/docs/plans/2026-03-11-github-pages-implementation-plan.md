@@ -134,9 +134,9 @@ Expected: FAIL with missing CSS/hero.
 <section id="hero" class="section hero">
   <div class="container hero-grid">
     <div class="hero-copy">
-      <h1>SharePoint 动态表单引擎（SPFx 1.22）</h1>
+      <h1>SharePoint Dynamic Form Engine (SPFx 1.22)</h1>
       <p class="sub">SharePoint Dynamic Form Engine (SPFx 1.22)</p>
-      <p class="lead">面向 SharePoint 列表的可视化表单设计器与运行时渲染器。</p>
+      <p class="lead">A visual form designer and runtime renderer for SharePoint lists.</p>
       <p class="lead en">A visual form designer and runtime renderer for SharePoint lists.</p>
       <div class="actions">
         <a class="btn primary" href="#quick-start">Get Started</a>
@@ -247,7 +247,7 @@ Expected: FAIL with missing bilingual class.
   <div class="container">
     <div class="lang-pair">
       <div class="lang-zh">
-        <h2>核心特性</h2>
+        <h2>Key Features</h2>
       </div>
       <div class="lang-en">
         <h2>Key Features</h2>
@@ -255,19 +255,19 @@ Expected: FAIL with missing bilingual class.
     </div>
     <div class="card-grid">
       <div class="card">
-        <h3>可视化设计器</h3>
+        <h3>Visual Designer</h3>
         <p class="en">Visual Designer</p>
       </div>
       <div class="card">
-        <h3>条件显示与验证</h3>
+        <h3>Conditional Rules & Validation</h3>
         <p class="en">Conditional Rules & Validation</p>
       </div>
       <div class="card">
-        <h3>多种字段类型</h3>
+        <h3>Rich Field Types</h3>
         <p class="en">Rich Field Types</p>
       </div>
       <div class="card">
-        <h3>SharePoint 列表集成</h3>
+        <h3>SharePoint List Integration</h3>
         <p class="en">SharePoint List Integration</p>
       </div>
     </div>
@@ -277,14 +277,14 @@ Expected: FAIL with missing bilingual class.
 <section id="quick-start" class="section alt">
   <div class="container">
     <div class="lang-pair">
-      <div class="lang-zh"><h2>快速开始</h2></div>
+      <div class="lang-zh"><h2>Quick Start</h2></div>
       <div class="lang-en"><h2>Quick Start</h2></div>
     </div>
     <ol class="steps">
-      <li><span>1</span><div>安装依赖 <code>npm install</code><p class="en">Install dependencies</p></div></li>
-      <li><span>2</span><div>启动开发 <code>heft start</code><p class="en">Start local dev</p></div></li>
-      <li><span>3</span><div>将 Web Part 添加到页面<p class="en">Add the web part to a page</p></div></li>
-      <li><span>4</span><div>选择列表并进入设计模式<p class="en">Pick a list and enter designer mode</p></div></li>
+      <li><span>1</span><div>Install dependencies <code>npm install</code><p class="en">Install dependencies</p></div></li>
+      <li><span>2</span><div>Start local dev <code>heft start</code><p class="en">Start local dev</p></div></li>
+      <li><span>3</span><div>Add the web part to a page<p class="en">Add the web part to a page</p></div></li>
+      <li><span>4</span><div>Pick a list and enter designer mode<p class="en">Pick a list and enter designer mode</p></div></li>
     </ol>
   </div>
 </section>
@@ -292,7 +292,7 @@ Expected: FAIL with missing bilingual class.
 <section id="tech" class="section">
   <div class="container">
     <div class="lang-pair">
-      <div class="lang-zh"><h2>技术栈 / 兼容性</h2></div>
+      <div class="lang-zh"><h2>Tech Stack / Compatibility</h2></div>
       <div class="lang-en"><h2>Tech Stack / Compatibility</h2></div>
     </div>
     <div class="tag-row">
@@ -313,15 +313,15 @@ Expected: FAIL with missing bilingual class.
     </div>
     <div class="faq">
       <div>
-        <h4>设计器如何工作？</h4>
+        <h4>How does the designer work?</h4>
         <p class="en">How does the designer work?</p>
       </div>
       <div>
-        <h4>是否支持附件与复杂字段？</h4>
+        <h4>Does it support attachments and advanced fields?</h4>
         <p class="en">Does it support attachments and advanced fields?</p>
       </div>
       <div>
-        <h4>PnP 控件样式异常怎么办？</h4>
+        <h4>How to handle PnP control style issues?</h4>
         <p class="en">How to handle PnP control style issues?</p>
       </div>
     </div>
@@ -331,7 +331,7 @@ Expected: FAIL with missing bilingual class.
 <section id="cta" class="section">
   <div class="container cta">
     <div>
-      <h2>开始使用</h2>
+      <h2>Get Started</h2>
       <p class="en">Get started with the repo and docs.</p>
     </div>
     <div class="actions">

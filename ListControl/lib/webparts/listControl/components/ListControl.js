@@ -481,7 +481,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadSelectedViewFieldNames = function (selectedViewId) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, listPath, viewIds, urls, i, encoded, normalized, j, response, data, names, _error_1;
+            var webUrl, listPath, viewIds, urls, i, encoded, normalized, j, response, data, names, viewFieldsError_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -526,15 +526,54 @@ var ListControl = (function (_super) {
                         }
                         return [3 /*break*/, 6];
                     case 5:
-                        _error_1 = _a.sent();
+                        viewFieldsError_1 = _a.sent();
+                        this.logDiagnostic('loadSelectedViewFieldNames: Attempt failed for url=' + urls[j] + ': ' + (viewFieldsError_1 && viewFieldsError_1.message ? viewFieldsError_1.message : String(viewFieldsError_1)));
                         return [3 /*break*/, 6];
                     case 6:
                         j += 1;
                         return [3 /*break*/, 1];
-                    case 7: return [2 /*return*/, []];
+                    case 7:
+                        this.logDiagnostic('loadSelectedViewFieldNames: No view field names resolved for viewId=' + String(selectedViewId));
+                        return [2 /*return*/, []];
                 }
             });
         });
+    };
+    ListControl.prototype.getDisplayFields = function () {
+        if (this.state.selectedViewId !== this.props.defaultViewId || !this.props.viewColumns || this.props.viewColumns.length === 0) {
+            return this.state.fields;
+        }
+        var byName = {};
+        for (var i = 0; i < this.state.fields.length; i += 1) {
+            var field = this.state.fields[i];
+            var fieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
+            var responseName = String(field.Name || '').toLowerCase();
+            if (fieldName) {
+                byName[fieldName] = field;
+            }
+            if (responseName) {
+                byName[responseName] = field;
+            }
+        }
+        var configured = [];
+        for (var j = 0; j < this.props.viewColumns.length; j += 1) {
+            var column = this.props.viewColumns[j];
+            var match = byName[String(column.fieldName || '').toLowerCase()];
+            if (match) {
+                configured.push(Object.assign({}, match, {
+                    DisplayName: column.displayName || match.DisplayName || match.Name,
+                    ConfiguredWidth: column.width || ''
+                }));
+            }
+        }
+        return configured;
+    };
+    ListControl.prototype.getConfiguredColumnStyle = function (field) {
+        var width = parseInt(String(field.ConfiguredWidth || ''), 10);
+        if (!isNaN(width) && width > 0) {
+            return { width: width + 'px', minWidth: width + 'px', maxWidth: width + 'px' };
+        }
+        return {};
     };
     ListControl.prototype.getFieldsForConsumption = function (rawFields, viewFieldNames) {
         if (viewFieldNames.length === 0) {
@@ -572,7 +611,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadListFieldTypeMap = function (viewFieldNames) {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, data, fields, requested, i, map, j, field, internalName, _error_2;
+            var endpoint, response, data, fields, requested, i, map, j, field, internalName, error_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -611,7 +650,8 @@ var ListControl = (function (_super) {
                         }
                         return [2 /*return*/, map];
                     case 4:
-                        _error_2 = _a.sent();
+                        error_1 = _a.sent();
+                        this.logDiagnostic('loadListFieldTypeMap failed: ' + (error_1 && error_1.message ? error_1.message : String(error_1)));
                         return [2 /*return*/, {}];
                     case 5: return [2 /*return*/];
                 }
@@ -620,7 +660,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadListFieldTitleMap = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, data, fields, map, i, field, internalName, title, _error_3;
+            var endpoint, response, data, fields, map, i, field, internalName, title, error_2;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -650,7 +690,8 @@ var ListControl = (function (_super) {
                         }
                         return [2 /*return*/, map];
                     case 3:
-                        _error_3 = _a.sent();
+                        error_2 = _a.sent();
+                        this.logDiagnostic('loadListFieldTitleMap failed: ' + (error_2 && error_2.message ? error_2.message : String(error_2)));
                         return [2 /*return*/, {}];
                     case 4: return [2 /*return*/];
                 }
@@ -828,7 +869,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var baseEndpoint, selectedViewId, body, requestUrls, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, viewFieldNames, itemsFallback, visibleFields, fieldTitleMap, renderableRows, error_1, loadError;
+            var baseEndpoint, selectedViewId, body, requestUrls, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, viewFieldNames, itemsFallback, visibleFields, fieldTitleMap, renderableRows, error_3, loadError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -931,8 +972,8 @@ var ListControl = (function (_super) {
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
                         return [3 /*break*/, 17];
                     case 16:
-                        error_1 = _a.sent();
-                        loadError = error_1;
+                        error_3 = _a.sent();
+                        loadError = error_3;
                         this.setState({
                             loading: false,
                             error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
@@ -957,7 +998,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.deleteSelected = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, error_2, deleteError;
+            var endpoint, response, error_4, deleteError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -967,6 +1008,7 @@ var ListControl = (function (_super) {
                         if (typeof window !== 'undefined' && !window.confirm(strings.RuntimeDeleteConfirm)) {
                             return [2 /*return*/];
                         }
+                        this.logDiagnostic('Deleting item. itemId=' + String(this.state.selectedItemId));
                         this.setState({ deleting: true, error: null });
                         _a.label = 1;
                     case 1:
@@ -991,8 +1033,8 @@ var ListControl = (function (_super) {
                         _a.sent();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_2 = _a.sent();
-                        deleteError = error_2;
+                        error_4 = _a.sent();
+                        deleteError = error_4;
                         this.setState({
                             deleting: false,
                             error: deleteError && deleteError.message ? deleteError.message : strings.RuntimeDeleteFailed
@@ -1644,9 +1686,10 @@ var ListControl = (function (_super) {
             : processedRows;
         var conditionalRules = this.parseConditionalStyleRules();
         var hasActiveFilters = Object.keys(this.state.columnFilters || {}).length > 0;
+        var displayFields = this.getDisplayFields();
         var fieldsByKey = {};
-        for (var i = 0; i < this.state.fields.length; i += 1) {
-            var fieldsByKeyField = this.state.fields[i];
+        for (var i = 0; i < displayFields.length; i += 1) {
+            var fieldsByKeyField = displayFields[i];
             var fieldsByKeyValue = this.getFieldKey(fieldsByKeyField);
             if (fieldsByKeyValue) {
                 fieldsByKey[fieldsByKeyValue] = fieldsByKeyField;
@@ -1742,7 +1785,7 @@ var ListControl = (function (_super) {
             !this.state.loading && !this.state.error && processedRows.length > 0 && (React.createElement("div", { className: "lc-table-wrap" },
                 React.createElement("table", { className: "lc-table" },
                     React.createElement("thead", null,
-                        React.createElement("tr", null, this.state.fields.map(function (field) {
+                        React.createElement("tr", null, displayFields.map(function (field) {
                             var fieldKey = _this.getFieldKey(field);
                             var sortActive = _this.state.sortFieldName === fieldKey;
                             var filterActive = !!_this.state.columnFilters[fieldKey];
@@ -1753,7 +1796,7 @@ var ListControl = (function (_super) {
                             else if (sortActive && _this.state.sortDirection === 'desc') {
                                 sortIndicator = ' ▼';
                             }
-                            return (React.createElement("th", { key: field.Name },
+                            return (React.createElement("th", { key: field.Name, style: _this.getConfiguredColumnStyle(field) },
                                 React.createElement("div", { className: "lc-header-cell" },
                                     React.createElement("button", { type: "button", className: "lc-header-title", onClick: function (ev) {
                                             ev.stopPropagation();
@@ -1795,14 +1838,14 @@ var ListControl = (function (_super) {
                         var rowItemId = _this.getRowItemId(row);
                         var isSelected = rowItemId > 0 && rowItemId === _this.state.selectedItemId;
                         var conditionalStyle = _this.getConditionalStyleForRow(row, fieldsByKey, conditionalRules);
-                        return (React.createElement("tr", { key: rowItemId > 0 ? String(rowItemId) : String(index), onClick: function () { return _this.selectRow(row); }, className: joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '']) }, _this.state.fields.map(function (field) {
+                        return (React.createElement("tr", { key: rowItemId > 0 ? String(rowItemId) : String(index), onClick: function () { return _this.selectRow(row); }, className: joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '']) }, displayFields.map(function (field) {
                             var markup = _this.getCellMarkup(row, field);
                             var showItemLink = _this.props.showLinkToItem && _this.isTitleField(field);
                             var itemLinkUrl = showItemLink ? _this.getItemLinkUrl(row) : '';
                             var itemLinkText = showItemLink ? _this.getCellPlainText(row, field) : '';
                             var cellFieldKey = _this.getFieldKey(field);
                             var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
-                            var mergedCellStyle = mergeStyleObjects(conditionalStyle.rowStyle, columnStyle);
+                            var mergedCellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
                             return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) { return ev.stopPropagation(); } }, itemLinkText || strings.RuntimeView)) : (markup ? React.createElement("span", { dangerouslySetInnerHTML: markup }) : null)));
                         })));
                     }))))),

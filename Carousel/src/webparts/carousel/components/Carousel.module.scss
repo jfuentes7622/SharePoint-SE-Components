@@ -111,4 +111,13 @@ li.slide {
       display: inline-block;
     }
   }
+
+  .imageCircle {
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .imageSquare {
+    border-radius: 0;
+  }
 }

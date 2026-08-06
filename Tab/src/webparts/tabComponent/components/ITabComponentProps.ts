@@ -22,6 +22,7 @@ export interface ITabComponentProps {
   PageInEditMode: boolean;
   TabConfigs: ITabVisualSettings[];
   GlobalFontSettings: ITabGlobalFontSettings;
+  EnableDiagnostics?: boolean;
 }
 
 export interface ITabControlState {

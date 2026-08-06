@@ -52,6 +52,7 @@ var sp_http_1 = require("@microsoft/sp-http");
 var sp_webpart_base_1 = require("@microsoft/sp-webpart-base");
 var PropertyPaneCustomField_1 = require("@microsoft/sp-webpart-base/lib/propertyPane/propertyPaneFields/propertyPaneCustomField/PropertyPaneCustomField");
 var PropertyFieldColorPicker_1 = require("@pnp/spfx-property-controls/lib/PropertyFieldColorPicker");
+var PropertyFieldCustomList_1 = require("sp-client-custom-fields/lib/PropertyFieldCustomList");
 var strings = require("ListControlWebPartStrings");
 var ListControl_1 = require("./components/ListControl");
 var packageSolutionConfig = require('../../../config/package-solution.json');
@@ -68,6 +69,17 @@ function normalizeQueryParamName(value, fallback) {
 function normalizePageSize(value) {
     var parsed = parseInt(String(value === undefined || value === null ? '' : value), 10);
     return !isNaN(parsed) && parsed > 0 ? parsed : 0;
+}
+function normalizeStringCollection(value) {
+    var source = value && value.results ? value.results : value;
+    if (!Array.isArray(source)) {
+        return [];
+    }
+    return source.map(function (item) {
+        return String(item && item.Name !== undefined ? item.Name : item || '');
+    }).filter(function (item) {
+        return !!item;
+    });
 }
 var ListControlWebPart = (function (_super) {
     __extends(ListControlWebPart, _super);
@@ -153,6 +165,7 @@ var ListControlWebPart = (function (_super) {
             listName: this.properties.listName || '',
             defaultViewId: this.properties.viewId || '',
             views: this._views,
+            viewColumns: this.properties.viewColumns || [],
             pageSize: normalizePageSize(this.properties.pageSize),
             isEditMode: this.displayMode === sp_core_library_1.DisplayMode.Edit,
             showViewSelector: this.properties.showViewSelector !== false,
@@ -220,7 +233,12 @@ var ListControlWebPart = (function (_super) {
             if (_this.properties.listName) {
                 _this.logDiagnostic('Loading views for configured list: ' + String(_this.properties.listName));
                 return _this.loadViews(_this.properties.listName).then(function () {
-                    return _this.loadListFields(_this.properties.listName);
+                    return _this.loadListFields(_this.properties.listName).then(function () {
+                        if ((!_this.properties.viewColumns || _this.properties.viewColumns.length === 0) && _this.properties.viewId) {
+                            return _this.loadViewColumns(_this.properties.listName, _this.properties.viewId);
+                        }
+                        return Promise.resolve();
+                    });
                 });
             }
             return Promise.resolve();
@@ -248,6 +266,7 @@ var ListControlWebPart = (function (_super) {
         }
         if (propertyPath === 'listName' && oldValue !== newValue) {
             this.properties.viewId = '';
+            this.properties.viewColumns = [];
             this.properties.filterDesignerField = '';
             this.properties.conditionalStyleApplyField = '';
             this.properties.conditionalStyleConditionField = '';
@@ -257,6 +276,16 @@ var ListControlWebPart = (function (_super) {
             if (newValue) {
                 this.loadViews(String(newValue));
                 this.loadListFields(String(newValue));
+            }
+            return;
+        }
+        if (propertyPath === 'viewId' && oldValue !== newValue) {
+            this.properties.viewColumns = [];
+            _super.prototype.onPropertyPaneFieldChanged.call(this, propertyPath, oldValue, newValue);
+            this.context.propertyPane.refresh();
+            this.render();
+            if (this.properties.listName && newValue) {
+                this.loadViewColumns(this.properties.listName, String(newValue));
             }
             return;
         }
@@ -301,7 +330,7 @@ var ListControlWebPart = (function (_super) {
     ListControlWebPart.prototype.loadListFields = function (listName) {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var endpoint, data, fields, _error_1;
+            var endpoint, data, fields, error_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -350,11 +379,12 @@ var ListControlWebPart = (function (_super) {
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 4];
                     case 3:
-                        _error_1 = _a.sent();
+                        error_1 = _a.sent();
                         this._listFields = [];
                         this._fieldTypeByInternalName = {};
                         this._fieldLookupListByInternalName = {};
                         this.context.propertyPane.refresh();
+                        this.logDiagnostic('Failed to load fields for list "' + listName + '": ' + (error_1 && error_1.message ? error_1.message : String(error_1)));
                         return [3 /*break*/, 4];
                     case 4: return [2 /*return*/];
                 }
@@ -367,7 +397,7 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.loadLookupListItems = function (listId) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, url, data, items, _error_2;
+            var webUrl, url, data, items, error_2;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -383,7 +413,8 @@ var ListControlWebPart = (function (_super) {
                                 return { key: title, text: title + ' (ID: ' + item.Id + ')' };
                             })];
                     case 2:
-                        _error_2 = _a.sent();
+                        error_2 = _a.sent();
+                        this.logDiagnostic('Failed to load lookup list items for listId=' + listId + ': ' + (error_2 && error_2.message ? error_2.message : String(error_2)));
                         return [2 /*return*/, []];
                     case 3: return [2 /*return*/];
                 }
@@ -706,6 +737,21 @@ var ListControlWebPart = (function (_super) {
                                     label: strings.PropViewLabel,
                                     options: this._views.length > 0 ? this._views : [{ key: '', text: strings.PropNoViews }],
                                     selectedKey: this.properties.viewId || ''
+                                }),
+                                PropertyFieldCustomList_1.PropertyFieldCustomList('viewColumns', {
+                                    key: 'listControlViewColumns-' + String(this.properties.viewId || 'none'),
+                                    label: strings.PropViewColumnsLabel,
+                                    headerText: strings.PropViewColumnsHeader,
+                                    value: this.properties.viewColumns || [],
+                                    context: this.context,
+                                    properties: this.properties,
+                                    onPropertyChange: this.onPropertyPaneFieldChanged,
+                                    render: this.render.bind(this),
+                                    fields: [
+                                        { id: 'fieldName', title: strings.PropViewColumnField, required: true, type: PropertyFieldCustomList_1.CustomListFieldType.string },
+                                        { id: 'displayName', title: strings.PropViewColumnDisplayName, required: true, type: PropertyFieldCustomList_1.CustomListFieldType.string },
+                                        { id: 'width', title: strings.PropViewColumnWidth, required: false, type: PropertyFieldCustomList_1.CustomListFieldType.string }
+                                    ]
                                 }),
                                 sp_webpart_base_1.PropertyPaneTextField('pageSize', {
                                     label: strings.PropPageSizeLabel,
@@ -2039,7 +2085,7 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.loadLists = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, data, lists, error_1;
+            var webUrl, data, lists, error_3;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2063,8 +2109,8 @@ var ListControlWebPart = (function (_super) {
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 3];
                     case 2:
-                        error_1 = _a.sent();
-                        this.logDiagnostic('Failed to load lists: ' + (error_1 && error_1.message ? error_1.message : String(error_1)));
+                        error_3 = _a.sent();
+                        this.logDiagnostic('Failed to load lists: ' + (error_3 && error_3.message ? error_3.message : String(error_3)));
                         this._lists = [];
                         return [3 /*break*/, 3];
                     case 3: return [2 /*return*/];
@@ -2074,11 +2120,11 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.loadViews = function (listName) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, data, views, i, error_2;
+            var webUrl, data, views, i, error_4;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        _a.trys.push([0, 2, , 3]);
+                        _a.trys.push([0, 4, , 5]);
                         webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
                         this.logDiagnostic('Loading views for list: ' + String(listName));
                         return [4 /*yield*/, this.getJsonWithAcceptFallback(webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/views?$select=Id,Title,DefaultView")];
@@ -2107,17 +2153,91 @@ var ListControlWebPart = (function (_super) {
                             }
                             this.logDiagnostic('Auto-selected default viewId=' + String(this.properties.viewId));
                         }
+                        if (!(this.properties.viewId && (!this.properties.viewColumns || this.properties.viewColumns.length === 0))) return [3 /*break*/, 3];
+                        return [4 /*yield*/, this.loadViewColumns(listName, this.properties.viewId)];
+                    case 2:
+                        _a.sent();
+                        _a.label = 3;
+                    case 3:
                         this.logDiagnostic('Loaded views successfully. Count=' + String(this._views.length));
                         this.context.propertyPane.refresh();
                         this.render();
-                        return [3 /*break*/, 3];
-                    case 2:
-                        error_2 = _a.sent();
-                        this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error_2 && error_2.message ? error_2.message : String(error_2)));
+                        return [3 /*break*/, 5];
+                    case 4:
+                        error_4 = _a.sent();
+                        this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
                         this._views = [];
                         this.context.propertyPane.refresh();
-                        return [3 /*break*/, 3];
-                    case 3: return [2 /*return*/];
+                        return [3 /*break*/, 5];
+                    case 5: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    ListControlWebPart.prototype.loadViewColumns = function (listName, viewId) {
+        return __awaiter(this, void 0, void 0, function () {
+            var webUrl, listPath, normalizedViewId, viewData, viewFields, fieldData, fields, titleByName, error_5;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        if (!listName || !viewId) {
+                            this.properties.viewColumns = [];
+                            this.context.propertyPane.refresh();
+                            this.render();
+                            return [2 /*return*/];
+                        }
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 4, , 5]);
+                        webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+                        listPath = "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')";
+                        normalizedViewId = String(viewId).replace(/[{}]/g, '');
+                        return [4 /*yield*/, this.getJsonWithAcceptFallback(webUrl + listPath + "/views/getById('" + encodeURIComponent(normalizedViewId) + "')/ViewFields")];
+                    case 2:
+                        viewData = _a.sent();
+                        viewFields = normalizeStringCollection(viewData && viewData.value);
+                        if (viewFields.length === 0) {
+                            viewFields = normalizeStringCollection(viewData && viewData.Items);
+                        }
+                        if (viewFields.length === 0) {
+                            viewFields = normalizeStringCollection(viewData && viewData.d && viewData.d.Items);
+                        }
+                        return [4 /*yield*/, this.getJsonWithAcceptFallback(webUrl + listPath + "/fields?$select=InternalName,Title")];
+                    case 3:
+                        fieldData = _a.sent();
+                        fields = fieldData && fieldData.value ? fieldData.value : [];
+                        if (!fields || fields.length === 0) {
+                            fields = fieldData && fieldData.d && fieldData.d.results ? fieldData.d.results : [];
+                        }
+                        titleByName = {};
+                        fields.forEach(function (field) {
+                            var internalName = String(field.InternalName || '');
+                            if (internalName) {
+                                titleByName[internalName] = String(field.Title || internalName);
+                            }
+                        });
+                        if (this.properties.listName !== listName || this.properties.viewId !== viewId) {
+                            return [2 /*return*/];
+                        }
+                        this.properties.viewColumns = viewFields.map(function (fieldName) {
+                            return {
+                                fieldName: fieldName,
+                                displayName: titleByName[fieldName] || fieldName,
+                                width: ''
+                            };
+                        });
+                        this.logDiagnostic('Initialized view column collection. Count=' + String(this.properties.viewColumns.length));
+                        this.context.propertyPane.refresh();
+                        this.render();
+                        return [3 /*break*/, 5];
+                    case 4:
+                        error_5 = _a.sent();
+                        this.properties.viewColumns = [];
+                        this.context.propertyPane.refresh();
+                        this.render();
+                        this.logDiagnostic('Failed to initialize columns for view ' + viewId + ': ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
+                        return [3 /*break*/, 5];
+                    case 5: return [2 /*return*/];
                 }
             });
         });

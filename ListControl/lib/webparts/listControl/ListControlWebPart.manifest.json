@@ -24,6 +24,7 @@
         "instanceName": "",
         "listName": "",
         "viewId": "",
+        "viewColumns": [],
         "pageSize": 0,
         "showViewSelector": true,
         "showLinkToItem": false,

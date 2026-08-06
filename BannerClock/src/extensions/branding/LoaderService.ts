@@ -9,9 +9,6 @@ import { ISettings } from '../../Interfaces/ISettings';
 
 import { loadStyles } from '@microsoft/load-themed-styles';
 
-
-import { Log } from '@microsoft/sp-core-library';
-
 //import { spfi, SPFx } from "@pnp/sp/presets/all";
 
 // import {  sp } from "@pnp/sp";
@@ -56,6 +53,14 @@ export default class LoaderProvider implements ISPEventObserver {
   public componentId: string = 'loader-provider-component';
   public isDisposed: boolean = false;
 
+  private logDiagnostic(message: string): void {
+    if (this.props.enableDiagnostics === false) {
+      return;
+    }
+
+    console.log('[LoaderProvider] ' + message);
+  }
+
   public dispose(): void {
     this.isDisposed = true;
     // Clean up logic here
@@ -64,6 +69,7 @@ export default class LoaderProvider implements ISPEventObserver {
   }
 
   public async LoadFiles(onlyJs: boolean): Promise<void> {
+    this.logDiagnostic('LoadFiles started. onlyJs=' + String(onlyJs));
     const head: HTMLElement = document.getElementsByTagName('head')[0] || document.documentElement;
     let appTop: HTMLElement;
     let appBottom: HTMLElement;
@@ -85,6 +91,7 @@ export default class LoaderProvider implements ISPEventObserver {
         if (normalizedRootUrl !== normalizedSiteUrl) {
           isCentral = true;
         }
+        this.logDiagnostic('Using configured rootUrl=' + this.rootUrl + '. isCentral=' + String(isCentral));
       } else { 
         if (this.props.context.pageContext.site.serverRelativeUrl === "/")
         {//is root site
@@ -93,6 +100,7 @@ export default class LoaderProvider implements ISPEventObserver {
           this.rootUrl = this.props.context.pageContext.site.absoluteUrl.replace(this.props.context.pageContext.site.serverRelativeUrl, "") + "/";
         }
         isCentral = true;
+        this.logDiagnostic('No rootUrl configured; derived rootUrl=' + this.rootUrl + '. isCentral=' + String(isCentral));
         // let settingsFilePath: string = this.cleanUrl(this.props.context.pageContext.site.absoluteUrl + AssetsLib + SettingsFileName);
         // this.rootUrl = new URL(this.props.context.pageContext.site.absoluteUrl);
         // if (this.props.context.pageContext.site.absoluteUrl !== this.props.context.pageContext.web.absoluteUrl) {
@@ -120,6 +128,7 @@ export default class LoaderProvider implements ISPEventObserver {
       if (onlyJs === false) {
         if (isCentral && this.rootUrl !== "/") {
           if (document.getElementById('bannersource') === null) {//Check to see if already added.
+            this.logDiagnostic('Injecting hidden bannersource iframe for central auth.');
             const iframe: string = "<iframe id='bannersource' src='" + this.props.context.pageContext.site.absoluteUrl.replace(this.props.context.pageContext.site.serverRelativeUrl, "") + "' style='height: 1px; visibility: hidden;'></iframe>";
             rootIframe = document.getElementsByTagName('body')[0] || document.documentElement;
             rootIframe.insertAdjacentHTML("afterend", iframe);
@@ -136,6 +145,7 @@ export default class LoaderProvider implements ISPEventObserver {
         const objArray = JSON.parse(loadFilesJson);
         const fileItemArray = objArray.map((item: { Name: string; Type: string; }) => new FileItem(item.Name, item.Type));
         this.settings = JSON.parse(settingsJson) as ISettings;
+        this.logDiagnostic('Config files loaded. loadFiles entries=' + String(fileItemArray.length) + ', settingsLoaded=' + String(!!this.settings) + ', headerHtmlLength=' + String(headerHtml ? headerHtml.length : 0) + ', footerHtmlLength=' + String(footerHtml ? footerHtml.length : 0));
 
         if (onlyJs === false) {
           if (document.getElementById(this.settings.ModernBannerComId) !== null) //communications site
@@ -178,12 +188,14 @@ export default class LoaderProvider implements ISPEventObserver {
                 LoadCSSItem.href = Item.Name;
                 head.insertAdjacentElement('beforeend', LoadCSSItem); */
               if (onlyJs === false) {
+                this.logDiagnostic('Loading CSS: ' + Item.Name);
                 loadStyles(`@import url('${Item.Name}');`);
               }
               break;
             }
             case 'js': {
               //process js
+              this.logDiagnostic('Loading JS: ' + Item.Name);
               const LoadJSItem: HTMLScriptElement = document.createElement('script');
               LoadJSItem.src = Item.Name;
               LoadJSItem.type = 'text/javascript';
@@ -194,18 +206,20 @@ export default class LoaderProvider implements ISPEventObserver {
         });
       }
     } catch (error) {
-      console.log(error);
+      console.error('[LoaderProvider] LoadFiles failed: ' + error);
     }
   }
 
 
   public async render(): Promise<void> {
     try {
+      this.logDiagnostic('render() invoked.');
       await this.LoadFiles(false);
 
       //render webpart
       const clockelement: HTMLElement = document.getElementById('worldclock') || document.documentElement;
       if (clockelement && this.settings !== null) {
+        this.logDiagnostic('Rendering WorldClock component. spList=' + String(this.settings.spList || '(none)'));
         const ListUrl: URL = new URL(this.props.context.pageContext.site.absoluteUrl.replace(this.props.context.pageContext.site.serverRelativeUrl, ""));
         const elementClock: React.ReactElement<IWorldClockProps> = React.createElement(
           WorldClock,
@@ -220,14 +234,17 @@ export default class LoaderProvider implements ISPEventObserver {
             },
             context: this.props.context,
             absoluteUrl: ListUrl.href,
-            spHttpClient:this.props.context.spHttpClient            
-            
+            spHttpClient:this.props.context.spHttpClient,
+            enableDiagnostics: this.props.enableDiagnostics
+
           }
         );
         ReactDOM.render(elementClock, clockelement);
+      } else {
+        this.logDiagnostic('Skipping WorldClock render. clockElementFound=' + String(!!clockelement) + ', settingsLoaded=' + String(!!this.settings));
       }
     } catch (error) {
-      console.log(error);
+      console.error('[LoaderProvider] render failed: ' + error);
     }
   }
 
@@ -264,10 +281,12 @@ export default class LoaderProvider implements ISPEventObserver {
 
       const exists = await this.readFile(testUrl, true);
       if (exists !== "") {
+        this.logDiagnostic('findExistingFile found: ' + testUrl);
         return testUrl;
       }
     }
 
+    this.logDiagnostic('findExistingFile did not find "' + fileName + '" at any level under ' + fileUrl);
     return ""; // File not found at any level
   }
 
@@ -284,10 +303,12 @@ export default class LoaderProvider implements ISPEventObserver {
 
       const exists = await this.readFile(fileUrl, true);
       if (exists !== "") {
+        this.logDiagnostic('findFileInSiteAssets found: ' + fileUrl);
         return fileUrl;
       }
     }
 
+    this.logDiagnostic('findFileInSiteAssets did not find "' + fileName + '" under any SiteAssets library starting from ' + currentUrl);
     return ""; // File not found in any SiteAssets folder
   }
 
@@ -295,7 +316,7 @@ export default class LoaderProvider implements ISPEventObserver {
 
 
   public async readFile(filename: string, isCentral: boolean): Promise<string> {
-    Log.info("BannerClock", filename);
+    this.logDiagnostic('Reading file: ' + filename + ' (isCentral=' + String(isCentral) + ')');
 
     if (isCentral) {
       try {
@@ -336,7 +357,7 @@ export default class LoaderProvider implements ISPEventObserver {
       await pnp.sp.web.getFileByServerRelativeUrl(fileUrl).getText();
       return true;
     } catch (error) {
-      console.warn('File not found or inaccessible:', error);
+      console.warn('[LoaderProvider] File not found or inaccessible: ' + fileUrl, error);
       return false;
     }
   }

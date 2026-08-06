@@ -31,7 +31,7 @@ jobs:
       run: |
         echo "Checking heft version..."
         npx heft --help | head -n 2
-        # 或者直接检查 heft 是否可用
+        # Or directly check if heft is available
         npx heft --help > /dev/null 2>&1 && echo "✅ heft is available" || echo "❌ heft is not available"
 
     - name: Build SPFx solution

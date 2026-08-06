@@ -5,7 +5,7 @@ export interface IimageDisplayProps {
     imageDisplayWidth: number;
     imageDisplayLink: string;
     imageDisplayClickLink?: string;
-    imageIsCircle: boolean;
+    imageShape: string;
     imageIsDynamicHeight: boolean;
     imageDisplayHeight?: number;
 }
@@ -21,8 +21,11 @@ export default class ImageDisplay extends React.Component<IimageDisplayProps, {}
     }
 
     public render(): React.ReactElement<IimageDisplayProps> {
+        const shapeClass = (this.props.imageShape === 'circle') ? styles.imageCircle
+            : (this.props.imageShape === 'rounded') ? styles.imageRounded
+            : styles.imageSquare;
         return (
-            <div><canvas className={styles[(this.props.imageIsCircle) ? "imageCircle" : "imageSquare"]} ref='canvas'/></div>
+            <div><canvas className={shapeClass} ref='canvas'/></div>
         );
     }
 

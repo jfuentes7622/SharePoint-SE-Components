@@ -6,22 +6,7 @@ import { ConfigData } from '../IContactsProps';
 import { SPContexts } from './SPContexts';
 import { IRecordService } from './IRecordService';
 
-//import PnPTelemetry from "@pnp/telemetry-js";
-// import {
-//   Logger,
-//   ConsoleListener,
-//   LogLevel
-// } from "@pnp/logging";
-import { Logger,  LogLevel } from 'sp-pnp-js';
-
-const LOG_SOURCE: string = 'KM Contacts - ';
-//const telemetry = PnPTelemetry.getInstance();
-
-declare global {
-  interface Window { 
-       iskmActiveLog: boolean;
-  }
-}
+const LOG_SOURCE: string = '[RecordService] ';
 
 export default class RecordSvc implements IRecordService {
   private _spListService: ISPListService;
@@ -32,24 +17,22 @@ export default class RecordSvc implements IRecordService {
     this._configData = configData;
     this._spListService = new SPListService(configData, spContext);
 
-    //Logger.subscribe(ConsoleListener());
-    if (!window.iskmActiveLog || window.iskmActiveLog===undefined) {
-        Logger.activeLogLevel = LogLevel.Error;
-      }
-      else {Logger.activeLogLevel=LogLevel.Info;
-    }
-    
-    //telemetry.optOut();
+    this.logDiagnostic('In RecordService.ts constructor');
+  }
 
-    Logger.write(LOG_SOURCE + 'In RecordService.ts constructor', LogLevel.Info);
+  private logDiagnostic(message: string): void {
+    if (this._configData && this._configData.enableDiagnostics === false) {
+      return;
+    }
+    console.log(LOG_SOURCE + message);
   }
 
  public async GetPersonnel(dir: string, div: string): Promise<Array<PersonGroupModel>> {
     if (this._configData.directorateField)
       {
     const groups = await this.GetSPListFieldChoices(this._configData.personnelListName, 'Group');
-    Logger.write('GetPersonnel DIR:' + dir,LogLevel.Info);
-    Logger.write('GetPersonnel DIV:' + div, LogLevel.Info);
+    this.logDiagnostic('GetPersonnel DIR:' + dir);
+    this.logDiagnostic('GetPersonnel DIV:' + div);
     const records = await this._spListService.GetPersonnelData(dir, div);
     return groups.map(d => {
       const personList = records
@@ -94,7 +77,7 @@ export default class RecordSvc implements IRecordService {
         groups.push(group);
       }
     }
-   //Logger.write('Groups in sort Personnel' + groups,LogLevel.Info);
+   this.logDiagnostic('Groups in SortPersonnel: ' + groups);
     return groups.map(d => {
       const personList = custList
         //.filter((d1: { group: unknown; }) => { return d1.group === d; })
@@ -103,6 +86,7 @@ export default class RecordSvc implements IRecordService {
         .map((d1_1: { groupHeiarchyValue?: any; Id?: string; Title?: string; name?: string; eMail?: string; phoneNumber?: string; bioLink?: string; imageLink?: string; displayPhoto?: boolean; imageWidth?: number | undefined; sVoip?: string; }) => {
           const retObj = (d1_1 as PersonObjectModel);
           retObj.imageWidth = this._configData.personnelImgWidth;
+          retObj.imageShape = this._configData.imageShape;
           retObj.Id=d1_1.groupHeiarchyValue;
           if (this._configData.personnelShowDefaultImg) {
             retObj.imageLink = retObj.imageLink || this._configData.personnelDefaultImgUrl;

@@ -67,7 +67,9 @@ import { ConfigData } from './components/shared/ConfigData';
 //import '@pnp/sp/fields';
 
 
-import pnp, { Logger, LogLevel } from 'sp-pnp-js';
+import pnp from 'sp-pnp-js';
+
+const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface IContactsWebPartProps {
   overridecss: string;
@@ -99,30 +101,23 @@ export interface IContactsWebPartProps {
   displayPhotoField: string;
   imageLinkField: string;
   sVoipField: string;
-  imageIsCircle: boolean;
+  imageShape: string;
+  headerFontFamily: string;
+  headerFontStyle: string;
+  headerFontBold: boolean;
+  headerAlignment: string;
+  headerTopCorners: string;
+  tileTitleColor: string;
+  tileInfoBackgroundColor: string;
+  titleFontFamily: string;
+  titleFontStyle: string;
+  titleFontBold: boolean;
+  enableDiagnostics: boolean;
 }
 
-//import PnPTelemetry from "@pnp/telemetry-js";
-// import {
-//   Logger,
-//   ConsoleListener,
-//   LogLevel
-// } from "@pnp/logging";
-// import { _SPInstance, spGet, spfi } from '@pnp/sp';
-// import { Web } from '@pnp/sp/webs';
-// import {List} from '@pnp/sp/lists'
-
-
-const LOG_SOURCE: string = 'Contacts - ';
-//const telemetry = PnPTelemetry.getInstance();
+const LOG_SOURCE: string = '[ContactsWebPart] ';
 
 require('../contacts/assets/Contacts.css');
-
-declare global {
-  interface Window {
-    iskmActiveLog: boolean;
-  }
-}
 
 export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContactsWebPartProps> {
 
@@ -131,21 +126,29 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
   private divs: IPropertyPaneDropdownOption[];
   private divsDropdownDisabled: boolean = true;
 
-  public constructor(context?: WebPartContext) {
-    super();
-    //spo Logger.subscribe(ConsoleListener());
-    if (!window.iskmActiveLog || window.iskmActiveLog === undefined) {
-      Logger.activeLogLevel = LogLevel.Error;
+  private logDiagnostic(message: string): void {
+    if (this.properties.enableDiagnostics === false) {
+      return;
     }
-    else {
-      Logger.activeLogLevel = LogLevel.Info;
-    }
-
-    //spo telemetry.optOut();
-
-    Logger.write(LOG_SOURCE + 'In ContactsWebPart.tsx constructor', LogLevel.Info);
-
+    console.log(LOG_SOURCE + message);
   }
+
+  private getWebPartVersion(): string {
+    const solutionVersion = packageSolutionConfig && packageSolutionConfig.solution
+      ? String(packageSolutionConfig.solution.version || '')
+      : '';
+    if (solutionVersion) {
+      return solutionVersion;
+    }
+
+    const manifestVersion = this.context && this.context.manifest ? String(this.context.manifest.version || '') : '';
+    if (manifestVersion && manifestVersion !== '*') {
+      return manifestVersion;
+    }
+
+    return 'Unknown';
+  }
+
 
   private siteUrl() {
     const getUrl = window.location;
@@ -168,9 +171,20 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
 
 
   public render(): void {
+    this.logDiagnostic('render() called');
 
     this.domElement.style.setProperty('--PersonnelPanelHeaderBackColor', (this.properties.PersonnelPanelHeaderBackColor !== undefined ? this.properties.PersonnelPanelHeaderBackColor : "#8A1717"));
     this.domElement.style.setProperty('--PersonnelPanelHeaderTextColor', (this.properties.PersonnelPanelHeaderTextColor !== undefined ? this.properties.PersonnelPanelHeaderTextColor : "#FAFAFA"));
+    this.domElement.style.setProperty('--PersonnelPanelHeaderFontFamily', (this.properties.headerFontFamily || 'Segoe UI'));
+    this.domElement.style.setProperty('--PersonnelPanelHeaderFontStyle', (this.properties.headerFontStyle || 'normal'));
+    this.domElement.style.setProperty('--PersonnelPanelHeaderFontWeight', (this.properties.headerFontBold ? 'bold' : 'normal'));
+    this.domElement.style.setProperty('--PersonnelPanelHeaderTextAlign', (this.properties.headerAlignment || 'left'));
+    this.domElement.style.setProperty('--PersonnelPanelHeaderTopRadius', (this.properties.headerTopCorners === 'squared' ? '0' : '8px'));
+    this.domElement.style.setProperty('--PersonnelTileTitleColor', (this.properties.tileTitleColor || 'rgb(51, 51, 51)'));
+    this.domElement.style.setProperty('--PersonnelTileInfoBackgroundColor', (this.properties.tileInfoBackgroundColor || 'transparent'));
+    this.domElement.style.setProperty('--PersonnelTileTitleFontFamily', (this.properties.titleFontFamily || 'Segoe UI'));
+    this.domElement.style.setProperty('--PersonnelTileTitleFontStyle', (this.properties.titleFontStyle || 'normal'));
+    this.domElement.style.setProperty('--PersonnelTileTitleFontWeight', (this.properties.titleFontBold === false ? 'normal' : 'bold'));
 
     if (this.properties.overridecss) {
       // inject the  master style sheet
@@ -204,7 +218,8 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
         bioLinkField: this.properties.bioLinkField,
         displayPhotoField: this.properties.displayPhotoField,
         imageLinkField: this.properties.imageLinkField,
-        sVoipField: this.properties.sVoipField
+        sVoipField: this.properties.sVoipField,
+        enableDiagnostics: this.properties.enableDiagnostics
       }
 
     );
@@ -243,7 +258,7 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
 
     if (propertyPath === 'customList' && newValue) {
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
-      Logger.write('In PaneLChange customlist:' + this.properties.customList, LogLevel.Info);
+      this.logDiagnostic('onPropertyPaneFieldChanged customList: ' + this.properties.customList);
       this.context.propertyPane.refresh();
       this.render();
     }
@@ -379,11 +394,11 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
     if (this.properties.ContactsListId !== undefined) {
       const url = "/_api/web/lists/GetById('" + this.properties.ContactsListId + "')/items?$top=1000&$select=" + (this.properties.directorateField) + "&$Orderby=" + (this.properties.directorateField) + " asc'";
 
-      Logger.write("Items url: " + url, LogLevel.Info);
+      this.logDiagnostic("Items url: " + url);
       return this.fetchLists(url).then((response) => {
         if (response) {
           response.value.map((direct: any) => {
-            Logger.write("Found Dir:" + direct[this.properties.directorateField], LogLevel.Info);
+            this.logDiagnostic("Found Dir:" + direct[this.properties.directorateField]);
             if (direct[this.properties.directorateField]) {
               
               const targetKey = direct[this.properties.directorateField];
@@ -409,11 +424,11 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
     const options: Array<IPropertyPaneDropdownOption> = new Array<IPropertyPaneDropdownOption>();
     if (this.properties.ContactsListId !== undefined) {
       const url = "/_api/web/lists/GetById('" + this.properties.ContactsListId + "')/items?$top=1000&$select=" + (this.properties.divisionField) + "&$filter=" + (this.properties.directorateField) + " eq'" + dir + "'&$Orderby=" + (this.properties.divisionField) + " asc'";
-      Logger.write("Items url: " + url, LogLevel.Info);
+      this.logDiagnostic("Items url: " + url);
       const response = await this.fetchLists(url);
       if (response) {
         response.value.map((direct: any) => {
-          Logger.write("Found div:" + direct[this.properties.divisionField], LogLevel.Info);
+          this.logDiagnostic("Found div:" + direct[this.properties.divisionField]);
           if (direct[this.properties.divisionField]) {
             const targetKey = direct[this.properties.divisionField];
             const exists = this.isKeyInDropdownOptionsAsync(options, targetKey);
@@ -438,7 +453,7 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
       return response.json();
     }
     else {
-      Logger.write("Failed to get url:" + url + ". Error=" + response.statusText, LogLevel.Error);
+      console.error(LOG_SOURCE + "Failed to get url:" + url + ". Error=" + response.statusText);
       return undefined;
     }
   }
@@ -465,7 +480,8 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
         displayPhotoField: this.properties.displayPhotoField,
         imageLinkField: this.properties.imageLinkField,
         sVoipField: this.properties.sVoipField,
-        imageIsCircle: this.properties.imageIsCircle
+        imageShape: this.properties.imageShape,
+        enableDiagnostics: this.properties.enableDiagnostics
 
       },
       <SPContexts>{
@@ -481,12 +497,14 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
 
   
 public onInit(): Promise<void> {
+  this.logDiagnostic('onInit called');
   pnp.setup({ spfxContext: this.context });   // bind SPFx context for auth/headers
   return Promise.resolve();
 }
 
 
   protected onDispose(): void {
+    this.logDiagnostic('onDispose called');
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
@@ -506,7 +524,38 @@ public onInit(): Promise<void> {
     let colorTextControl: any = [];
     let imgWidthControl: any = [];
     let infoControl: any = [];
-    let isImageCircle: any = [];
+
+    const fontFamilyOptions: IPropertyPaneDropdownOption[] = [
+      { key: 'Arial, sans-serif', text: 'Arial' },
+      { key: '"Segoe UI", sans-serif', text: 'Segoe UI' },
+      { key: 'Calibri, sans-serif', text: 'Calibri' },
+      { key: 'Cambria, serif', text: 'Cambria' },
+      { key: 'Georgia, serif', text: 'Georgia' },
+      { key: 'Tahoma, sans-serif', text: 'Tahoma' },
+      { key: '"Times New Roman", serif', text: 'Times New Roman' },
+      { key: '"Trebuchet MS", sans-serif', text: 'Trebuchet MS' },
+      { key: 'Verdana, sans-serif', text: 'Verdana' },
+      { key: '"Comic Sans MS", cursive', text: 'Comic Sans MS' }
+    ];
+    const fontStyleOptions: IPropertyPaneDropdownOption[] = [
+      { key: 'normal', text: 'Normal' },
+      { key: 'italic', text: 'Italic' },
+      { key: 'oblique', text: 'Oblique' }
+    ];
+    const alignmentOptions: IPropertyPaneDropdownOption[] = [
+      { key: 'left', text: 'Left' },
+      { key: 'center', text: 'Center' },
+      { key: 'right', text: 'Right' }
+    ];
+    const topCornersOptions: IPropertyPaneDropdownOption[] = [
+      { key: 'rounded', text: 'Rounded' },
+      { key: 'squared', text: 'Squared' }
+    ];
+    const imageShapeOptions: IPropertyPaneDropdownOption[] = [
+      { key: 'square', text: 'Square' },
+      { key: 'rounded', text: 'Rounded' },
+      { key: 'circle', text: 'Circle' }
+    ];
 
     const conditionalGroupFields: IPropertyPaneGroup["groupFields"] = [
       PropertyPaneCheckbox("propertyCheckbox", {
@@ -578,11 +627,11 @@ public onInit(): Promise<void> {
       options: this.divs,
       disabled: this.divsDropdownDisabled
     });
-    isImageCircle = PropertyPaneCheckbox("imageIsCircle", {
-      text: 'Image in a cicle?',
-      checked: true,
-      disabled: false
-    }),
+    const imageShapeControl = PropertyPaneDropdown('imageShape', {
+      label: 'Image Shape',
+      options: imageShapeOptions,
+      selectedKey: this.properties.imageShape || 'square'
+    });
     //};
     colorHeaderControl = PropertyFieldColorPicker('PersonnelPanelHeaderBackColor', {
       label: "Panel Header Background Color",
@@ -605,6 +654,69 @@ public onInit(): Promise<void> {
     });
     imgWidthControl = PropertyPaneTextField('imageWidth', {
       label: "Image Diameter (ex:150, no px or %)"
+    });
+
+    const headerFontFamilyControl = PropertyPaneDropdown('headerFontFamily', {
+      label: 'Header Font Family',
+      options: fontFamilyOptions,
+      selectedKey: this.properties.headerFontFamily || 'Segoe UI'
+    });
+    const headerFontStyleControl = PropertyPaneDropdown('headerFontStyle', {
+      label: 'Header Font Style',
+      options: fontStyleOptions,
+      selectedKey: this.properties.headerFontStyle || 'normal'
+    });
+    const headerBoldControl = PropertyPaneCheckbox('headerFontBold', {
+      text: 'Bold Header Text',
+      checked: this.properties.headerFontBold === true
+    });
+    const headerAlignmentControl = PropertyPaneDropdown('headerAlignment', {
+      label: 'Header Text Alignment',
+      options: alignmentOptions,
+      selectedKey: this.properties.headerAlignment || 'left'
+    });
+    const headerTopCornersControl = PropertyPaneDropdown('headerTopCorners', {
+      label: 'Header Top Corners',
+      options: topCornersOptions,
+      selectedKey: this.properties.headerTopCorners || 'rounded'
+    });
+    const tileTitleColorControl = PropertyFieldColorPicker('tileTitleColor', {
+      label: 'Tile Title Color',
+      selectedColor: this.properties.tileTitleColor,
+      onPropertyChange: this.onPropertyPaneFieldChanged,
+      alphaSliderHidden: false,
+      style: PropertyFieldColorPickerStyle.Full,
+      iconName: 'Font',
+      properties: this.properties,
+      key: 'tileTitleColorField'
+    });
+    const tileInfoBackgroundColorControl = PropertyFieldColorPicker('tileInfoBackgroundColor', {
+      label: 'Tile Info Background Color',
+      selectedColor: this.properties.tileInfoBackgroundColor,
+      onPropertyChange: this.onPropertyPaneFieldChanged,
+      alphaSliderHidden: false,
+      style: PropertyFieldColorPickerStyle.Full,
+      iconName: 'Color',
+      properties: this.properties,
+      key: 'tileInfoBackgroundColorField'
+    });
+    const titleFontFamilyControl = PropertyPaneDropdown('titleFontFamily', {
+      label: 'Title Font Family',
+      options: fontFamilyOptions,
+      selectedKey: this.properties.titleFontFamily || 'Segoe UI'
+    });
+    const titleFontStyleControl = PropertyPaneDropdown('titleFontStyle', {
+      label: 'Title Font Style',
+      options: fontStyleOptions,
+      selectedKey: this.properties.titleFontStyle || 'normal'
+    });
+    const titleBoldControl = PropertyPaneCheckbox('titleFontBold', {
+      text: 'Bold Title Text',
+      checked: this.properties.titleFontBold !== false
+    });
+    const diagnosticsControl = PropertyPaneCheckbox('enableDiagnostics', {
+      text: strings.PropEnableDiagnosticsLabel,
+      checked: this.properties.enableDiagnostics !== false
     });
     // linkControl = PropertyPaneLink('Link', {
     //   text: 'CLICK HERE TO ADD/CHANGE EUCOM CONTACTS DATA', href: strings.EucomListUrl, target:'_blank'                  
@@ -679,9 +791,17 @@ infoControl = PropertyPaneLabel('webPartInfoId', {
         {
           displayGroupsAsAccordion: true,
           header: {
-            description: strings.PropertyPaneDescription + ` v${this.context.manifest.version}`,
+            description: ''
           },
           groups: [
+            {
+              groupName: 'Version: ' + this.getWebPartVersion(),
+              groupFields: [
+                PropertyPaneLabel('propertyPaneVersionInfo', {
+                  text: ' '
+                })
+              ]
+            },
             {
               groupName: strings.BasicGroupName,
               groupFields: conditionalGroupFields
@@ -698,16 +818,37 @@ infoControl = PropertyPaneLabel('webPartInfoId', {
               ]
             },
             {
-              groupName: strings.CommonGroupName,
+              groupName: strings.HeaderStyleGroupName,
               groupFields: [
                 colorHeaderControl,
                 colorTextControl,
+                headerFontFamilyControl,
+                headerFontStyleControl,
+                headerBoldControl,
+                headerAlignmentControl,
+                headerTopCornersControl
+              ]
+            },
+            {
+              groupName: strings.TitleStyleGroupName,
+              groupFields: [
+                tileTitleColorControl,
+                titleFontFamilyControl,
+                titleFontStyleControl,
+                titleBoldControl,
+                tileInfoBackgroundColorControl,
                 imgWidthControl,
-                isImageCircle,
+                imageShapeControl,
                 PropertyPaneTextField('overridecss', {
                   label: strings.overRideCSS,
                   validateOnFocusOut: true,
                 }),
+              ]
+            },
+            {
+              groupName: 'Diagnostics',
+              groupFields: [
+                diagnosticsControl
               ]
             }
           ]

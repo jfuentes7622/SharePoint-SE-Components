@@ -12,6 +12,8 @@ define([], function() {
     OverrideCSS: "Override CSS (URL of CSS)",
     useGlobalCSS: "Use Global CSS for Tabs",
     TabType: "Tab Area Type",
+    DiagnosticsGroupName: "Diagnostics",
+    PropEnableDiagnosticsLabel: "Enable diagnostics logging",
     "AppLocalEnvironmentSharePoint": "The app is running on your local environment as SharePoint web part",
     "AppLocalEnvironmentTeams": "The app is running on your local environment as Microsoft Teams app",
     "AppLocalEnvironmentOffice": "The app is running on your local environment in office.com",

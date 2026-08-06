@@ -20,6 +20,8 @@ export interface IWorldClockProps {
   absoluteUrl: string;
   //spHttpClinet
   spHttpClient: SPHttpClient;
+  //toggle for verbose runtime diagnostic logging
+  enableDiagnostics?: boolean;
 }
 
 export interface IWorldClockState {

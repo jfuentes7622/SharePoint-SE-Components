@@ -1,0 +1,12 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "SPS-ScriptEditor",
+    "id": "45ccd2d7-f86f-47dc-96d2-ea6095c0f100",
+    "version": "1.0.1.1",
+    "includeClientSideAssets": true
+  },
+  "paths": {
+    "zippedPackage": "solution/sps-script-editor-web-part.sppkg"
+  }
+}

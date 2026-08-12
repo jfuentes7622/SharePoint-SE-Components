@@ -101,6 +101,9 @@ export interface IListControlState {
   draftFilterValue: string;
   columnFilters: { [fieldName: string]: IColumnFilter };
   currentPage: number;
+  displayFormUrl: string;
+  displayFormLoading: boolean;
+  displayFormError: string;
 }
 
 export type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
@@ -456,6 +459,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       draftFilterValue: '',
       columnFilters: {},
       currentPage: 0,
+      displayFormUrl: '',
+      displayFormLoading: false,
+      displayFormError: '',
     };
 
     this._refreshEventHandler = this.handleExternalRefresh.bind(this);
@@ -473,6 +479,50 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
     }
+  }
+
+  private async openDefaultDisplayForm(row: any): Promise<void> {
+    var itemId = this.getRowItemId(row);
+    if (itemId <= 0) {
+      return;
+    }
+    this.setState({ displayFormLoading: true, displayFormError: '' });
+    try {
+      var metadataUrl = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+        + "')?$select=RootFolder/ServerRelativeUrl&$expand=RootFolder";
+      var response = await this.getJsonWithFallback(metadataUrl);
+      if (!response.ok) {
+        throw new Error('HTTP ' + String(response.status) + ' ' + response.statusText);
+      }
+      var payload = await response.json();
+      var list = payload && payload.d ? payload.d : payload;
+      var rootFolderUrl = String(list && list.RootFolder && list.RootFolder.ServerRelativeUrl || '').replace(/\/$/, '');
+      var webUrl = this.getWebUrl();
+      var originMatch = webUrl.match(/^https?:\/\/[^/]+/i);
+      var formUrl = String(originMatch ? originMatch[0] : '') + rootFolderUrl + '/DispForm.aspx';
+      formUrl = appendQueryParam(formUrl, 'ID', String(itemId));
+      formUrl = appendQueryParam(formUrl, 'IsDlg', '1');
+      this.setState({ displayFormUrl: formUrl, displayFormLoading: false });
+    } catch (error) {
+      this.setState({
+        displayFormLoading: false,
+        displayFormError: String(error && error.message ? error.message : error)
+      });
+    }
+  }
+
+  private closeDefaultDisplayForm(): void {
+    this.setState({ displayFormUrl: '', displayFormLoading: false, displayFormError: '' }, () => this.loadRows());
+  }
+
+  private setDisplayFormFrameRef = (frame: HTMLIFrameElement): void => {
+    if (!frame) {
+      return;
+    }
+    var dialogFrame: any = frame;
+    dialogFrame.cancelPopUp = () => this.closeDefaultDisplayForm();
+    dialogFrame.commitPopup = () => this.closeDefaultDisplayForm();
+    dialogFrame.commonModalDialogClose = () => this.closeDefaultDisplayForm();
   }
 
   public componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void {
@@ -1946,6 +1996,18 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
     return (
       <div className="lc-root" style={containerStyle}>
+        {(this.state.displayFormUrl || this.state.displayFormLoading || this.state.displayFormError)
+          && <div className="lc-form-dialog-backdrop" role="presentation" onClick={() => this.closeDefaultDisplayForm()}>
+            <section className="lc-form-dialog" role="dialog" aria-modal="true" aria-label="Item details"
+              onClick={(event) => event.stopPropagation()}>
+              <button type="button" className="lc-form-dialog-close" aria-label="Close item details"
+                title="Close item details" onClick={() => this.closeDefaultDisplayForm()}>&times;</button>
+              {this.state.displayFormLoading && <div className="lc-form-dialog-message">Loading item...</div>}
+              {this.state.displayFormError && <div className="lc-form-dialog-error">{this.state.displayFormError}</div>}
+              {this.state.displayFormUrl && <iframe ref={this.setDisplayFormFrameRef} className="lc-form-dialog-frame"
+                src={this.state.displayFormUrl} title="Item details" />}
+            </section>
+          </div>}
         <div className="lc-toolbar">
           {this.props.showViewSelector && (
             <label>
@@ -2142,7 +2204,13 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                               <a
                                 className="lc-item-link"
                                 href={itemLinkUrl}
-                                onClick={(ev) => ev.stopPropagation()}
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  if (!String(this.props.linkTargetPageUrl || '').trim()) {
+                                    ev.preventDefault();
+                                    this.openDefaultDisplayForm(row);
+                                  }
+                                }}
                               >
                                 {itemLinkText || strings.RuntimeView}
                               </a>

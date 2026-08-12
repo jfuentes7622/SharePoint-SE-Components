@@ -283,6 +283,15 @@ var ListControl = (function (_super) {
     __extends(ListControl, _super);
     function ListControl(props) {
         var _this = _super.call(this, props) || this;
+        _this.setDisplayFormFrameRef = function (frame) {
+            if (!frame) {
+                return;
+            }
+            var dialogFrame = frame;
+            dialogFrame.cancelPopUp = function () { return _this.closeDefaultDisplayForm(); };
+            dialogFrame.commitPopup = function () { return _this.closeDefaultDisplayForm(); };
+            dialogFrame.commonModalDialogClose = function () { return _this.closeDefaultDisplayForm(); };
+        };
         _this.state = {
             selectedViewId: props.defaultViewId || _this.getInitialViewId(props.views),
             fields: [],
@@ -299,6 +308,9 @@ var ListControl = (function (_super) {
             draftFilterValue: '',
             columnFilters: {},
             currentPage: 0,
+            displayFormUrl: '',
+            displayFormLoading: false,
+            displayFormError: '',
         };
         _this._refreshEventHandler = _this.handleExternalRefresh.bind(_this);
         return _this;
@@ -314,6 +326,56 @@ var ListControl = (function (_super) {
         if (typeof window !== 'undefined' && window.removeEventListener) {
             window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
         }
+    };
+    ListControl.prototype.openDefaultDisplayForm = function (row) {
+        return __awaiter(this, void 0, void 0, function () {
+            var itemId, metadataUrl, response, payload, list, rootFolderUrl, webUrl, originMatch, formUrl, error_1;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        itemId = this.getRowItemId(row);
+                        if (itemId <= 0) {
+                            return [2 /*return*/];
+                        }
+                        this.setState({ displayFormLoading: true, displayFormError: '' });
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 4, , 5]);
+                        metadataUrl = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+                            + "')?$select=RootFolder/ServerRelativeUrl&$expand=RootFolder";
+                        return [4 /*yield*/, this.getJsonWithFallback(metadataUrl)];
+                    case 2:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            throw new Error('HTTP ' + String(response.status) + ' ' + response.statusText);
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 3:
+                        payload = _a.sent();
+                        list = payload && payload.d ? payload.d : payload;
+                        rootFolderUrl = String(list && list.RootFolder && list.RootFolder.ServerRelativeUrl || '').replace(/\/$/, '');
+                        webUrl = this.getWebUrl();
+                        originMatch = webUrl.match(/^https?:\/\/[^/]+/i);
+                        formUrl = String(originMatch ? originMatch[0] : '') + rootFolderUrl + '/DispForm.aspx';
+                        formUrl = appendQueryParam(formUrl, 'ID', String(itemId));
+                        formUrl = appendQueryParam(formUrl, 'IsDlg', '1');
+                        this.setState({ displayFormUrl: formUrl, displayFormLoading: false });
+                        return [3 /*break*/, 5];
+                    case 4:
+                        error_1 = _a.sent();
+                        this.setState({
+                            displayFormLoading: false,
+                            displayFormError: String(error_1 && error_1.message ? error_1.message : error_1)
+                        });
+                        return [3 /*break*/, 5];
+                    case 5: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    ListControl.prototype.closeDefaultDisplayForm = function () {
+        var _this = this;
+        this.setState({ displayFormUrl: '', displayFormLoading: false, displayFormError: '' }, function () { return _this.loadRows(); });
     };
     ListControl.prototype.componentDidUpdate = function (prevProps, prevState) {
         var _this = this;
@@ -611,7 +673,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadListFieldTypeMap = function (viewFieldNames) {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, data, fields, requested, i, map, j, field, internalName, error_1;
+            var endpoint, response, data, fields, requested, i, map, j, field, internalName, error_2;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -650,8 +712,8 @@ var ListControl = (function (_super) {
                         }
                         return [2 /*return*/, map];
                     case 4:
-                        error_1 = _a.sent();
-                        this.logDiagnostic('loadListFieldTypeMap failed: ' + (error_1 && error_1.message ? error_1.message : String(error_1)));
+                        error_2 = _a.sent();
+                        this.logDiagnostic('loadListFieldTypeMap failed: ' + (error_2 && error_2.message ? error_2.message : String(error_2)));
                         return [2 /*return*/, {}];
                     case 5: return [2 /*return*/];
                 }
@@ -660,7 +722,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadListFieldTitleMap = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, data, fields, map, i, field, internalName, title, error_2;
+            var endpoint, response, data, fields, map, i, field, internalName, title, error_3;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -690,8 +752,8 @@ var ListControl = (function (_super) {
                         }
                         return [2 /*return*/, map];
                     case 3:
-                        error_2 = _a.sent();
-                        this.logDiagnostic('loadListFieldTitleMap failed: ' + (error_2 && error_2.message ? error_2.message : String(error_2)));
+                        error_3 = _a.sent();
+                        this.logDiagnostic('loadListFieldTitleMap failed: ' + (error_3 && error_3.message ? error_3.message : String(error_3)));
                         return [2 /*return*/, {}];
                     case 4: return [2 /*return*/];
                 }
@@ -869,7 +931,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var baseEndpoint, selectedViewId, body, requestUrls, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, viewFieldNames, itemsFallback, visibleFields, fieldTitleMap, renderableRows, error_3, loadError;
+            var baseEndpoint, selectedViewId, body, requestUrls, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, viewFieldNames, itemsFallback, visibleFields, fieldTitleMap, renderableRows, error_4, loadError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -972,8 +1034,8 @@ var ListControl = (function (_super) {
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
                         return [3 /*break*/, 17];
                     case 16:
-                        error_3 = _a.sent();
-                        loadError = error_3;
+                        error_4 = _a.sent();
+                        loadError = error_4;
                         this.setState({
                             loading: false,
                             error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
@@ -998,7 +1060,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.deleteSelected = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, error_4, deleteError;
+            var endpoint, response, error_5, deleteError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -1033,8 +1095,8 @@ var ListControl = (function (_super) {
                         _a.sent();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_4 = _a.sent();
-                        deleteError = error_4;
+                        error_5 = _a.sent();
+                        deleteError = error_5;
                         this.setState({
                             deleting: false,
                             error: deleteError && deleteError.message ? deleteError.message : strings.RuntimeDeleteFailed
@@ -1754,6 +1816,13 @@ var ListControl = (function (_super) {
                 : '0px'
         };
         return (React.createElement("div", { className: "lc-root", style: containerStyle },
+            (this.state.displayFormUrl || this.state.displayFormLoading || this.state.displayFormError)
+                && React.createElement("div", { className: "lc-form-dialog-backdrop", role: "presentation", onClick: function () { return _this.closeDefaultDisplayForm(); } },
+                    React.createElement("section", { className: "lc-form-dialog", role: "dialog", "aria-modal": "true", "aria-label": "Item details", onClick: function (event) { return event.stopPropagation(); } },
+                        React.createElement("button", { type: "button", className: "lc-form-dialog-close", "aria-label": "Close item details", title: "Close item details", onClick: function () { return _this.closeDefaultDisplayForm(); } }, "\u00D7"),
+                        this.state.displayFormLoading && React.createElement("div", { className: "lc-form-dialog-message" }, "Loading item..."),
+                        this.state.displayFormError && React.createElement("div", { className: "lc-form-dialog-error" }, this.state.displayFormError),
+                        this.state.displayFormUrl && React.createElement("iframe", { ref: this.setDisplayFormFrameRef, className: "lc-form-dialog-frame", src: this.state.displayFormUrl, title: "Item details" }))),
             React.createElement("div", { className: "lc-toolbar" },
                 this.props.showViewSelector && (React.createElement("label", null,
                     React.createElement("span", { style: { marginRight: '6px' } }, strings.RuntimeViewLabel),
@@ -1846,7 +1915,13 @@ var ListControl = (function (_super) {
                             var cellFieldKey = _this.getFieldKey(field);
                             var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
                             var mergedCellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
-                            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) { return ev.stopPropagation(); } }, itemLinkText || strings.RuntimeView)) : (markup ? React.createElement("span", { dangerouslySetInnerHTML: markup }) : null)));
+                            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) {
+                                    ev.stopPropagation();
+                                    if (!String(_this.props.linkTargetPageUrl || '').trim()) {
+                                        ev.preventDefault();
+                                        _this.openDefaultDisplayForm(row);
+                                    }
+                                } }, itemLinkText || strings.RuntimeView)) : (markup ? React.createElement("span", { dangerouslySetInnerHTML: markup }) : null)));
                         })));
                     }))))),
             !this.state.loading && !this.state.error && pageSize > 0 && pageCount > 1 && (React.createElement("div", { className: "lc-pagination" },

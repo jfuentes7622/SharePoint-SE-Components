@@ -1,0 +1,19 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "5e0bb5af-0ec9-4d4a-827f-041b4920712b",
+  "alias": "ScriptEditorWebpartWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": true,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70", 
+    "group": { "default": "Other" },
+    "title": { "default": "Script Editor Webpart" },
+    "description": { "default": "For adding HTML and JS to a page" },
+    "officeFabricIconFontName": "Page",
+    "properties": {
+      "description": "Script Editor Webpart"
+    }
+  }]
+}

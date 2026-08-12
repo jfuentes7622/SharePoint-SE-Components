@@ -34,7 +34,7 @@
       "filterJson": "",
       "conditionalStyleJson": "",
       "showLinkToItem": false,
-      "enableEventDetails": false,
+      "enableEventDetails": true,
       "eventDetailsFields": [],
       "eventDetailsFieldsJson": "",
       "detailsLinkPresentation": "button",

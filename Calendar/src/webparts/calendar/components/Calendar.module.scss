@@ -20,6 +20,105 @@
     animation: detailsBackdropIn 180ms ease-out both;
   }
 
+  .newEventBackdrop {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 16px;
+    overflow-y: auto;
+    background: var(--details-overlay-background, rgba(0, 0, 0, .28));
+  }
+
+  .newEventPanel {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 740px;
+    min-height: 420px;
+    max-height: 690px;
+    overflow-y: auto;
+    padding: 18px;
+    border: 1px solid var(--details-panel-border-color, #8a8886);
+    border-radius: var(--details-panel-corner-radius, 6px);
+    background: var(--details-panel-background, #fff);
+    box-shadow: var(--details-panel-shadow, 0 12px 36px rgba(0, 0, 0, .24));
+  }
+
+  .newEventTitle {
+    margin: 0 42px 14px 0;
+    color: var(--details-title-color, #201f1e);
+    font-size: 20px;
+  }
+
+  .newEventFrame {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: #fff;
+  }
+
+  .newEventSourcePicker {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 440px;
+    margin: 50px auto 0;
+
+    label { font-weight: 600; }
+    select { min-height: 34px; padding: 5px 8px; }
+  }
+
+  .newEventContinueButton {
+    align-self: flex-start;
+    min-height: 34px;
+    padding: 6px 14px;
+    border: 1px solid #0078d4;
+    border-radius: 2px;
+    background: #0078d4;
+    color: #fff;
+    cursor: pointer;
+
+    &:disabled { cursor: default; opacity: .55; }
+  }
+
+  .dayAddButton,
+  .swimlaneAddButton {
+    height: 24px;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: #323130;
+    cursor: pointer;
+    line-height: 24px;
+  }
+
+  .dayAddButton {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    z-index: 4;
+    width: auto;
+    padding: 0 7px;
+    visibility: hidden;
+    opacity: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .dayAddButton:hover,
+  .dayAddButton:focus,
+  .swimlaneAddButton:hover,
+  .swimlaneAddButton:focus {
+    background: #edebe9;
+    opacity: 1;
+  }
+
   .eventDetailsPanel {
     position: relative;
     box-sizing: border-box;
@@ -76,7 +175,6 @@
 
   .eventDetailsOpenButton {
     display: inline-block;
-    margin-top: 20px;
     padding: 9px 16px;
     border: 1px solid var(--details-title-color, #201f1e);
     border-radius: var(--details-close-corner-radius, 2px);
@@ -92,6 +190,29 @@
   .eventDetailsOpenButton:focus {
     opacity: .86;
     text-decoration: underline;
+  }
+
+  .eventDetailsEditButton {
+    padding: 9px 16px;
+    border: 1px solid var(--details-title-color, #201f1e);
+    border-radius: var(--details-close-corner-radius, 2px);
+    background: var(--details-panel-background, #fff);
+    color: var(--details-title-color, #201f1e);
+    cursor: pointer;
+    font-family: var(--details-value-font-family, inherit);
+    font-size: var(--details-value-font-size, 14px);
+    font-weight: 600;
+  }
+
+  .eventDetailsEditButton:hover,
+  .eventDetailsEditButton:focus { background: var(--details-close-hover-background, #edebe9); }
+
+  .eventDetailsActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 20px;
   }
 
   .eventDetailsList {
@@ -253,6 +374,13 @@
   .calendarContainer {
     @include ms-font-m;
 
+    :global(.fc-daygrid-day:hover) .dayAddButton,
+    :global(.fc-daygrid-day:focus-within) .dayAddButton,
+    .dayAddButton:focus {
+      visibility: visible;
+      opacity: 1;
+    }
+
     :global(.fc-event) {
       border-style: solid;
       border-width: var(--calendar-event-border-width, 1px);
@@ -263,6 +391,31 @@
       font-weight: var(--calendar-event-font-weight, normal);
       z-index: 2;
     }
+
+    .eventEditAction {
+      position: absolute;
+      top: 1px;
+      right: 2px;
+      z-index: 3;
+      display: none;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, .92);
+      color: #201f1e;
+      cursor: pointer;
+      font-family: 'Segoe UI Symbol', sans-serif;
+      font-size: 14px;
+      font-style: normal;
+      font-weight: 600;
+      line-height: 18px;
+      text-align: center;
+    }
+
+    :global(.fc-event:hover) .eventEditAction,
+    :global(.fc-event:focus-within) .eventEditAction,
+    .eventEditAction:focus { display: block; }
 
     :global(.fc-event-main),
     :global(.fc-event-title),
@@ -384,6 +537,17 @@
     background: #f3f2f1;
     font-weight: 600;
     text-align: center;
+  }
+
+  .swimlaneDayHeader { position: relative; padding-right: 30px; }
+
+  .swimlaneAddButton {
+    position: absolute;
+    top: 8px;
+    right: 4px;
+    width: 24px;
+    padding: 0;
+    font-size: 20px;
   }
 
   .swimlaneName {
@@ -509,5 +673,7 @@
     .eventDetailsBackdrop { padding: 8px; }
     .eventDetailsPanel { max-height: calc(100% - 8px); padding: 22px 18px; }
     .eventDetailsRow { grid-template-columns: 1fr; gap: 4px; }
+    .newEventBackdrop { padding: 4px; }
+    .newEventPanel { min-height: 500px; max-height: calc(100vh - 8px); padding: 12px; }
   }
 }

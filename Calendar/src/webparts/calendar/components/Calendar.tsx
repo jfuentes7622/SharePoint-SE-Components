@@ -81,12 +81,39 @@ export interface ICalendarState {
   selectedItemId: number;
   selectedEventKey: string;
   legendOpen: boolean;
+  newEventDate: Date;
+  newEventSourceListName: string;
+  newEventFormUrl: string;
+  newEventFormLoading: boolean;
+  newEventFormError: string;
+  newEventFrameHeight: number;
+  eventFormMode: string;
 }
 
 export default class Calendar extends React.Component<ICalendarProps, ICalendarState> {
   private _calendarEl: HTMLDivElement;
   private _calendar: any;
   private _eventLoadSequence: number = 0;
+  private _newEventFrameObserver: any;
+  private _newEventFrameResizeTimer: number;
+
+  private async getWithAcceptFallback(url: string): Promise<any> {
+    let response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1);
+
+    if (!response.ok && response.status === 406) {
+      response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        headers: { Accept: 'application/json;odata=verbose' }
+      });
+    }
+
+    if (!response.ok && response.status === 406) {
+      response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        headers: { Accept: 'application/json;odata=nometadata' }
+      });
+    }
+
+    return response;
+  }
 
   constructor(props: ICalendarProps) {
     super(props);
@@ -100,7 +127,14 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       selectedEvent: undefined,
       selectedItemId: 0,
       selectedEventKey: '',
-      legendOpen: false
+      legendOpen: false,
+      newEventDate: undefined,
+      newEventSourceListName: '',
+      newEventFormUrl: '',
+      newEventFormLoading: false,
+      newEventFormError: '',
+      newEventFrameHeight: 560,
+      eventFormMode: 'add'
     };
   }
 
@@ -116,6 +150,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       document.removeEventListener('keydown', this.handleDocumentKeyDown);
     }
     this._eventLoadSequence += 1;
+    this.disconnectNewEventFrameObserver();
     if (this._calendar) {
       this._calendar.destroy();
       this._calendar = undefined;
@@ -173,7 +208,9 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
   }
 
   private handleDocumentKeyDown = (keyboardEvent: KeyboardEvent): void => {
-    if (keyboardEvent.key === 'Escape' && this.state.selectedEvent) {
+    if (keyboardEvent.key === 'Escape' && this.state.newEventDate) {
+      this.closeNewEventDialog();
+    } else if (keyboardEvent.key === 'Escape' && this.state.selectedEvent) {
       this.closeEventDetails();
     } else if (keyboardEvent.key === 'Escape' && this.state.legendOpen) {
       this.setState({ legendOpen: false });
@@ -297,6 +334,24 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
           this.loadEvents();
         }
       },
+      dayCellDidMount: (info: any) => {
+        if (!info.el || !info.el.classList || !info.el.classList.contains('fc-daygrid-day')) {
+          return;
+        }
+        info.el.style.position = 'relative';
+        var addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.className = styles.dayAddButton;
+        addButton.textContent = '+ Add';
+        addButton.title = strings.AddEventButtonTitle;
+        addButton.setAttribute('aria-label', strings.AddEventButtonTitle + ' ' + this.formatLocalDate(info.date));
+        addButton.addEventListener('click', (clickEvent: MouseEvent) => {
+          clickEvent.preventDefault();
+          clickEvent.stopPropagation();
+          this.openNewEventDialog(info.date);
+        });
+        info.el.appendChild(addButton);
+      },
       eventDidMount: (info: any) => {
         const location = info.event.extendedProps && info.event.extendedProps.location;
         const eventStyle = info.event.extendedProps && info.event.extendedProps.eventStyle;
@@ -304,6 +359,30 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
         const sourceItemKey = String(info.event.extendedProps && info.event.extendedProps.sourceItemKey || info.event.id || '');
         info.el.title = info.event.title + (location ? ' \u2014 ' + location : '');
         info.el.setAttribute('data-calendar-event-id', String(info.event.id || ''));
+        info.el.style.position = 'relative';
+        var editAction = document.createElement('span');
+        editAction.className = styles.eventEditAction;
+        editAction.textContent = '\u270E';
+        editAction.title = strings.EditEventButtonLabel;
+        editAction.setAttribute('aria-label', strings.EditEventButtonLabel);
+        editAction.setAttribute('role', 'button');
+        editAction.setAttribute('tabindex', '0');
+        var activateEdit = (domEvent: Event) => {
+          domEvent.preventDefault();
+          domEvent.stopPropagation();
+          this.openEditEventDialog(sourceItemId, {
+            title: info.event.title,
+            start: info.event.start,
+            extendedProps: info.event.extendedProps
+          });
+        };
+        editAction.addEventListener('click', activateEdit);
+        editAction.addEventListener('keydown', (keyboardEvent: KeyboardEvent) => {
+          if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
+            activateEdit(keyboardEvent);
+          }
+        });
+        info.el.appendChild(editAction);
         this.applyEventElementStyle(info.el, eventStyle, sourceItemId, sourceItemKey);
         this.logDiagnostic('Mounted event. id=' + String(info.event.id) + ', title="' + String(info.event.title)
           + '", start=' + String(info.event.start ? info.event.start.toISOString() : '(none)')
@@ -327,6 +406,228 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     this._calendar.render();
   }
 
+  private openNewEventDialog(date: Date): void {
+    var sources = this.getEffectiveDataSources();
+    if (sources.length === 0) {
+      return;
+    }
+    var selectedSource = sources.length === 1 ? sources[0].listName : '';
+    this.setState({
+      newEventDate: new Date(date.getTime()),
+      newEventSourceListName: selectedSource,
+      newEventFormUrl: '',
+      newEventFormLoading: sources.length === 1,
+      newEventFormError: '',
+      newEventFrameHeight: 560,
+      eventFormMode: 'add'
+    }, () => {
+      if (selectedSource) {
+        this.openNativeEventForm();
+      }
+    });
+  }
+
+  private closeNewEventDialog(): void {
+    this.disconnectNewEventFrameObserver();
+    this.setState({
+      newEventDate: undefined,
+      newEventSourceListName: '',
+      newEventFormUrl: '',
+      newEventFormLoading: false,
+      newEventFormError: '',
+      newEventFrameHeight: 560,
+      eventFormMode: 'add'
+    }, () => this.loadEvents());
+  }
+
+  private openEditEventDialog(itemId: number, event: any): void {
+    var sourceListName = String(event && event.extendedProps && event.extendedProps.sourceListName || this.props.listName || '');
+    if (!sourceListName || !itemId) {
+      return;
+    }
+    var eventDate = event && event.start ? new Date(event.start) : new Date();
+    this.setState({
+      selectedEvent: undefined,
+      newEventDate: eventDate,
+      newEventSourceListName: sourceListName,
+      newEventFormUrl: '',
+      newEventFormLoading: true,
+      newEventFormError: '',
+      newEventFrameHeight: 560,
+      eventFormMode: 'edit'
+    }, () => this.openNativeEventForm(itemId));
+  }
+
+  private async openNativeEventForm(itemId?: number): Promise<void> {
+    var listName = String(this.state.newEventSourceListName || '').trim();
+    if (!listName || !this.state.newEventDate) {
+      return;
+    }
+    this.setState({ newEventFormLoading: true, newEventFormError: '' });
+    try {
+      var metadataUrl = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName)
+        + "')?$select=Id,RootFolder/ServerRelativeUrl&$expand=RootFolder";
+      var response = await this.getWithAcceptFallback(metadataUrl);
+      if (!response.ok) {
+        throw new Error('HTTP ' + String(response.status) + ' ' + response.statusText);
+      }
+      var payload = await response.json();
+      var list = payload && payload.d ? payload.d : payload;
+      var rootFolderUrl = String(list && list.RootFolder && list.RootFolder.ServerRelativeUrl || '').replace(/\/$/, '');
+      var listId = String(list && (list.Id || list.ID) || '');
+      var webUrl = this.getWebUrl();
+      var originMatch = webUrl.match(/^https?:\/\/[^/]+/i);
+      var formName = itemId ? 'EditForm.aspx' : 'NewForm.aspx';
+      var formUrl = rootFolderUrl
+        ? String(originMatch ? originMatch[0] : '') + rootFolderUrl + '/' + formName
+        : webUrl + '/_layouts/15/listform.aspx?PageType=' + (itemId ? '6' : '8') + '&ListId=' + encodeURIComponent(listId);
+      if (itemId) {
+        formUrl = appendQueryParam(formUrl, 'ID', String(itemId));
+      }
+      formUrl = appendQueryParam(formUrl, 'IsDlg', '1');
+      formUrl = appendQueryParam(formUrl, 'CalendarDate', this.formatLocalDate(this.state.newEventDate));
+      if (typeof window !== 'undefined' && window.location) {
+        formUrl = appendQueryParam(formUrl, 'Source', window.location.href);
+      }
+      this.setState({ newEventFormUrl: formUrl, newEventFormLoading: false });
+    } catch (error) {
+      this.setState({
+        newEventFormLoading: false,
+        newEventFormError: strings.AddEventFormLoadError + ' ' + String(error && error.message ? error.message : error)
+      });
+    }
+  }
+
+  private setNewEventFrameRef = (frame: HTMLIFrameElement): void => {
+    if (!frame) {
+      return;
+    }
+    var dialogFrame: any = frame;
+    dialogFrame.cancelPopUp = () => this.closeNewEventDialog();
+    dialogFrame.commitPopup = () => this.closeNewEventDialog();
+    dialogFrame.commonModalDialogClose = () => this.closeNewEventDialog();
+  }
+
+  private disconnectNewEventFrameObserver(): void {
+    if (this._newEventFrameObserver) {
+      this._newEventFrameObserver.disconnect();
+      this._newEventFrameObserver = undefined;
+    }
+    if (this._newEventFrameResizeTimer) {
+      window.clearTimeout(this._newEventFrameResizeTimer);
+      this._newEventFrameResizeTimer = undefined;
+    }
+  }
+
+  private resizeNewEventFrame(frame: HTMLIFrameElement): void {
+    try {
+      var frameDocument = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+      if (!frameDocument) {
+        return;
+      }
+      var contentBottom = 0;
+      var measuredElements = frameDocument.querySelectorAll(
+        '#s4-ribbonrow, #RibbonContainer, .ms-formtable, .ms-formtoolbar, .ms-toolbar, [id*="toolBarTbl"]'
+      );
+      var scrollTop = frame.contentWindow ? Number(frame.contentWindow.pageYOffset || 0) : 0;
+      for (var index = 0; index < measuredElements.length; index += 1) {
+        var measuredElement = measuredElements[index] as HTMLElement;
+        var bounds = measuredElement.getBoundingClientRect();
+        if (bounds.height > 0 && bounds.width > 0) {
+          contentBottom = Math.max(contentBottom, bounds.bottom + scrollTop);
+        }
+      }
+      if (contentBottom <= 0) {
+        var body = frameDocument.body;
+        var documentElement = frameDocument.documentElement;
+        contentBottom = Math.min(680, Math.max(
+          body ? body.scrollHeight : 0,
+          documentElement ? documentElement.scrollHeight : 0
+        ));
+      }
+      var nextHeight = Math.max(420, contentBottom + 16);
+      if (Math.abs(nextHeight - this.state.newEventFrameHeight) > 12) {
+        this.setState({ newEventFrameHeight: nextHeight });
+      }
+    } catch (error) {
+      this.logDiagnostic('Could not measure the native event form. ' + String(error));
+    }
+  }
+
+  private scheduleNewEventFrameResize(frame: HTMLIFrameElement): void {
+    if (this._newEventFrameResizeTimer) {
+      window.clearTimeout(this._newEventFrameResizeTimer);
+    }
+    this._newEventFrameResizeTimer = window.setTimeout(() => {
+      this._newEventFrameResizeTimer = undefined;
+      this.resizeNewEventFrame(frame);
+    }, 120);
+  }
+
+  private handleNewEventFrameLoad = (loadEvent: React.SyntheticEvent<HTMLIFrameElement>): void => {
+    var frame = loadEvent.currentTarget;
+    this.disconnectNewEventFrameObserver();
+    this.resizeNewEventFrame(frame);
+    try {
+      var frameDocument = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+      var MutationObserverConstructor: any = typeof window !== 'undefined'
+        ? (window as any).MutationObserver : undefined;
+      if (frameDocument && frameDocument.documentElement && MutationObserverConstructor) {
+        this._newEventFrameObserver = new MutationObserverConstructor(() => this.scheduleNewEventFrameResize(frame));
+        this._newEventFrameObserver.observe(frameDocument.documentElement, {
+          attributes: true,
+          childList: true,
+          subtree: true
+        });
+      }
+    } catch (error) {
+      this.logDiagnostic('Could not observe the native event form size. ' + String(error));
+    }
+  }
+
+  private renderNewEventDialog(): React.ReactElement<any> {
+    if (!this.state.newEventDate) {
+      return undefined;
+    }
+    var sources = this.getEffectiveDataSources();
+    return (
+      <div className={styles.newEventBackdrop} role='presentation'>
+        <section className={styles.newEventPanel} role='dialog' aria-modal='true'
+          aria-label={this.state.eventFormMode === 'edit' ? strings.EditEventDialogTitle : strings.AddEventDialogTitle}>
+          <button type='button' className={styles.eventDetailsClose} aria-label={strings.AddEventCloseLabel}
+            title={strings.AddEventCloseLabel} onClick={() => this.closeNewEventDialog()}>&times;</button>
+          <h2 className={styles.newEventTitle}>
+            {this.state.eventFormMode === 'edit' ? strings.EditEventDialogTitle : strings.AddEventDialogTitle}
+          </h2>
+          {!this.state.newEventFormUrl && sources.length > 1
+            && <div className={styles.newEventSourcePicker}>
+              <label htmlFor='calendar-new-event-source'>{strings.AddEventSourceLabel}</label>
+              <select id='calendar-new-event-source' value={this.state.newEventSourceListName}
+                onChange={(changeEvent: React.ChangeEvent<HTMLSelectElement>) => this.setState({
+                  newEventSourceListName: changeEvent.target.value,
+                  newEventFormError: ''
+                })}>
+                <option value=''>{strings.AddEventSourcePlaceholder}</option>
+                {sources.map((source: ICalendarDataSource) =>
+                  <option key={source.listName} value={source.listName}>{source.listName}</option>)}
+              </select>
+              <button type='button' className={styles.newEventContinueButton}
+                disabled={!this.state.newEventSourceListName || this.state.newEventFormLoading}
+                onClick={() => this.openNativeEventForm()}>{strings.AddEventContinueLabel}</button>
+            </div>}
+          {this.state.newEventFormLoading && <div className={styles.message}>{strings.AddEventFormLoading}</div>}
+          {this.state.newEventFormError && <div className={styles.error}>{this.state.newEventFormError}</div>}
+          {this.state.newEventFormUrl
+            && <iframe ref={this.setNewEventFrameRef} className={styles.newEventFrame}
+              src={this.state.newEventFormUrl}
+              title={this.state.eventFormMode === 'edit' ? strings.EditEventDialogTitle : strings.AddEventDialogTitle}
+              style={{ height: String(this.state.newEventFrameHeight) + 'px' }}
+              onLoad={this.handleNewEventFrameLoad} />}
+        </section>
+      </div>
+    );
+  }
+
   private getWebUrl(): string {
     return String(this.props.spfxContext.pageContext.web.absoluteUrl || '').replace(/\/$/, '');
   }
@@ -338,7 +639,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
 
     this.logDiagnostic('Event selected. itemId=' + String(itemId));
     this.props.onEventSelectionChange(itemId, 'view');
-    if (this.props.enableEventDetails === true && event) {
+    if (this.props.enableEventDetails !== false && event) {
       var eventKey = String(event.extendedProps && event.extendedProps.sourceItemKey || '');
       this.setState({ selectedEvent: event, selectedItemId: itemId, selectedEventKey: eventKey }, () => this.rerenderSelectedEvents());
     } else if (this.props.showLinkToItem === true) {
@@ -552,13 +853,14 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
 
   private renderEventDetails(): React.ReactElement<any> {
     var event = this.state.selectedEvent;
-    if (!event || this.props.enableEventDetails !== true) {
+    if (!event || this.props.enableEventDetails === false) {
       return undefined;
     }
     var itemId = Number(event.extendedProps && event.extendedProps.sourceItemId || 0);
-    var showItemLink = this.props.showLinkToItem === true && itemId > 0;
-    var itemUrl = showItemLink ? this.getItemLinkUrl(itemId, event) : '';
-    var linkTitle = showItemLink && this.props.detailsLinkPresentation === 'title';
+    var showEventAction = this.props.showLinkToItem === true && itemId > 0;
+    var configuredTargetPageUrl = String(this.props.linkTargetPageUrl || '').trim();
+    var usesDefaultForm = !configuredTargetPageUrl || configuredTargetPageUrl === '__defaultForm__';
+    var itemUrl = showEventAction && !usesDefaultForm ? this.getItemLinkUrl(itemId, event) : '';
     var recurrenceDescription = this.getRecurrenceDescription(event);
     return (
       <div className={styles.eventDetailsBackdrop} role='presentation' onClick={() => this.closeEventDetails()}>
@@ -566,9 +868,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
           aria-label={event.title || 'Event details'} onClick={(clickEvent: React.MouseEvent<HTMLElement>) => clickEvent.stopPropagation()}>
           <button type='button' className={styles.eventDetailsClose} aria-label='Close event details'
             title='Close event details' onClick={() => this.closeEventDetails()}>&times;</button>
-          <h2 className={styles.eventDetailsTitle}>
-            {linkTitle ? <a href={itemUrl}>{event.title}</a> : event.title}
-          </h2>
+          <h2 className={styles.eventDetailsTitle}>{event.title}</h2>
           <dl className={styles.eventDetailsList}>
             {this.getEventDetailFields(event).map((entry: any, index: number) => {
               var displayValue = this.formatEventDetailValue(event, entry);
@@ -593,8 +893,12 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
                 <dd>{recurrenceDescription}</dd>
               </div>}
           </dl>
-          {showItemLink && !linkTitle
-            && <a className={styles.eventDetailsOpenButton} href={itemUrl}>{strings.OpenEventDetailsButton}</a>}
+          {showEventAction && <div className={styles.eventDetailsActions}>
+            {!usesDefaultForm
+              ? <a className={styles.eventDetailsOpenButton} href={itemUrl}>{strings.OpenEventDetailsButton}</a>
+              : <button type='button' className={styles.eventDetailsEditButton}
+                onClick={() => this.openEditEventDialog(itemId, event)}>{strings.EditEventButtonLabel}</button>}
+          </div>}
         </section>
       </div>
     );
@@ -602,7 +906,10 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
 
   private getItemLinkUrl(itemId: number, event?: any): string {
     var extendedProps = event && event.extendedProps ? event.extendedProps : {};
-    var targetPageUrl = String(extendedProps.sourceTargetPageUrl || this.props.linkTargetPageUrl || '').trim();
+    var targetPageUrl = String(this.props.linkTargetPageUrl || '').trim();
+    if (targetPageUrl === '__defaultForm__') {
+      targetPageUrl = '';
+    }
     var sourceListName = String(extendedProps.sourceListName || this.props.listName || '').trim();
     var targetIdParam = String(this.props.linkTargetIdParam || 'itemid').trim() || 'itemid';
 
@@ -798,7 +1105,12 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
         <div className={styles.swimlaneScroller}>
           <div className={styles.swimlaneHeader} style={gridStyle}>
             <div className={styles.swimlaneCorner}>{strings.SwimlaneLaneLabel}</div>
-            {dates.map((date: Date) => <div key={this.formatLocalDate(date)} className={styles.swimlaneDayHeader}>{this.formatLaneDate(date)}</div>)}
+            {dates.map((date: Date) => <div key={this.formatLocalDate(date)} className={styles.swimlaneDayHeader}>
+              {this.formatLaneDate(date)}
+              <button type='button' className={styles.swimlaneAddButton} title={strings.AddEventButtonTitle}
+                aria-label={strings.AddEventButtonTitle + ' ' + this.formatLocalDate(date)}
+                onClick={() => this.openNewEventDialog(date)}>+</button>
+            </div>)}
           </div>
           {laneNames.length === 0 && <div className={styles.swimlaneEmpty}>{strings.SwimlaneNoEventsMessage}</div>}
           {laneNames.map((currentLaneName: string) => (
@@ -1480,15 +1792,11 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       const recurrenceMastersUrl = baseUrl + '&$filter=fRecurrence eq 1&$top=5000';
 
       let usedStartDateFallback = false;
-      let response = await this.props.spfxContext.spHttpClient.get(overlapUrl, SPHttpClient.configurations.v1, {
-        headers: { Accept: 'application/json;odata=nometadata' }
-      });
+      let response = await this.getWithAcceptFallback(overlapUrl);
       if (!response.ok) {
         this.logDiagnostic('Overlap query was rejected; retrying with start-date range. HTTP ' + String(response.status));
         usedStartDateFallback = true;
-        response = await this.props.spfxContext.spHttpClient.get(startDateUrl, SPHttpClient.configurations.v1, {
-          headers: { Accept: 'application/json;odata=nometadata' }
-        });
+        response = await this.getWithAcceptFallback(startDateUrl);
       }
       if (!response.ok) {
         throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
@@ -1503,9 +1811,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       if (items.length === 0 && !usedStartDateFallback) {
         this.logDiagnostic('Overlap query returned no items; retrying with start-date range.');
         usedStartDateFallback = true;
-        response = await this.props.spfxContext.spHttpClient.get(startDateUrl, SPHttpClient.configurations.v1, {
-          headers: { Accept: 'application/json;odata=nometadata' }
-        });
+        response = await this.getWithAcceptFallback(startDateUrl);
         if (!response.ok) {
           throw new Error('Fallback request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
         }
@@ -1518,9 +1824,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       this.logRestItems(usedStartDateFallback ? 'visible range (start-date fallback)' : 'visible range (overlap)',
         usedStartDateFallback ? startDateUrl : overlapUrl, items);
       if (supportsBuiltInRecurrence) {
-        var recurrenceResponse = await this.props.spfxContext.spHttpClient.get(recurrenceMastersUrl, SPHttpClient.configurations.v1, {
-          headers: { Accept: 'application/json;odata=nometadata' }
-        });
+        var recurrenceResponse = await this.getWithAcceptFallback(recurrenceMastersUrl);
         if (recurrenceResponse.ok) {
         var recurrenceData = await recurrenceResponse.json();
         var recurrenceItems = recurrenceData && recurrenceData.value ? recurrenceData.value
@@ -1554,8 +1858,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
         var recurrenceDetailUrl = webUrl + "/_api/web/lists/getByTitle('"
           + escapeODataText(listName) + "')/items(" + String(detailItem.Id)
           + ')?$select=Title,EventDate,EndDate,RecurrenceData,UID';
-        var recurrenceDetailResponse = await this.props.spfxContext.spHttpClient.get(recurrenceDetailUrl,
-          SPHttpClient.configurations.v1, { headers: { Accept: 'application/json;odata=verbose' } });
+        var recurrenceDetailResponse = await this.getWithAcceptFallback(recurrenceDetailUrl);
         if (!recurrenceDetailResponse.ok) {
           this.logDiagnostic('Recurrence detail query was rejected for item ' + String(detailItem.Id)
             + '. HTTP ' + String(recurrenceDetailResponse.status));
@@ -1788,6 +2091,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     return (
       <div className={styles.calendar} style={calendarStyle}>
         {this.renderEventDetails()}
+        {this.renderNewEventDialog()}
         <div className={headerClassName}>
           <WebPartTitle key={'calendar-web-part-title-' + String(this.props.title || '')}
             displayMode={this.props.displayMode}

@@ -13,7 +13,7 @@ define([], function() {
     "DataSourcesCollectionManageButton": "Manage data sources",
     "DataSourceListLabel": "Calendar source list",
     "DataSourceTargetPageLabel": "Target page",
-    "DataSourceDefaultFormOption": "Display List Default Form",
+    "DataSourceDefaultFormOption": "Default SharePoint Form",
     "DataSourceEventsDateFieldsOption": "Defaults",
     "DataSourceEventsListType": "Events list",
     "DataSourceCalendarViewListType": "calendar view",
@@ -118,12 +118,12 @@ define([], function() {
     "EventDetailsHideEmptyLabel": "Hide when empty",
     "RecurrenceDetailsLabel": "Repeats",
     "RecurringEventFallback": "Recurring event",
-    "ShowLinkToItemLabel": "Open the selected event",
+    "ShowLinkToItemLabel": "Show event action",
     "DetailsLinkPresentationLabel": "Event details link appearance",
     "DetailsLinkPresentationButton": "Open event button",
     "DetailsLinkPresentationTitle": "Linked event title",
-    "OpenEventDetailsButton": "Open event",
-    "LinkTargetPageUrlLabel": "Target page URL (blank uses the default display form)",
+    "OpenEventDetailsButton": "Open Event",
+    "LinkTargetPageUrlLabel": "Open Event destination",
     "LinkTargetIdParamLabel": "Item ID query parameter",
     "IncludeReturnUrlParamLabel": "Include the current page as the return parameter",
 
@@ -310,6 +310,16 @@ define([], function() {
     "NoListConfigured": "Please choose an Events list in the web part properties in order to show a calendar",
     "NoListBtn": "Configure",
     "LoadingMessage": "Loading events\u2026",
-    "LoadErrorMessage": "Unable to load events."
+    "LoadErrorMessage": "Unable to load events.",
+    "AddEventButtonTitle": "Add event",
+    "AddEventDialogTitle": "Add event",
+    "AddEventCloseLabel": "Close add event dialog",
+    "AddEventSourceLabel": "Calendar",
+    "AddEventSourcePlaceholder": "Select a calendar",
+    "AddEventContinueLabel": "Continue",
+    "AddEventFormLoading": "Loading the SharePoint event form\u2026",
+    "AddEventFormLoadError": "Unable to load the SharePoint event form.",
+    "EditEventDialogTitle": "Edit event",
+    "EditEventButtonLabel": "Edit"
   }
 });

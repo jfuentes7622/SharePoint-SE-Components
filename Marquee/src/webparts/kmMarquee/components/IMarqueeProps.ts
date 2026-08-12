@@ -15,7 +15,9 @@ export interface IKmMarqueeProps {
   marqueeHeight: string;
   scrollSpeed: number;
   scrollDirection: string;
+  placement: string;
   listName: string;
+  viewId: string;
   messageField: string;
   messageDuration: number;
   enableDiagnostics: boolean;

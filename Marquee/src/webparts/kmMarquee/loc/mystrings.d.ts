@@ -5,6 +5,7 @@ declare interface IKmMarqueeWebPartStrings {
   ParentElement: string;
   DataSourceGroupName: string;
   ListNameFieldLabel: string;
+  ViewFieldLabel: string;
   MessageFieldLabel: string;
   MessageDurationFieldLabel: string;
   FontGroupName: string;
@@ -16,6 +17,11 @@ declare interface IKmMarqueeWebPartStrings {
   ScrollGroupName: string;
   ScrollSpeedFieldLabel: string;
   ScrollDirectionFieldLabel: string;
+  PlacementFieldLabel: string;
+  PlacementTopOption: string;
+  PlacementAboveChromeOption: string;
+  PlacementBelowChromeOption: string;
+  PlacementAboveContentOption: string;
   DiagnosticsGroupName: string;
   PropEnableDiagnosticsLabel: string;
 }

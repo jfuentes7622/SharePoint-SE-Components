@@ -97,6 +97,9 @@ export interface IListControlState {
         [fieldName: string]: IColumnFilter;
     };
     currentPage: number;
+    displayFormUrl: string;
+    displayFormLoading: boolean;
+    displayFormError: string;
 }
 export declare type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
 export interface IColumnFilter {
@@ -109,6 +112,9 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     constructor(props: IListControlProps);
     componentDidMount(): void;
     componentWillUnmount(): void;
+    private openDefaultDisplayForm(row);
+    private closeDefaultDisplayForm();
+    private setDisplayFormFrameRef;
     componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void;
     private getInitialViewId(views);
     private handleExternalRefresh(event);

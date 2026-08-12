@@ -310,6 +310,16 @@ declare interface ICalendarWebPartStrings {
   NoListBtn: string;
   LoadingMessage: string;
   LoadErrorMessage: string;
+  AddEventButtonTitle: string;
+  AddEventDialogTitle: string;
+  AddEventCloseLabel: string;
+  AddEventSourceLabel: string;
+  AddEventSourcePlaceholder: string;
+  AddEventContinueLabel: string;
+  AddEventFormLoading: string;
+  AddEventFormLoadError: string;
+  EditEventDialogTitle: string;
+  EditEventButtonLabel: string;
 }
 
 declare module 'CalendarWebPartStrings' {

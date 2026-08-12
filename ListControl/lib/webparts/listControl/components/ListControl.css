@@ -1,4 +1,5 @@
 .lc-root {
+  position: relative;
   background-color: var(--lc-webpart-bg-color);
   border: var(--lc-webpart-border-width) solid var(--lc-webpart-border-color);
   border-radius: var(--lc-webpart-corner-style);
@@ -247,3 +248,59 @@
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+.lc-form-dialog-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+  background: rgba(0, 0, 0, .28);
+}
+
+.lc-form-dialog {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 740px;
+  height: 690px;
+  max-height: calc(100vh - 32px);
+  padding: 18px;
+  border: 1px solid #8a8886;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .24);
+}
+
+.lc-form-dialog-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: #fff;
+  cursor: pointer;
+  font-size: 28px;
+  line-height: 32px;
+}
+
+.lc-form-dialog-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.lc-form-dialog-message,
+.lc-form-dialog-error { padding: 48px 16px 16px; }
+.lc-form-dialog-error { color: #a80000; }

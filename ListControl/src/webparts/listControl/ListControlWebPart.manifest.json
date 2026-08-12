@@ -20,7 +20,7 @@
       },
       "officeFabricIconFontName": "BulletedList",
       "properties": {
-        "description": "List control",
+        "description": "SPS List control",
         "instanceName": "",
         "listName": "",
         "viewId": "",

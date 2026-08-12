@@ -344,6 +344,13 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    if (propertyPath === 'linkTargetPageUrl' && oldValue !== newValue) {
+      this.properties.includeReturnUrlParam = !!newValue && newValue !== '__defaultForm__';
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
     if (propertyPath === 'instanceName' && oldValue !== newValue) {
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
       this.notifyDynamicData('instanceName');

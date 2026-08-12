@@ -24,7 +24,9 @@
       "marqueeHeight": "32px",
       "scrollSpeed": 50,
       "scrollDirection": "left",
+      "placement": "top",
       "listName": "",
+      "viewId": "",
       "messageField": "",
       "messageDuration": 8,
       "enableDiagnostics": true

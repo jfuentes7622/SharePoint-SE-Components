@@ -1,0 +1,16 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "isCreatingSolution": true,
+    "nodeVersion": "10.24.1",
+    "environment": "onprem",
+    "version": "1.5.1",
+    "libraryName": "script-editor-web-part",
+    "libraryId": "45ccd2d7-f86f-47dc-96d2-ea6095c0f100",
+    "packageManager": "npm",
+    "solutionName": "SPS-ScriptEditor",
+    "solutionShortDescription": "ScriptEditor description",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "componentType": "webpart"
+  }
+}

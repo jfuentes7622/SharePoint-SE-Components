@@ -49,7 +49,9 @@ export interface IKmMarqueeWebPartProps {
   marqueeHeight: string;
   scrollSpeed: number;
   scrollDirection: string;
+  placement: string;
   listName: string;
+  viewId: string;
   messageField: string;
   messageDuration: number;
   enableDiagnostics: boolean;
@@ -57,6 +59,7 @@ export interface IKmMarqueeWebPartProps {
 
 export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWebPartProps> {
   private _lists: IDropdownOption[] = [];
+  private _views: Array<IDropdownOption & { isDefault?: boolean }> = [];
   private _listFields: IDropdownOption[] = [];
 
   public render(): void {
@@ -66,8 +69,8 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
         description: this.properties.description,
         dMode: this.displayMode,
         spfxContext:this.context,
-        marqueeBackColor: this.properties.marqueeBackColor,
-        marqueeTextColor: this.properties.marqueeTextColor,
+        marqueeBackColor: this.properties.marqueeBackColor || '#333333',
+        marqueeTextColor: this.properties.marqueeTextColor || '#fcfcfc',
         marqueeActive: this.properties.marqueeActive,
         fontFamily: this.properties.fontFamily || '"Segoe UI", sans-serif',
         fontSize: this.properties.fontSize || '13px',
@@ -76,7 +79,9 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
         marqueeHeight: this.properties.marqueeHeight || '32px',
         scrollSpeed: typeof this.properties.scrollSpeed === 'number' ? this.properties.scrollSpeed : 50,
         scrollDirection: this.properties.scrollDirection || 'left',
+        placement: this.properties.placement || 'top',
         listName: this.properties.listName || '',
+        viewId: this.properties.viewId || '',
         messageField: this.properties.messageField || '',
         messageDuration: typeof this.properties.messageDuration === 'number' ? this.properties.messageDuration : 8,
         enableDiagnostics: this.properties.enableDiagnostics !== false
@@ -84,8 +89,12 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
     );
 
     ReactDom.render(element, this.domElement);
-    this.domElement.style.setProperty('--marqueeBackColor', (this.properties.marqueeBackColor !== undefined?this.properties.marqueeBackColor:"#333333"));
-    this.domElement.style.setProperty('--marqueeTextColor', (this.properties.marqueeTextColor !== undefined?this.properties.marqueeTextColor:"#FAFAFA"));
+  }
+
+  private handleColorPropertyChange(propertyPath: string, oldValue: any, newValue: any): void {
+    this.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+    this.context.propertyPane.refresh();
+    this.render();
   }
 
   protected onDispose(): void {
@@ -100,7 +109,7 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
     this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
     return this.loadLists().then(() => {
       if (this.properties.listName) {
-        return this.loadListFields(this.properties.listName);
+        return this.loadViews(this.properties.listName);
       }
       return Promise.resolve();
     });
@@ -111,21 +120,43 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
     if (this._lists.length === 0) {
       this.loadLists();
     }
-    if (this.properties.listName && this._listFields.length === 0) {
-      this.loadListFields(this.properties.listName);
+    if (this.properties.listName && this._views.length === 0) {
+      this.loadViews(this.properties.listName);
+    } else if (this.properties.listName && this.properties.viewId && this._listFields.length === 0) {
+      this.loadViewFields(this.properties.listName, this.properties.viewId);
     }
   }
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
     if (propertyPath === 'listName' && oldValue !== newValue) {
+      this.properties.viewId = '';
       this.properties.messageField = '';
+      this._views = [];
       this._listFields = [];
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
       if (newValue) {
-        this.loadListFields(String(newValue));
+        this.loadViews(String(newValue));
       }
       this.context.propertyPane.refresh();
+      return;
+    }
+
+    if (propertyPath === 'viewId' && oldValue !== newValue) {
+      this.properties.messageField = '';
+      this._listFields = [];
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      if (this.properties.listName && newValue) {
+        this.loadViewFields(this.properties.listName, String(newValue));
+      }
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
+
+    if (propertyPath === 'placement' && oldValue !== newValue) {
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.render();
       return;
     }
 
@@ -174,8 +205,38 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
     }
   }
 
-  private async loadListFields(listName: string): Promise<void> {
-    if (!listName) {
+  private async loadViews(listName: string): Promise<void> {
+    try {
+      const webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+      const data = await this.getJsonWithAcceptFallback(
+        webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/views?$select=Id,Title,DefaultView"
+      );
+      const views = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+      this._views = views.map((view: any) => {
+        return { key: String(view.Id), text: String(view.Title), isDefault: view.DefaultView === true };
+      });
+
+      if (!this.properties.viewId && this._views.length > 0) {
+        const defaultView = this._views.filter((view) => { return view.isDefault === true; })[0];
+        this.properties.viewId = String((defaultView || this._views[0]).key);
+      }
+
+      this.logDiagnostic('Loaded views for list "' + listName + '". Count=' + String(this._views.length));
+      this.context.propertyPane.refresh();
+      if (this.properties.viewId) {
+        await this.loadViewFields(listName, this.properties.viewId);
+      }
+      this.render();
+    } catch (error) {
+      this._views = [];
+      this._listFields = [];
+      this.context.propertyPane.refresh();
+      this.logDiagnostic('Failed to load views for list "' + listName + '": ' + (error && error.message ? error.message : String(error)));
+    }
+  }
+
+  private async loadViewFields(listName: string, viewId: string): Promise<void> {
+    if (!listName || !viewId) {
       this._listFields = [];
       this.context.propertyPane.refresh();
       return;
@@ -183,26 +244,41 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
 
     try {
       const webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
-      const endpoint = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields"
-        + "?$select=InternalName,Title,TypeAsString,Hidden,ReadOnlyField,Sealed"
-        + "&$filter=Hidden eq false and ReadOnlyField eq false and Sealed eq false";
-      const data = await this.getJsonWithAcceptFallback(endpoint);
-      const fields = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+      const listPath = "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')";
+      const normalizedViewId = String(viewId).replace(/[{}]/g, '');
+      const viewData = await this.getJsonWithAcceptFallback(
+        webUrl + listPath + "/views/getById('" + encodeURIComponent(normalizedViewId) + "')/ViewFields"
+      );
+      const rawViewFields = viewData && viewData.value ? viewData.value
+        : (viewData && viewData.Items ? viewData.Items : (viewData && viewData.d && viewData.d.Items ? viewData.d.Items : []));
+      const viewFields: string[] = Array.isArray(rawViewFields) ? rawViewFields
+        : (rawViewFields && rawViewFields.results ? rawViewFields.results : []);
+      const fieldData = await this.getJsonWithAcceptFallback(
+        webUrl + listPath + "/fields?$select=InternalName,Title,Hidden"
+      );
+      const fields = fieldData && fieldData.value ? fieldData.value
+        : (fieldData && fieldData.d && fieldData.d.results ? fieldData.d.results : []);
+      const fieldByName: { [name: string]: any } = {};
+      fields.forEach((field: any) => {
+        fieldByName[String(field.InternalName || '')] = field;
+      });
 
-      this._listFields = fields.map((field: any) => {
+      this._listFields = viewFields.map((fieldName: string) => {
+        const field = fieldByName[fieldName] || { InternalName: fieldName, Title: fieldName };
         const internalName = String(field.InternalName || '');
         const title = String(field.Title || internalName);
         return { key: internalName, text: title + (title !== internalName ? ' (' + internalName + ')' : '') };
-      }).sort((a: IDropdownOption, b: IDropdownOption) => {
-        return String(a.text).localeCompare(String(b.text));
       });
 
-      this.logDiagnostic('Loaded fields for list "' + listName + '". Count=' + String(this._listFields.length));
+      if (this.properties.listName !== listName || this.properties.viewId !== viewId) {
+        return;
+      }
+      this.logDiagnostic('Loaded fields for selected view. Count=' + String(this._listFields.length));
       this.context.propertyPane.refresh();
     } catch (error) {
       this._listFields = [];
       this.context.propertyPane.refresh();
-      this.logDiagnostic('Failed to load fields for list "' + listName + '": ' + (error && error.message ? error.message : String(error)));
+      this.logDiagnostic('Failed to load fields for selected view: ' + (error && error.message ? error.message : String(error)));
     }
   }
 
@@ -278,6 +354,9 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
     const listFieldOptions: IPropertyPaneDropdownOption[] = this._listFields.map((field) => {
       return { key: field.key, text: field.text };
     });
+    const viewOptions: IPropertyPaneDropdownOption[] = this._views.map((view) => {
+      return { key: view.key, text: view.text };
+    });
 
     const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
 
@@ -307,6 +386,16 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
                 PropertyPaneToggle('marqueeActive', {
                   label: 'Active',
                   checked: true
+                }),
+                PropertyPaneDropdown('placement', {
+                  label: strings.PlacementFieldLabel,
+                  options: [
+                    { key: 'top', text: strings.PlacementTopOption },
+                    { key: 'aboveChrome', text: strings.PlacementAboveChromeOption },
+                    { key: 'belowChrome', text: strings.PlacementBelowChromeOption },
+                    { key: 'aboveContent', text: strings.PlacementAboveContentOption }
+                  ],
+                  selectedKey: this.properties.placement || 'top'
                 })
               ]
             },
@@ -318,19 +407,18 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
                   options: listOptions,
                   selectedKey: this.properties.listName
                 }),
+                PropertyPaneDropdown('viewId', {
+                  label: strings.ViewFieldLabel,
+                  options: viewOptions,
+                  selectedKey: this.properties.viewId,
+                  disabled: !this.properties.listName
+                }),
                 PropertyPaneDropdown('messageField', {
                   label: strings.MessageFieldLabel,
                   options: listFieldOptions,
                   selectedKey: this.properties.messageField,
-                  disabled: !this.properties.listName
+                  disabled: !this.properties.listName || !this.properties.viewId
                 }),
-                PropertyPaneSlider('messageDuration', {
-                  label: strings.MessageDurationFieldLabel,
-                  min: 2,
-                  max: 60,
-                  step: 1,
-                  value: typeof this.properties.messageDuration === 'number' ? this.properties.messageDuration : 8
-                })
               ]
             },
             {
@@ -341,9 +429,21 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
                   options: fontFamilyOptions,
                   selectedKey: this.properties.fontFamily || '"Segoe UI", sans-serif'
                 }),
-                PropertyPaneTextField('fontSize', {
+                PropertyPaneDropdown('fontSize', {
                   label: strings.FontSizeFieldLabel,
-                  placeholder: '13px'
+                  options: [
+                    { key: '10px', text: '10px' },
+                    { key: '12px', text: '12px' },
+                    { key: '13px', text: '13px' },
+                    { key: '14px', text: '14px' },
+                    { key: '16px', text: '16px' },
+                    { key: '18px', text: '18px' },
+                    { key: '20px', text: '20px' },
+                    { key: '24px', text: '24px' },
+                    { key: '28px', text: '28px' },
+                    { key: '32px', text: '32px' }
+                  ],
+                  selectedKey: this.properties.fontSize || '13px'
                 }),
                 PropertyPaneDropdown('fontStyle', {
                   label: strings.FontStyleFieldLabel,
@@ -356,29 +456,21 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
                 }),
                 PropertyFieldColorPicker('marqueeBackColor', {
                   label: "Announcements Background Color",
-                  selectedColor: this.properties.marqueeBackColor,
-                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  selectedColor: this.properties.marqueeBackColor || '#333333',
+                  onPropertyChange: this.handleColorPropertyChange.bind(this),
                   properties: this.properties,
                   disabled: false,
-                  // debounce: 1000,
-                  // isHidden: false,
-                  alphaSliderHidden: false,
-                  style: PropertyFieldColorPickerStyle.Full,
-                  iconName: 'Precipitation',
-                  key: 'marqueeBackColor'                 
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'marqueeBackColorField'
                 }),
                 PropertyFieldColorPicker('marqueeTextColor', {
                   label: "Announcements Text Color",
-                  selectedColor: this.properties.marqueeTextColor,
-                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  selectedColor: this.properties.marqueeTextColor || '#fcfcfc',
+                  onPropertyChange: this.handleColorPropertyChange.bind(this),
                   properties: this.properties,
                   disabled: false,
-                  // debounce: 1000,
-                  // isHidden: false,
-                  alphaSliderHidden: false,
-                  style: PropertyFieldColorPickerStyle.Full,
-                  iconName: 'Precipitation',
-                  key: 'marqueeTextColor'
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'marqueeTextColorField'
                 }),
                 PropertyPaneTextField('marqueeHeight', {
                   label: strings.MarqueeHeightFieldLabel,
@@ -395,6 +487,13 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
                   max: 120,
                   step: 1,
                   value: typeof this.properties.scrollSpeed === 'number' ? this.properties.scrollSpeed : 50
+                }),
+                PropertyPaneSlider('messageDuration', {
+                  label: strings.MessageDurationFieldLabel,
+                  min: 2,
+                  max: 60,
+                  step: 1,
+                  value: typeof this.properties.messageDuration === 'number' ? this.properties.messageDuration : 8
                 }),
                 PropertyPaneDropdown('scrollDirection', {
                   label: strings.ScrollDirectionFieldLabel,

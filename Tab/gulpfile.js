@@ -62,4 +62,10 @@ build.tslint.setConfig({
       displayAsWarning: false
     });
 
+build.writeManifests.setConfig({
+  cumulativeManifestOptions: {
+    ignoreOutputManifestIds: ['d688e552-a2fb-4904-af1c-c28aa1ee79d3']
+  }
+});
+
 build.initialize(require('gulp'));

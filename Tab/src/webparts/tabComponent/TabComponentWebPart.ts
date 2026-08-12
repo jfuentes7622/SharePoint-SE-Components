@@ -12,6 +12,9 @@ import { DisplayMode,Version } from '@microsoft/sp-core-library';
 
 import {
   IPropertyPaneConfiguration,
+  IPropertyPaneCustomFieldProps,
+  IPropertyPaneField,
+  PropertyPaneFieldType,
   PropertyPaneTextField,
   PropertyPaneCheckbox,
   PropertyPaneDropdown,
@@ -19,13 +22,14 @@ import {
 } from '@microsoft/sp-webpart-base';
 
 import { BaseClientSideWebPart,  WebPartContext } from '@microsoft/sp-webpart-base';
+import { SPHttpClient } from '@microsoft/sp-http';
 import { Environment, EnvironmentType } from '@microsoft/sp-core-library';
 import * as strings from 'TabComponentWebPartStrings';
 import TabComponent from './components/TabComponent';
 import { ITabComponentProps, ITabVisualSettings } from './components/ITabComponentProps';
 import ErrorComponent, { IErrorComponentProps } from './components/ErrorComponent';
+import TabCollectionEditor, { IImageOption } from './components/TabCollectionEditor';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
-import { PropertyFieldCustomList, CustomListFieldType } from 'sp-client-custom-fields/lib/PropertyFieldCustomList';
 
 require('../tabComponent/assets/TabStyles-round.css');
 
@@ -69,6 +73,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   private foundAnotherTab: boolean = false;
   private tabsProcessedCount = 0;
   private ContentArea: HTMLElement;
+  private imageOptions: IImageOption[] = [];
 
 
   public constructor(context?: WebPartContext) {
@@ -77,8 +82,6 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     // we need to bind this object on it first
     this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
     window.addEventListener('load', this.windowLoaded.bind(this), false);
-
-    this.logDiagnostic('Constructor invoked. TabType=' + String(this.properties && this.properties.TabType || '(default)'));
   }
 
   private logDiagnostic(message: string): void {
@@ -116,6 +119,94 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+  }
+
+  protected onInit(): Promise<void> {
+    return this.loadSiteImages();
+  }
+
+  protected onPropertyPaneConfigurationStart(): void {
+    if (this.imageOptions.length === 0) {
+      this.loadSiteImages();
+    }
+  }
+
+  private async getJson(url: string): Promise<any> {
+    let response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    if (!response.ok) {
+      response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        headers: { Accept: 'application/json;odata=verbose' }
+      });
+    }
+    if (!response.ok) {
+      throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
+    }
+    return response.json();
+  }
+
+  private async loadSiteImages(): Promise<void> {
+    try {
+      const webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+      const listData = await this.getJson(webUrl
+        + '/_api/web/lists?$select=Id,Title,Hidden,BaseTemplate&$filter=Hidden eq false and BaseTemplate eq 101');
+      const libraries = listData && listData.value ? listData.value
+        : (listData && listData.d && listData.d.results ? listData.d.results : []);
+      const imageExtensions = /\.(apng|avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
+      const options: IImageOption[] = [];
+      for (let libraryIndex = 0; libraryIndex < libraries.length; libraryIndex += 1) {
+        const library = libraries[libraryIndex];
+        const itemData = await this.getJson(webUrl + "/_api/web/lists(guid'" + String(library.Id)
+          + "')/items?$select=FileRef,FileLeafRef,FSObjType&$filter=FSObjType eq 0&$top=5000");
+        const items = itemData && itemData.value ? itemData.value
+          : (itemData && itemData.d && itemData.d.results ? itemData.d.results : []);
+        items.forEach((item: any) => {
+          const fileName = String(item.FileLeafRef || '');
+          const fileUrl = String(item.FileRef || '');
+          if (fileUrl && imageExtensions.test(fileName)) {
+            options.push({ key: fileUrl, text: String(library.Title) + ' / ' + fileName });
+          }
+        });
+      }
+      this.imageOptions = options.sort((left: IImageOption, right: IImageOption) => {
+        return left.text.localeCompare(right.text);
+      });
+      this.logDiagnostic('Loaded site images. Count=' + String(this.imageOptions.length));
+      this.context.propertyPane.refresh();
+    } catch (error) {
+      this.imageOptions = [];
+      this.logDiagnostic('Failed to load site images: ' + (error && error.message ? error.message : String(error)));
+    }
+  }
+
+  private getTabCollectionField(): IPropertyPaneField<IPropertyPaneCustomFieldProps> {
+    return {
+      type: PropertyPaneFieldType.Custom,
+      targetProperty: 'collectionData',
+      properties: {
+        key: 'tabsCollectionData',
+        onRender: (element: HTMLElement): void => {
+          ReactDom.render(React.createElement(TabCollectionEditor, {
+            value: this.getConfiguredTabs(),
+            imageOptions: this.imageOptions,
+            onChange: (value: ITabCollectionItem[]): void => {
+              const oldValue = this.properties.collectionData || this.properties.tabs || [];
+              this.properties.collectionData = value;
+              this.onPropertyPaneFieldChanged('collectionData', oldValue, value);
+              this.render();
+            }
+          }), element);
+        },
+        onDispose: (element: HTMLElement): void => {
+          ReactDom.unmountComponentAtNode(element);
+        }
+      }
+    };
+  }
+
+  private handleColorPropertyChange(propertyPath: string, oldValue: any, newValue: any): void {
+    this.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+    this.context.propertyPane.refresh();
+    this.render();
   }
 
   // Searches through the ancestors of childElem and returns true if targetElem is found
@@ -318,23 +409,8 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
             {
               groupName: strings.BasicGroupName,
               groupFields: [
-                PropertyFieldCustomList('collectionData', {
-                  key: 'tabsCollectionData',
-                  label: strings.Tabs,
-                  headerText: 'Tabs',
-                  value: this.properties.collectionData || this.properties.tabs || [],
-                  context: this.context,
-                  properties: this.properties,
-                  onPropertyChange: this.onPropertyPaneFieldChanged,
-                  render: this.render.bind(this),
-                  fields: [
-                    { id: 'Title', title: 'Title', required: true, type: CustomListFieldType.string },
-                    { id: 'textPosition', title: 'Text Position (left|center|right)', required: false, type: CustomListFieldType.string },
-                    { id: 'imageUrl', title: 'Image URL', required: false, type: CustomListFieldType.picture },
-                    { id: 'imagePosition', title: 'Image Position (left|right)', required: false, type: CustomListFieldType.string },
-                    { id: 'onlyImage', title: 'Only Image', required: false, type: CustomListFieldType.boolean }
-                  ]
-                }),
+                PropertyPaneLabel('tabsCollectionLabel', { text: strings.Tabs }),
+                this.getTabCollectionField(),
                 PropertyPaneDropdown('TabType', {
                   label: strings.TabType,
                   options: [
@@ -401,21 +477,17 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
                 }),
                 PropertyFieldColorPicker('selectedColor', {
                   label: strings.SelectedColor,
-                  selectedColor:this.properties.selectedColor,
+                  selectedColor: this.properties.selectedColor || '#8A1717',
                   properties: this.properties,
-                  onPropertyChange: this.onPropertyPaneFieldChanged,
-                  alphaSliderHidden: false,
-                  style: PropertyFieldColorPickerStyle.Full,
-                  iconName: 'SelectColor',
+                  onPropertyChange: this.handleColorPropertyChange.bind(this),
+                  style: PropertyFieldColorPickerStyle.Inline,
                   key: 'tabsSelectedColorField'
                 }),
                 PropertyFieldColorPicker('disableColor', {
                   label: strings.DisableColor,
-                  selectedColor: this.properties.disableColor,
-                  onPropertyChange: this.onPropertyPaneFieldChanged,
-                  alphaSliderHidden: false,
-                  style: PropertyFieldColorPickerStyle.Full,
-                  iconName: 'InactiveColor',
+                  selectedColor: this.properties.disableColor || '#393939',
+                  onPropertyChange: this.handleColorPropertyChange.bind(this),
+                  style: PropertyFieldColorPickerStyle.Inline,
                   properties: this.properties,
                   key: 'tabsDisableColorField'
                 }),

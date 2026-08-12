@@ -12,8 +12,137 @@ export interface IKmMarqueeState {
   currentIndex: number;
 }
 
+interface IRenderViewData {
+  rows: any[];
+  fields: any[];
+}
+
 function escapeODataText(value: string): string {
   return value.replace(/'/g, "''");
+}
+
+function trimGuidBraces(value: string): string {
+  return String(value || '').replace(/[{}]/g, '');
+}
+
+function buildViewRequestUrls(baseEndpoint: string, viewId: string): string[] {
+  const normalized = trimGuidBraces(viewId);
+  const candidates = [String(viewId || ''), normalized, '{' + normalized + '}'];
+  const urls: string[] = [];
+  candidates.forEach((candidate: string) => {
+    if (candidate) {
+      urls.push(baseEndpoint + '?View=' + encodeURIComponent(candidate));
+      urls.push(baseEndpoint + '?ViewId=' + encodeURIComponent(candidate));
+    }
+  });
+  urls.push(baseEndpoint);
+  return urls.filter((url: string, index: number) => { return urls.indexOf(url) === index; });
+}
+
+function toArray(value: any): any[] {
+  if (!value) {
+    return [];
+  }
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch (_error) {
+      return [];
+    }
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  return Array.isArray(value.results) ? value.results : [];
+}
+
+function tryParseObject(value: any): any {
+  if (!value || typeof value !== 'string') {
+    return value;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return value;
+  }
+}
+
+function parseRenderViewData(data: any): IRenderViewData {
+  const directData = data && data.d && data.d.RenderListDataAsStream
+    ? data.d.RenderListDataAsStream : data;
+  const responseData = tryParseObject(directData) || {};
+  const listData = tryParseObject(responseData.ListData) || responseData;
+  const schema = tryParseObject(responseData.ListSchema) || tryParseObject(responseData.Schema) || {};
+
+  let rows = toArray(responseData && responseData.Row);
+  if (rows.length === 0) {
+    rows = toArray(responseData && responseData.Rows);
+  }
+  if (rows.length === 0) {
+    rows = toArray(listData && listData.Row);
+  }
+  if (rows.length === 0) {
+    rows = toArray(listData && listData.Rows);
+  }
+  if (rows.length === 0) {
+    rows = toArray(data && data.d && data.d.Row);
+  }
+  let fields = toArray(schema && schema.Field);
+  if (fields.length === 0) {
+    fields = toArray(responseData && responseData.Field);
+  }
+  return { rows: rows, fields: fields };
+}
+
+function getFieldCandidates(fieldName: string, fields: any[]): string[] {
+  const candidates = [fieldName];
+  const normalized = String(fieldName || '').toLowerCase();
+  fields.forEach((field: any) => {
+    const responseName = String(field.Name || '');
+    const realName = String(field.RealFieldName || '');
+    if (responseName.toLowerCase() === normalized || realName.toLowerCase() === normalized) {
+      if (responseName && candidates.indexOf(responseName) < 0) {
+        candidates.push(responseName);
+      }
+      if (realName && candidates.indexOf(realName) < 0) {
+        candidates.push(realName);
+      }
+    }
+  });
+  if ((normalized === 'linktitle' || normalized === 'linktitlenomenu') && candidates.indexOf('Title') < 0) {
+    candidates.push('Title');
+  }
+  if ((normalized === 'linkfilename' || normalized === 'linkfilename2') && candidates.indexOf('FileLeafRef') < 0) {
+    candidates.push('FileLeafRef');
+  }
+  return candidates;
+}
+
+function getMessageValue(item: any, candidates: string[]): string {
+  for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+    const candidate = candidates[candidateIndex];
+    let value = item[candidate];
+    if (value === undefined || value === null || value === '') {
+      const itemKeys = Object.keys(item);
+      const matchingKey = itemKeys.filter((key: string) => { return key.toLowerCase() === candidate.toLowerCase(); })[0];
+      value = matchingKey ? item[matchingKey] : value;
+    }
+    if (value !== undefined && value !== null && String(value).trim().length > 0) {
+      return String(value);
+    }
+  }
+  return '';
+}
+
+function getItemId(item: any): string {
+  const candidateKeys = ['ID', 'Id', 'id', 'ID.'];
+  for (let keyIndex = 0; keyIndex < candidateKeys.length; keyIndex += 1) {
+    const value = item[candidateKeys[keyIndex]];
+    if (value !== undefined && value !== null && String(value)) {
+      return String(value);
+    }
+  }
+  return '';
 }
 
 export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqueeState> {
@@ -38,12 +167,13 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
 
   componentDidUpdate(prevProps: IKmMarqueeProps):void {
     this.logDiagnostic('componentDidUpdate');
-    if (prevProps.listName !== this.props.listName || prevProps.messageField !== this.props.messageField) {
+    if (prevProps.listName !== this.props.listName || prevProps.viewId !== this.props.viewId
+      || prevProps.messageField !== this.props.messageField) {
       this.loadMessages();
       return;
     }
     if (prevProps.messageDuration !== this.props.messageDuration) {
-      this.startCycle();
+      this.scheduleNextPass();
     }
     if (
       prevProps.description !== this.props.description
@@ -57,8 +187,11 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
       || prevProps.marqueeHeight !== this.props.marqueeHeight
       || prevProps.scrollSpeed !== this.props.scrollSpeed
       || prevProps.scrollDirection !== this.props.scrollDirection
+      || prevProps.placement !== this.props.placement
     ) {
       this.handleLoad();
+      this.restartAnimation();
+      this.scheduleNextPass();
     }
   }
 
@@ -79,63 +212,234 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
 
   private clearCycle(): void {
     if (this._cycleTimer) {
-      window.clearInterval(this._cycleTimer);
+      window.clearTimeout(this._cycleTimer);
       this._cycleTimer = undefined;
     }
   }
 
-  private startCycle(): void {
+  private scheduleNextPass(): void {
     this.clearCycle();
-    if (this.state.messages.length <= 1) {
-      return;
-    }
-    const durationMs = (typeof this.props.messageDuration === 'number' && this.props.messageDuration > 0 ? this.props.messageDuration : 8) * 1000;
-    this._cycleTimer = window.setInterval(() => {
-      this.setState((prevState: IKmMarqueeState) => {
-        const nextIndex = prevState.messages.length > 0 ? (prevState.currentIndex + 1) % prevState.messages.length : 0;
-        return { currentIndex: nextIndex };
-      }, () => { this.handleLoad(); });
+    const messageSeconds = typeof this.props.messageDuration === 'number' && this.props.messageDuration >= 2
+      ? this.props.messageDuration : 8;
+    const durationMs = messageSeconds * 1000;
+    this._cycleTimer = window.setTimeout(() => {
+      if (this.state.messages.length > 1) {
+        this.setState((prevState: IKmMarqueeState) => {
+          const nextIndex = (prevState.currentIndex + 1) % prevState.messages.length;
+          return { currentIndex: nextIndex };
+        }, () => {
+          this.logDiagnostic('Showing message ' + String(this.state.currentIndex + 1)
+            + ' of ' + String(this.state.messages.length) + '.');
+          this.handleLoad();
+          this.restartAnimation();
+          this.scheduleNextPass();
+        });
+      } else {
+        this.restartAnimation();
+        this.scheduleNextPass();
+      }
     }, durationMs);
   }
 
+  private restartAnimation(): void {
+    const marqueeSpan = document.getElementById('marqueeSpan') as HTMLElement;
+    if (!marqueeSpan) {
+      return;
+    }
+    marqueeSpan.style.animationName = 'none';
+    window.setTimeout(() => {
+      marqueeSpan.style.animationName = this.props.scrollDirection === 'right' ? 'moveRight' : 'moveLeft';
+    }, 0);
+  }
+
   private async loadMessages(): Promise<void> {
-    if (!this.props.listName || !this.props.messageField) {
+    if (!this.props.listName || !this.props.viewId || !this.props.messageField) {
       this.clearCycle();
-      this.setState({ messages: [], currentIndex: 0 }, () => { this.handleLoad(); });
+      this.setState({ messages: [], currentIndex: 0 }, () => {
+        this.handleLoad();
+        this.restartAnimation();
+        this.scheduleNextPass();
+      });
       return;
     }
 
     try {
-      this.logDiagnostic('Loading messages from list "' + this.props.listName + '", field "' + this.props.messageField + '"');
+      this.logDiagnostic('Loading messages from list "' + this.props.listName + '", selected view, field "' + this.props.messageField + '"');
       const webUrl = this.props.spfxContext.pageContext.web.absoluteUrl.replace(/\/$/, '');
-      const fieldName = escapeODataText(this.props.messageField);
-      const url = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items"
-        + "?$select=" + encodeURIComponent(this.props.messageField) + ",ID&$orderby=ID&$top=100";
-      let response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1);
-      if (!response.ok) {
-        response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
-          headers: { Accept: 'application/json;odata=nometadata' }
-        });
+      const endpoint = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
+      const urls = buildViewRequestUrls(endpoint, this.props.viewId);
+      let response: any;
+      let messages: string[] = [];
+      let selectedRows: any[] = [];
+      let selectedFieldCandidates: string[] = [this.props.messageField];
+      let hadSuccessfulResponse = false;
+      for (let requestIndex = 0; requestIndex < urls.length; requestIndex += 1) {
+        response = await this.postViewRequest(urls[requestIndex]);
+        if (!response.ok) {
+          continue;
+        }
+        hadSuccessfulResponse = true;
+        const data = await response.json();
+        const renderData = parseRenderViewData(data);
+        const fieldCandidates = getFieldCandidates(this.props.messageField, renderData.fields);
+        selectedRows = renderData.rows;
+        selectedFieldCandidates = fieldCandidates;
+        messages = renderData.rows
+          .map((item: any) => { return getMessageValue(item, fieldCandidates); })
+          .filter((message: string) => { return message.trim().length > 0; });
+        this.logDiagnostic('Selected view request variant ' + String(requestIndex + 1)
+          + ' returned rows=' + String(renderData.rows.length) + ', messages=' + String(messages.length)
+          + ', field candidates=' + fieldCandidates.join(',') + '.');
+        if (messages.length > 0 || requestIndex === urls.length - 1) {
+          break;
+        }
       }
-      if (!response.ok) {
+      if (!hadSuccessfulResponse) {
         throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
       }
-
-      const data = await response.json();
-      const items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
-      const messages = items
-        .map((item: any) => { return item[fieldName] !== undefined && item[fieldName] !== null ? String(item[fieldName]) : ''; })
-        .filter((message: string) => { return message.trim().length > 0; });
-
+      if (messages.length === 0) {
+        messages = await this.loadMessagesDirectly(selectedRows, selectedFieldCandidates);
+      }
+      if (messages.length === 0) {
+        messages = await this.loadMessagesAsText(selectedRows, selectedFieldCandidates);
+      }
       this.logDiagnostic('Loaded messages successfully. Count=' + String(messages.length));
       this.setState({ messages: messages, currentIndex: 0 }, () => {
-        this.startCycle();
         this.handleLoad();
+        this.restartAnimation();
+        this.scheduleNextPass();
       });
     } catch (error) {
       console.error('[KmMarquee] Failed to load messages from list "' + this.props.listName + '": ' + (error && error.message ? error.message : String(error)));
       this.setState({ messages: [], currentIndex: 0 }, () => { this.handleLoad(); });
     }
+  }
+
+  private async loadMessagesDirectly(viewRows: any[], fieldCandidates: string[]): Promise<string[]> {
+    const webUrl = this.props.spfxContext.pageContext.web.absoluteUrl.replace(/\/$/, '');
+    const itemIds = viewRows.map((row: any) => { return getItemId(row); })
+      .filter((itemId: string, index: number, values: string[]) => {
+        return !!itemId && values.indexOf(itemId) === index;
+      });
+
+    for (let candidateIndex = 0; candidateIndex < fieldCandidates.length; candidateIndex += 1) {
+      const fieldName = fieldCandidates[candidateIndex];
+      let endpoint = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items"
+        + '?$select=' + encodeURIComponent('ID,' + fieldName) + '&$orderby=ID&$top=500';
+      if (itemIds.length > 0) {
+        endpoint += '&$filter=' + encodeURIComponent(itemIds.map((itemId: string) => {
+          return 'ID eq ' + String(parseInt(itemId, 10));
+        }).join(' or '));
+      }
+      const response = await this.getJsonResponse(endpoint);
+      if (!response.ok) {
+        continue;
+      }
+      const data = await response.json();
+      const items = toArray(data && data.value).length > 0
+        ? toArray(data.value) : toArray(data && data.d && data.d.results);
+      const messageById: { [itemId: string]: string } = {};
+      const unorderedMessages: string[] = [];
+      items.forEach((item: any) => {
+        const message = getMessageValue(item, [fieldName]);
+        const itemId = getItemId(item);
+        if (itemId && message) {
+          messageById[itemId] = message;
+        }
+        if (message) {
+          unorderedMessages.push(message);
+        }
+      });
+      const orderedMessages = itemIds.map((itemId: string) => { return messageById[itemId] || ''; })
+        .filter((message: string) => { return message.trim().length > 0; });
+      const messages = itemIds.length > 0 ? orderedMessages : unorderedMessages;
+      this.logDiagnostic('Direct items fallback field=' + fieldName + ', messages=' + String(messages.length)
+        + ', selected view item IDs=' + String(itemIds.length) + '.');
+      if (messages.length > 0) {
+        return messages;
+      }
+    }
+    return [];
+  }
+
+  private async loadMessagesAsText(viewRows: any[], fieldCandidates: string[]): Promise<string[]> {
+    const webUrl = this.props.spfxContext.pageContext.web.absoluteUrl.replace(/\/$/, '');
+    const itemIds = viewRows.map((row: any) => { return getItemId(row); })
+      .filter((itemId: string, index: number, values: string[]) => {
+        return !!itemId && values.indexOf(itemId) === index;
+      });
+    let endpoint = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items"
+      + '?$select=ID,FieldValuesAsText&$expand=FieldValuesAsText&$top=500';
+    if (itemIds.length > 0) {
+      endpoint += '&$filter=' + encodeURIComponent(itemIds.map((itemId: string) => {
+        return 'ID eq ' + String(parseInt(itemId, 10));
+      }).join(' or '));
+    }
+
+    const response = await this.getJsonResponse(endpoint);
+    if (!response.ok) {
+      this.logDiagnostic('FieldValuesAsText fallback failed. HTTP ' + String(response.status) + '.');
+      return [];
+    }
+    const data = await response.json();
+    const items = toArray(data && data.value).length > 0
+      ? toArray(data.value) : toArray(data && data.d && data.d.results);
+    const textById: { [itemId: string]: string } = {};
+    const unorderedMessages: string[] = [];
+    items.forEach((item: any) => {
+      const values = item.FieldValuesAsText || {};
+      const message = getMessageValue(values, fieldCandidates);
+      const itemId = getItemId(item);
+      if (itemId && message) {
+        textById[itemId] = message;
+      }
+      if (message) {
+        unorderedMessages.push(message);
+      }
+    });
+
+    const orderedMessages = itemIds.map((itemId: string) => { return textById[itemId] || ''; })
+      .filter((message: string) => { return message.trim().length > 0; });
+    const messages = itemIds.length > 0 ? orderedMessages : unorderedMessages;
+    this.logDiagnostic('FieldValuesAsText fallback loaded messages=' + String(messages.length)
+      + ', selected view item IDs=' + String(itemIds.length) + '.');
+    return messages;
+  }
+
+  private async getJsonResponse(url: string): Promise<any> {
+    let response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    if (!response.ok) {
+      response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        headers: { Accept: 'application/json;odata=verbose' }
+      });
+    }
+    if (!response.ok) {
+      response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        headers: { Accept: 'application/json;odata=nometadata' }
+      });
+    }
+    return response;
+  }
+
+  private async postViewRequest(url: string): Promise<any> {
+    const body = JSON.stringify({ parameters: { RenderOptions: 17 } });
+    const formats = [
+      { 'Content-Type': 'application/json; charset=utf-8' },
+      { Accept: 'application/json;odata=verbose', 'Content-Type': 'application/json;odata=verbose' },
+      { Accept: 'application/json;odata=minimalmetadata', 'Content-Type': 'application/json;odata=minimalmetadata' },
+      { Accept: 'application/json;odata=nometadata', 'Content-Type': 'application/json;odata=nometadata' }
+    ];
+    let response: any;
+    for (let formatIndex = 0; formatIndex < formats.length; formatIndex += 1) {
+      response = await this.props.spfxContext.spHttpClient.post(url, SPHttpClient.configurations.v1, {
+        headers: formats[formatIndex],
+        body: body
+      });
+      if (response.ok) {
+        break;
+      }
+    }
+    return response;
   }
 
   private getCurrentMessage(): string {
@@ -146,11 +450,9 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
   }
 
   private handleLoad() {
-    const topMarqueeParent: HTMLElement = this.getParentElement(strings.ParentElement);
-    this.logDiagnostic('Top Marquee Element:' + topMarqueeParent);
     this.logDiagnostic('marqueeActive:' + this.props.marqueeActive);
     if (this.props.marqueeActive) {
-      this.insertDiv(topMarqueeParent); 
+      this.insertDiv();
       this.setState({ loading: true }); }
     else {
       this.removeDiv();
@@ -192,8 +494,48 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
     if (marqueeDiv) {marqueeDiv.remove();}
     if(marqueeSpan) {marqueeSpan.remove();}
     } 
+
+ private findElementByIdOrClassToken(token: string): HTMLElement {
+    const normalizedToken = token.toLowerCase();
+    const candidates = document.querySelectorAll('[id], [class]');
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index] as HTMLElement;
+      const id = String(candidate.id || '').toLowerCase();
+      const className = String(candidate.className || '').toLowerCase();
+      if (id === normalizedToken || id.indexOf(normalizedToken) >= 0
+        || className.split(/\s+/).some((classToken: string) => classToken === normalizedToken)) {
+        return candidate;
+      }
+    }
+    return undefined;
+  }
    
- public insertDiv(marqueeParent: HTMLElement) {    
+ private placeMarquee(marqueeDiv: HTMLElement): void {
+    const placement = this.props.placement || 'top';
+    let anchor: HTMLElement;
+    if (placement === 'aboveChrome') {
+      anchor = this.findElementByIdOrClassToken('SPPageChrome');
+    } else if (placement === 'belowChrome') {
+      anchor = this.findElementByIdOrClassToken('spAppAndPropertyPanelContainer');
+    } else if (placement === 'aboveContent') {
+      anchor = document.querySelector('div[class*="pageContainer_"][class*="container_"]') as HTMLElement;
+      if (anchor) {
+        anchor.insertBefore(marqueeDiv, anchor.firstChild);
+        this.logDiagnostic('Placed marquee above content using dynamic class prefixes.');
+        return;
+      }
+    }
+    if (!anchor && placement !== 'top') {
+      this.logDiagnostic('Placement target for "' + placement + '" was not found; using Top.');
+    }
+    anchor = anchor || this.getParentElement(strings.ParentElement);
+    if (anchor.parentNode) {
+      anchor.parentNode.insertBefore(marqueeDiv, anchor);
+    }
+    this.logDiagnostic('Placed marquee at "' + placement + '".');
+  }
+
+ public insertDiv() {
     const displayText: string = this.getCurrentMessage();
     this.logDiagnostic('In insertDiv');
     let marqueeDiv: HTMLElement = document.getElementById('marqueeDiv') as HTMLElement;
@@ -203,14 +545,13 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
       marqueeDiv = document.createElement('div');
       marqueeDiv.id = 'marqueeDiv';
       marqueeDiv.className = 'bar';
-      marqueeParent.insertAdjacentElement('beforebegin', marqueeDiv);
       const marqueeSpan2 = document.createElement('span');
       marqueeSpan2.className='bar_content';
       marqueeSpan2.id='marqueeSpan';
       marqueeDiv.appendChild(marqueeSpan2);
       marqueeSpan = marqueeSpan2;
-      this.forceUpdate();
     }
+    this.placeMarquee(marqueeDiv);
     this.applyStyles(marqueeDiv, marqueeSpan);
     marqueeSpan.textContent = displayText;
   }
@@ -232,7 +573,7 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
     const isRightward = this.props.scrollDirection === 'right';
     marqueeSpan.style.animationDuration = speed + 's';
     marqueeSpan.style.animationTimingFunction = 'linear';
-    marqueeSpan.style.animationIterationCount = 'infinite';
+    marqueeSpan.style.animationIterationCount = '1';
     marqueeSpan.style.animationName = isRightward ? 'moveRight' : 'moveLeft';
     marqueeSpan.style.transform = isRightward ? 'translateX(-100%)' : 'translateX(100%)';
   }

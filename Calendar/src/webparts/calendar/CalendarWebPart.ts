@@ -290,7 +290,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         filterJson: this.properties.filterJson || '',
         conditionalStyleJson: this.properties.conditionalStyleJson || '',
         showLinkToItem: this.properties.showLinkToItem === true,
-        enableEventDetails: this.properties.enableEventDetails === true,
+        enableEventDetails: this.properties.enableEventDetails !== false,
         eventDetailsFields: Array.isArray(this.properties.eventDetailsFields) ? this.properties.eventDetailsFields : [],
         eventDetailsFieldsJson: this.properties.eventDetailsFieldsJson || '',
         fieldMetadata: this._fieldMetadataByInternalName,
@@ -441,6 +441,13 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    if (propertyPath === 'linkTargetPageUrl' && oldValue !== newValue) {
+      this.properties.includeReturnUrlParam = !!newValue && newValue !== '__defaultForm__';
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
     if (propertyPath === 'listName' && oldValue !== newValue) {
       this.properties.swimlaneFieldName = '';
       this._listFields = [];
@@ -1389,6 +1396,12 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
     const listOptions: IPropertyPaneDropdownOption[] = this._lists.map((list) => {
       return { key: list.key, text: list.text };
     });
+    const savedLinkTargetPageUrl = String(this.properties.linkTargetPageUrl || '');
+    const linkTargetPageOptions: IDropdownOption[] = this._sitePages.slice();
+    if (savedLinkTargetPageUrl && savedLinkTargetPageUrl !== '__defaultForm__'
+      && !linkTargetPageOptions.some((page: IDropdownOption) => String(page.key) === savedLinkTargetPageUrl)) {
+      linkTargetPageOptions.push({ key: savedLinkTargetPageUrl, text: savedLinkTargetPageUrl + ' (saved URL)' });
+    }
     const dataSourceScopeOptions: IPropertyPaneDropdownOption[] = [
       { key: '', text: strings.DataSourceAllOption }
     ].concat((Array.isArray(this.properties.dataSources) ? this.properties.dataSources : [])
@@ -1511,13 +1524,6 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
                       options: listOptions
                     },
                     {
-                      id: 'targetPageUrl',
-                      title: strings.DataSourceTargetPageLabel,
-                      type: CustomCollectionFieldType.dropdown,
-                      defaultValue: '__defaultForm__',
-                      options: this._sitePages.map((page: IDropdownOption) => ({ key: page.key, text: page.text }))
-                    },
-                    {
                       id: 'startFieldName',
                       title: strings.DataSourceStartFieldLabel,
                       type: CustomCollectionFieldType.dropdown,
@@ -1590,7 +1596,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
               groupFields: [
                 PropertyPaneToggle('enableEventDetails', {
                   label: strings.EnableEventDetailsLabel,
-                  checked: this.properties.enableEventDetails === true
+                  checked: this.properties.enableEventDetails !== false
                 }),
                 PropertyFieldCollectionData('eventDetailsFields', {
                   key: 'eventDetailsFieldsCollection',
@@ -1600,7 +1606,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
                   manageBtnLabel: strings.EventDetailsCollectionManageButton,
                   value: Array.isArray(this.properties.eventDetailsFields) ? this.properties.eventDetailsFields : [],
                   enableSorting: true,
-                  disabled: this.properties.enableEventDetails !== true,
+                  disabled: this.properties.enableEventDetails === false,
                   fields: [
                     {
                       id: 'field',
@@ -1647,22 +1653,12 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
                   text: strings.ShowLinkToItemLabel,
                   checked: this.properties.showLinkToItem === true
                 }),
-                PropertyPaneDropdown('detailsLinkPresentation', {
-                  label: strings.DetailsLinkPresentationLabel,
-                  options: [
-                    { key: 'button', text: strings.DetailsLinkPresentationButton },
-                    { key: 'title', text: strings.DetailsLinkPresentationTitle }
-                  ],
-                  selectedKey: this.properties.detailsLinkPresentation || 'button',
-                  disabled: this.properties.enableEventDetails !== true || this.properties.showLinkToItem !== true
+                PropertyPaneDropdown('linkTargetPageUrl', {
+                  label: strings.LinkTargetPageUrlLabel,
+                  options: linkTargetPageOptions,
+                  selectedKey: this.properties.linkTargetPageUrl || '__defaultForm__',
+                  disabled: this.properties.showLinkToItem !== true
                 }),
-                ...(Array.isArray(this.properties.dataSources) && this.properties.dataSources.length > 0 ? [] : [
-                  PropertyPaneTextField('linkTargetPageUrl', {
-                    label: strings.LinkTargetPageUrlLabel,
-                    placeholder: '/SitePages/DynamicForm.aspx',
-                    disabled: this.properties.showLinkToItem !== true
-                  })
-                ]),
                 PropertyPaneTextField('linkTargetIdParam', {
                   label: strings.LinkTargetIdParamLabel,
                   placeholder: 'itemid',

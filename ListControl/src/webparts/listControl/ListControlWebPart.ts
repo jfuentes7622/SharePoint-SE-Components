@@ -160,6 +160,7 @@ function normalizeStringCollection(value: any): string[] {
 
 export default class ListControlWebPart extends BaseClientSideWebPart<IListControlWebPartProps> {
   private _lists: IDropdownOption[] = [];
+  private _sitePages: IDropdownOption[] = [];
   private _views: IListControlViewOption[] = [];
   private _listFields: IDropdownOption[] = [];
   private _selectedItemId: number = 0;
@@ -179,6 +180,11 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
   private _conditionalStyleLookupItemOptions: IDropdownOption[] = [];
   private _filterLookupMessage: string = '';
   private _conditionalStyleLookupMessage: string = '';
+
+  public constructor() {
+    super();
+    this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
+  }
 
   public get id(): string {
     return this.context.instanceId;
@@ -247,7 +253,8 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       showView: this.properties.showView !== false,
       showDelete: this.properties.showDelete !== false,
       showLinkToItem: this.properties.showLinkToItem === true,
-      linkTargetPageUrl: this.properties.linkTargetPageUrl || '',
+      linkTargetPageUrl: this.properties.linkTargetPageUrl === '__defaultForm__'
+        ? '' : (this.properties.linkTargetPageUrl || ''),
       linkTargetIdParam: this.properties.linkTargetIdParam || 'itemid',
       includeReturnUrlParam: this.properties.includeReturnUrlParam === true,
       enableDiagnostics: this.properties.enableDiagnostics !== false,
@@ -302,7 +309,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
     this.initializeDynamicDataSource();
 
-    return this.loadLists().then(() => {
+    return Promise.all([this.loadLists(), this.loadSitePages()]).then(() => {
       this.logDiagnostic('List metadata loaded. Count=' + String(this._lists.length));
       if (this.properties.listName) {
         this.logDiagnostic('Loading views for configured list: ' + String(this.properties.listName));
@@ -323,6 +330,9 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     this.logDiagnostic('Property pane opened. listName=' + String(this.properties.listName || '(none)'));
     if (this._lists.length === 0) {
       this.loadLists();
+    }
+    if (this._sitePages.length === 0) {
+      this.loadSitePages();
     }
     if (this.properties.listName && this._views.length === 0) {
       this.loadViews(this.properties.listName);
@@ -821,10 +831,10 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
                   checked: this.properties.showLinkToItem === true
                 }),
                 ...(this.properties.showLinkToItem === true ? [
-                  PropertyPaneTextField('linkTargetPageUrl', {
+                  PropertyPaneDropdown('linkTargetPageUrl', {
                     label: strings.PropLinkTargetPageUrlLabel,
-                    placeholder: strings.PropLinkTargetPageUrlPlaceholder,
-                    value: this.properties.linkTargetPageUrl || ''
+                    options: this.getTargetPageOptions(),
+                    selectedKey: this.properties.linkTargetPageUrl || '__defaultForm__'
                   }),
                   PropertyPaneTextField('linkTargetIdParam', {
                     label: strings.PropLinkTargetIdParamLabel,
@@ -2229,6 +2239,68 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     } catch (error) {
       this.logDiagnostic('Failed to load lists: ' + (error && error.message ? error.message : String(error)));
       this._lists = [];
+    }
+  }
+
+  private getTargetPageOptions(): IDropdownOption[] {
+    var options = this._sitePages.length > 0
+      ? this._sitePages.slice()
+      : [{ key: '__defaultForm__', text: strings.PropLinkTargetDefaultFormOption }];
+    var configuredUrl = String(this.properties.linkTargetPageUrl || '').trim();
+    if (configuredUrl && configuredUrl !== '__defaultForm__'
+      && !options.some(function(option: IDropdownOption) { return String(option.key) === configuredUrl; })) {
+      options.push({ key: configuredUrl, text: configuredUrl + ' (' + strings.PropLinkTargetSavedUrlLabel + ')' });
+    }
+    return options;
+  }
+
+  private async loadSitePages(): Promise<void> {
+    try {
+      var webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+      var libraryData = await this.getJsonWithAcceptFallback(
+        webUrl + '/_api/web/lists?$select=Id,Title,BaseTemplate&$filter=(BaseTemplate eq 119 or BaseTemplate eq 850)'
+      );
+      var libraries = libraryData && libraryData.value ? libraryData.value
+        : (libraryData && libraryData.d && libraryData.d.results ? libraryData.d.results : []);
+      var pageOptionsByUrl: { [url: string]: IDropdownOption } = {};
+      for (var libraryIndex = 0; libraryIndex < libraries.length; libraryIndex += 1) {
+        var libraryId = String(libraries[libraryIndex].Id || '').replace(/[{}]/g, '');
+        if (!libraryId) {
+          continue;
+        }
+        try {
+          var data = await this.getJsonWithAcceptFallback(
+            webUrl + "/_api/web/lists(guid'" + libraryId
+            + "')/items?$select=File/Name,File/ServerRelativeUrl&$expand=File&$top=5000"
+          );
+          var pages = data && data.value ? data.value
+            : (data && data.d && data.d.results ? data.d.results : []);
+          pages.filter(function(page: any) {
+            return page.File && page.File.ServerRelativeUrl
+              && /\.aspx(?:$|[?#])/i.test(String(page.File.ServerRelativeUrl));
+          }).forEach(function(page: any) {
+            var fileRef = String(page.File.ServerRelativeUrl);
+            var title = String(page.File.Name || fileRef);
+            pageOptionsByUrl[fileRef.toLowerCase()] = { key: fileRef, text: title + ' (' + fileRef + ')' };
+          });
+        } catch (pageError) {
+          this.logDiagnostic('Failed to load pages from library "' + String(libraries[libraryIndex].Title || '') + '": '
+            + String(pageError && pageError.message ? pageError.message : pageError));
+        }
+      }
+      var defaultPageOptions: IDropdownOption[] = [
+        { key: '__defaultForm__', text: strings.PropLinkTargetDefaultFormOption }
+      ];
+      this._sitePages = defaultPageOptions
+        .concat(Object.keys(pageOptionsByUrl).map(function(url: string) { return pageOptionsByUrl[url]; })
+          .sort(function(left: IDropdownOption, right: IDropdownOption) {
+            return String(left.text).localeCompare(String(right.text));
+          }));
+      this.context.propertyPane.refresh();
+    } catch (error) {
+      this.logDiagnostic('Failed to load Site Pages: ' + (error && error.message ? error.message : String(error)));
+      this._sitePages = [{ key: '__defaultForm__', text: strings.PropLinkTargetDefaultFormOption }];
+      this.context.propertyPane.refresh();
     }
   }
 

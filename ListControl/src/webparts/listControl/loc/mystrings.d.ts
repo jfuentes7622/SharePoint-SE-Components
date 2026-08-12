@@ -25,6 +25,8 @@ declare interface IListControlWebPartStrings {
   PropShowLinkToItemLabel: string;
   PropLinkTargetPageUrlLabel: string;
   PropLinkTargetPageUrlPlaceholder: string;
+  PropLinkTargetDefaultFormOption: string;
+  PropLinkTargetSavedUrlLabel: string;
   PropLinkTargetIdParamLabel: string;
   PropLinkTargetIdParamPlaceholder: string;
   PropIncludeReturnUrlParamLabel: string;

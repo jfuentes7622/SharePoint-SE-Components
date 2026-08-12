@@ -10,10 +10,11 @@ All web-part property panes display the deployed solution version. Components wi
 |---|---|---|
 | [Accordion](#accordion) | Web Part | Collapsible accordion sections sourced from a SharePoint list |
 | [BannerClock](#bannerclock) | Application Customizer | World-clock banner injected above/below the page chrome |
-| [Calendar](#calendar) | Web Part | FullCalendar-based SharePoint Events calendar with month, week, day, and list views |
+| [Calendar](#calendar) | Web Part | Multi-source SharePoint calendar with recurrence, filters, swim lanes, details, and dynamic data |
 | [Carousel](#carousel) | Web Part | Auto-playing image carousel from a picture library |
 | [Contact](#contact) | Web Part | Filterable staff/contact directory cards |
 | [LinkButton](#linkbutton) | Web Part | Styled hyperlink button |
+| [GridControl](#gridcontrol) | Web Part | Designer-configured editable SharePoint grid with inline validation and row actions |
 | [ListControl](#listcontrol) | Web Part | Sortable/filterable list table with conditional styling and dynamic data |
 | [Marquee](#marquee) | Web Part | Scrolling announcement ticker |
 | [SharePointDForm (Dynamic Forms)](#sharepointdform-dynamic-forms) | Web Part | No-code visual form designer/runtime bound to a SharePoint list |
@@ -105,17 +106,25 @@ An SPFx **Application Customizer** (extension), not a web part — display name 
 
 ## Calendar
 
-Displays SharePoint Events list data in a full interactive calendar powered by the free, MIT-licensed FullCalendar library. It supports month, week, day, and agenda-style list views; all-day events; locations; weekend visibility; configurable height; and navigation to an event's SharePoint display form.
+Displays events from multiple SharePoint Events lists or lists with calendar views in a full interactive calendar powered by the free, MIT-licensed FullCalendar library. It supports month, week, day, and agenda-style list views; SharePoint recurring events; field-based swim lanes; event filtering and conditional styling; an in-place details panel; configurable target pages; and dynamic-data connections to SharePoint Dynamic Form.
 
 ### Properties
 
 | Property | Label | Description |
 |---|---|---|
-| `listName` | Events list | Visible SharePoint Events list (`BaseTemplate` 106) to display |
+| `dataSources` | Manage data sources | Ordered Events/calendar-view lists with date mappings, source colors, and target pages |
+| `listName` | Events list | Legacy single-list fallback retained for existing configurations |
 | `defaultView` | Default view | `dayGridMonth`, `timeGridWeek`, `timeGridDay`, or `listWeek` |
 | `showWeekends` | Show weekends | Shows or hides Saturday and Sunday |
-| `calendarHeight` | Calendar height | Height in pixels; `0` uses automatic height |
+| `calendarHeight` | Calendar height | Calendar height in pixels |
+| `enableSwimlanes` | Use swim lanes | Groups events into horizontal lanes using a selected field and a 7, 14, or 30 day range |
+| `filterJson` | Event filters | Conditions created in the filter designer, with static values or user/date expressions |
+| `conditionalStyleJson` | Conditional event styles | Priority-based color and typography rules, optionally scoped to one source |
+| `enableEventDetails` | Show event details | Opens a configurable in-place details panel when an event is selected |
+| `showLinkToItem` | Open the selected event | Opens the default display form or a discovered Site Pages/publishing Pages target |
 | `enableDiagnostics` | Enable diagnostics logging | Enables browser-console details for calendar and event loading |
+
+Each data source can use its own background color. Conditional rules override source styling, and selected-event styling has the highest priority. Calendar publishes the selected SharePoint item ID and `view` mode so a Dynamic Form web part can display the selected event without leaving the page. See [Calendar/README.md](Calendar/README.md) for recurrence behavior, details-field configuration, filter expressions, conditional-style JSON, and appearance controls.
 
 ---
 
@@ -210,9 +219,19 @@ Renders a styled hyperlink displayed as a button (**SPS Link Button**). In addit
 
 ---
 
+## GridControl
+
+An independent SPFx solution derived from ListControl for editing SharePoint items directly in a grid. It preserves list/view selection, sorting, filtering, pagination, conditional styling, target-page discovery, and dynamic-data publication, and adds **+ Add row**, row-level inline editing with Save/Cancel, and checkbox-based bulk deletion. Text, multiline, numeric, Boolean, choice, multi-choice, date/time, and URL fields use type-appropriate controls and save through SharePoint REST.
+
+Use **Open Grid Designer** in the property pane to add and order SharePoint fields and configure each column's label, width, storage-compatible editor, visibility, required/read-only state, defaults, and validation. List-required fields cannot be made optional. Column help appears on hover using the SharePoint field description first and the designer description only as a fallback. Control choices are restricted by the underlying SharePoint field type, while text-backed fields can safely opt into text, multiline, or number controls. Validation includes contextual length/range/pattern rules plus Dynamic Form-compatible cross-field expressions and helper functions. The three-pane designer stores a SharePoint Dynamic Form-compatible schema internally while intentionally omitting form containers, steps, and wizard layout. The selected view supplies fallback display columns until a grid design is saved. Dynamic Form also recognizes GridControl as a source for selected item ID and mode.
+
+See [GridControl/README.md](GridControl/README.md) for the copied feature baseline and build commands.
+
+---
+
 ## ListControl
 
-Displays SharePoint list data as a sortable, filterable table (**SPS List Control**) with support for multiple list views, pagination, and consuming/producing SPFx dynamic data. It provides toolbar actions to create/view/edit/delete items (typically paired with the [SharePointDForm](#sharepointdform-dynamic-forms) web part for the actual add/edit UI), and supports conditional formatting rules that apply colors, fonts, and alignment to rows or specific columns based on field-value conditions. The currently selected item ID can be exposed as a dynamic data source for other web parts to consume.
+Displays SharePoint list data as a sortable, filterable table (**SPS List Control**) with support for multiple list views, pagination, and consuming/producing SPFx dynamic data. It provides toolbar actions to create/view/edit/delete items (typically paired with the [SharePointDForm](#sharepointdform-dynamic-forms) web part for the actual add/edit UI), and supports conditional formatting rules that apply colors, fonts, and alignment to rows or specific columns based on field-value conditions. The selected item ID and requested New/Edit/View mode can be exposed as dynamic data for other web parts to consume.
 
 ### Properties
 
@@ -231,7 +250,7 @@ Selecting a list or view rebuilds `viewColumns` from the SharePoint view's field
 | Property | Label | Description |
 |---|---|---|
 | `showViewSelector` | Show view label and dropdown | Show/hide the view selector dropdown in the toolbar |
-| `linkTargetPageUrl` | Link target page URL | Page to navigate to when an item is linked |
+| `linkTargetPageUrl` | Link target page | Default list display form or an `.aspx` page discovered from Site Pages and publishing Pages; saved custom URLs remain available |
 | `linkTargetIdParam` | Link target ID parameter | Query parameter name used to pass the item ID (default: `itemid`) |
 | `showLinkToItem` | Show Link to Item | Enable/disable linking to item details on another page |
 | `includeReturnUrlParam` | Include return URL parameter | Adds a return URL parameter so the target page can navigate back |
@@ -384,7 +403,7 @@ Displays a scrolling announcement ticker (**SPS Marquee**) rendered as an animat
 
 ## SharePointDForm (Dynamic Forms)
 
-**Dynamic Forms** is a no-code visual form builder and runtime for SharePoint lists. It supports 15+ field types (text, number, date/time, choice, multi-select, lookup, person, taxonomy, image, URL, attachment, rich text, and more), conditional field visibility/required/read-only rules, multi-step wizard forms with progress indicators, advanced validation with custom expressions, default value assignment, filtering to resolve which record to load, permission-based access control, and New/Edit/View modes. Forms can redirect on submit/cancel, support custom button styling and label positioning, and integrate with dynamic data sources from other web parts (e.g., [ListControl](#listcontrol)) to receive a record ID, mode, or field value at runtime.
+**Dynamic Forms** is a no-code visual form builder and runtime for SharePoint lists. It supports 15+ field types (text, number, date/time, choice, multi-select, lookup, person, taxonomy, image, URL, attachment, rich text, and more), conditional field visibility/required/read-only rules, multi-step wizard forms with progress indicators, advanced validation with custom expressions, default value assignment, filtering to resolve which record to load, permission-based access control, and New/Edit/View modes. Forms can redirect on submit/cancel, support custom button styling and label positioning, and consume selected item IDs and modes from [ListControl](#listcontrol), [GridControl](#gridcontrol), or [Calendar](#calendar).
 
 ### Properties
 
@@ -400,13 +419,13 @@ Displays a scrolling announcement ticker (**SPS Marquee**) rendered as an animat
 | `useItemId` | Use fixed item ID | Use a static item ID instead of dynamic resolution |
 | `itemId` | Item ID | Fixed record ID to open directly (optional) |
 | `itemIdQueryParam` | Item ID query parameter | URL query parameter to read the item ID from (default: `itemid`) |
-| `dynamicPreferredSourceInstanceId` | Dynamic Item ID (from another web part) | Connects to another web part (e.g., ListControl) to receive a record ID dynamically |
+| `dynamicPreferredSourceInstanceId` | Dynamic Item ID (from another web part) | Connects to a ListControl, GridControl, or Calendar instance to receive a record ID dynamically |
 
 **Dynamic Data Source & Field Targeting**
 | Property | Label | Description |
 |---|---|---|
 | `useDynamicItemIdAsItemId` | Use dynamic ID as form item ID | ON: dynamic value is used as the record ID to load/edit; OFF: dynamic value only populates a field |
-| `dynamicItemTargetField` | Dynamic ID target field (id/internal name) | Field to auto-populate with the dynamic value (e.g., a Parent lookup) |
+| `dynamicItemTargetField` | Parent lookup column | Lookup column to populate with the selected ListControl, GridControl, or Calendar item ID |
 | `dynamicItemMode` | Dynamic Mode (new/edit/view) | Form mode sourced from another web part |
 | `dynamicItemModeReference` | Dynamic mode reference | Reference string for the dynamic mode source |
 | `dynamicItemIdReference` | Dynamic item ID reference | Reference string for the dynamic ID source |
@@ -601,8 +620,8 @@ Each component is an independent SPFx solution with its own `package.json`, `gul
 ```bash
 npm install
 npm i -g gulp
-gulp bundle
-gulp package-solution
+gulp bundle --ship
+gulp package-solution --ship
 ```
 
 See each component's own `README.md` for any component-specific build notes.

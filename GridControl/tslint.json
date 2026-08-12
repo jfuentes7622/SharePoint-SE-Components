@@ -1,0 +1,10 @@
+{
+  "extends": "@microsoft/sp-tslint-rules/tslint.json",
+  "rules": {
+    "export-name": false,
+    "no-any": false,
+    "no-string-literal": false,
+    "typedef": false,
+    "variable-name": false
+  }
+}

@@ -104,6 +104,7 @@ export interface IDropdownOption {
 }
 export default class ListControlWebPart extends BaseClientSideWebPart<IListControlWebPartProps> {
     private _lists;
+    private _sitePages;
     private _views;
     private _listFields;
     private _selectedItemId;
@@ -123,6 +124,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private _conditionalStyleLookupItemOptions;
     private _filterLookupMessage;
     private _conditionalStyleLookupMessage;
+    constructor();
     readonly id: string;
     readonly metadata: IDynamicDataSourceMetadataCompat;
     getPropertyDefinitions(): ReadonlyArray<IDynamicDataPropertyDefinitionCompat>;
@@ -177,6 +179,8 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private handleSelectionChange(itemId, mode);
     private getJsonWithAcceptFallback(url);
     private loadLists();
+    private getTargetPageOptions();
+    private loadSitePages();
     private loadViews(listName);
     private loadViewColumns(listName, viewId);
     private logDiagnostic(message);

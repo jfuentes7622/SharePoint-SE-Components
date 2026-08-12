@@ -84,8 +84,9 @@ function normalizeStringCollection(value) {
 var ListControlWebPart = (function (_super) {
     __extends(ListControlWebPart, _super);
     function ListControlWebPart() {
-        var _this = _super !== null && _super.apply(this, arguments) || this;
+        var _this = _super.call(this) || this;
         _this._lists = [];
+        _this._sitePages = [];
         _this._views = [];
         _this._listFields = [];
         _this._selectedItemId = 0;
@@ -104,6 +105,7 @@ var ListControlWebPart = (function (_super) {
         _this._conditionalStyleLookupItemOptions = [];
         _this._filterLookupMessage = '';
         _this._conditionalStyleLookupMessage = '';
+        _this.onPropertyPaneFieldChanged = _this.onPropertyPaneFieldChanged.bind(_this);
         return _this;
     }
     Object.defineProperty(ListControlWebPart.prototype, "id", {
@@ -175,7 +177,8 @@ var ListControlWebPart = (function (_super) {
             showView: this.properties.showView !== false,
             showDelete: this.properties.showDelete !== false,
             showLinkToItem: this.properties.showLinkToItem === true,
-            linkTargetPageUrl: this.properties.linkTargetPageUrl || '',
+            linkTargetPageUrl: this.properties.linkTargetPageUrl === '__defaultForm__'
+                ? '' : (this.properties.linkTargetPageUrl || ''),
             linkTargetIdParam: this.properties.linkTargetIdParam || 'itemid',
             includeReturnUrlParam: this.properties.includeReturnUrlParam === true,
             enableDiagnostics: this.properties.enableDiagnostics !== false,
@@ -228,7 +231,7 @@ var ListControlWebPart = (function (_super) {
         this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
         this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
         this.initializeDynamicDataSource();
-        return this.loadLists().then(function () {
+        return Promise.all([this.loadLists(), this.loadSitePages()]).then(function () {
             _this.logDiagnostic('List metadata loaded. Count=' + String(_this._lists.length));
             if (_this.properties.listName) {
                 _this.logDiagnostic('Loading views for configured list: ' + String(_this.properties.listName));
@@ -248,6 +251,9 @@ var ListControlWebPart = (function (_super) {
         this.logDiagnostic('Property pane opened. listName=' + String(this.properties.listName || '(none)'));
         if (this._lists.length === 0) {
             this.loadLists();
+        }
+        if (this._sitePages.length === 0) {
+            this.loadSitePages();
         }
         if (this.properties.listName && this._views.length === 0) {
             this.loadViews(this.properties.listName);
@@ -767,10 +773,10 @@ var ListControlWebPart = (function (_super) {
                                     checked: this.properties.showLinkToItem === true
                                 })
                             ].concat((this.properties.showLinkToItem === true ? [
-                                sp_webpart_base_1.PropertyPaneTextField('linkTargetPageUrl', {
+                                sp_webpart_base_1.PropertyPaneDropdown('linkTargetPageUrl', {
                                     label: strings.PropLinkTargetPageUrlLabel,
-                                    placeholder: strings.PropLinkTargetPageUrlPlaceholder,
-                                    value: this.properties.linkTargetPageUrl || ''
+                                    options: this.getTargetPageOptions(),
+                                    selectedKey: this.properties.linkTargetPageUrl || '__defaultForm__'
                                 }),
                                 sp_webpart_base_1.PropertyPaneTextField('linkTargetIdParam', {
                                     label: strings.PropLinkTargetIdParamLabel,
@@ -2118,9 +2124,90 @@ var ListControlWebPart = (function (_super) {
             });
         });
     };
+    ListControlWebPart.prototype.getTargetPageOptions = function () {
+        var options = this._sitePages.length > 0
+            ? this._sitePages.slice()
+            : [{ key: '__defaultForm__', text: strings.PropLinkTargetDefaultFormOption }];
+        var configuredUrl = String(this.properties.linkTargetPageUrl || '').trim();
+        if (configuredUrl && configuredUrl !== '__defaultForm__'
+            && !options.some(function (option) { return String(option.key) === configuredUrl; })) {
+            options.push({ key: configuredUrl, text: configuredUrl + ' (' + strings.PropLinkTargetSavedUrlLabel + ')' });
+        }
+        return options;
+    };
+    ListControlWebPart.prototype.loadSitePages = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var webUrl, libraryData, libraries, pageOptionsByUrl, libraryIndex, libraryId, data, pages, pageError_1, defaultPageOptions, error_4;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 8, , 9]);
+                        webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+                        return [4 /*yield*/, this.getJsonWithAcceptFallback(webUrl + '/_api/web/lists?$select=Id,Title,BaseTemplate&$filter=(BaseTemplate eq 119 or BaseTemplate eq 850)')];
+                    case 1:
+                        libraryData = _a.sent();
+                        libraries = libraryData && libraryData.value ? libraryData.value
+                            : (libraryData && libraryData.d && libraryData.d.results ? libraryData.d.results : []);
+                        pageOptionsByUrl = {};
+                        libraryIndex = 0;
+                        _a.label = 2;
+                    case 2:
+                        if (!(libraryIndex < libraries.length)) return [3 /*break*/, 7];
+                        libraryId = String(libraries[libraryIndex].Id || '').replace(/[{}]/g, '');
+                        if (!libraryId) {
+                            return [3 /*break*/, 6];
+                        }
+                        _a.label = 3;
+                    case 3:
+                        _a.trys.push([3, 5, , 6]);
+                        return [4 /*yield*/, this.getJsonWithAcceptFallback(webUrl + "/_api/web/lists(guid'" + libraryId
+                                + "')/items?$select=File/Name,File/ServerRelativeUrl&$expand=File&$top=5000")];
+                    case 4:
+                        data = _a.sent();
+                        pages = data && data.value ? data.value
+                            : (data && data.d && data.d.results ? data.d.results : []);
+                        pages.filter(function (page) {
+                            return page.File && page.File.ServerRelativeUrl
+                                && /\.aspx(?:$|[?#])/i.test(String(page.File.ServerRelativeUrl));
+                        }).forEach(function (page) {
+                            var fileRef = String(page.File.ServerRelativeUrl);
+                            var title = String(page.File.Name || fileRef);
+                            pageOptionsByUrl[fileRef.toLowerCase()] = { key: fileRef, text: title + ' (' + fileRef + ')' };
+                        });
+                        return [3 /*break*/, 6];
+                    case 5:
+                        pageError_1 = _a.sent();
+                        this.logDiagnostic('Failed to load pages from library "' + String(libraries[libraryIndex].Title || '') + '": '
+                            + String(pageError_1 && pageError_1.message ? pageError_1.message : pageError_1));
+                        return [3 /*break*/, 6];
+                    case 6:
+                        libraryIndex += 1;
+                        return [3 /*break*/, 2];
+                    case 7:
+                        defaultPageOptions = [
+                            { key: '__defaultForm__', text: strings.PropLinkTargetDefaultFormOption }
+                        ];
+                        this._sitePages = defaultPageOptions
+                            .concat(Object.keys(pageOptionsByUrl).map(function (url) { return pageOptionsByUrl[url]; })
+                            .sort(function (left, right) {
+                            return String(left.text).localeCompare(String(right.text));
+                        }));
+                        this.context.propertyPane.refresh();
+                        return [3 /*break*/, 9];
+                    case 8:
+                        error_4 = _a.sent();
+                        this.logDiagnostic('Failed to load Site Pages: ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
+                        this._sitePages = [{ key: '__defaultForm__', text: strings.PropLinkTargetDefaultFormOption }];
+                        this.context.propertyPane.refresh();
+                        return [3 /*break*/, 9];
+                    case 9: return [2 /*return*/];
+                }
+            });
+        });
+    };
     ListControlWebPart.prototype.loadViews = function (listName) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, data, views, i, error_4;
+            var webUrl, data, views, i, error_5;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2164,8 +2251,8 @@ var ListControlWebPart = (function (_super) {
                         this.render();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_4 = _a.sent();
-                        this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
+                        error_5 = _a.sent();
+                        this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
                         this._views = [];
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 5];
@@ -2176,7 +2263,7 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.loadViewColumns = function (listName, viewId) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, listPath, normalizedViewId, viewData, viewFields, fieldData, fields, titleByName, error_5;
+            var webUrl, listPath, normalizedViewId, viewData, viewFields, fieldData, fields, titleByName, error_6;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2231,11 +2318,11 @@ var ListControlWebPart = (function (_super) {
                         this.render();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_5 = _a.sent();
+                        error_6 = _a.sent();
                         this.properties.viewColumns = [];
                         this.context.propertyPane.refresh();
                         this.render();
-                        this.logDiagnostic('Failed to initialize columns for view ' + viewId + ': ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
+                        this.logDiagnostic('Failed to initialize columns for view ' + viewId + ': ' + (error_6 && error_6.message ? error_6.message : String(error_6)));
                         return [3 /*break*/, 5];
                     case 5: return [2 /*return*/];
                 }

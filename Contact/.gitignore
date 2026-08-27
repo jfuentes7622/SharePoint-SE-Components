@@ -13,6 +13,9 @@ release
 solution
 temp
 *.sppkg
+!sharepoint/solution/
+sharepoint/solution/*
+!sharepoint/solution/sps-contacts.sppkg
 .heft
 
 # Coverage directory used by tools like istanbul

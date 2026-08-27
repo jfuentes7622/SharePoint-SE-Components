@@ -17,6 +17,9 @@ release
 solution
 temp
 *.sppkg
+!sharepoint/solution/
+sharepoint/solution/*
+!sharepoint/solution/sps-report-forms.sppkg
 .heft
 .worktrees
 

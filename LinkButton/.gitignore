@@ -12,6 +12,9 @@ lib
 solution
 temp
 *.sppkg
+!sharepoint/solution/
+sharepoint/solution/*
+!sharepoint/solution/sps-linkbutton.sppkg
 
 # Coverage directory used by tools like istanbul
 coverage

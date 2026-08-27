@@ -13,6 +13,9 @@ release
 solution
 temp
 *.sppkg
+!sharepoint/solution/
+sharepoint/solution/*
+!sharepoint/solution/SPS-BannerClock.sppkg
 .heft
 
 # Coverage directory used by tools like istanbul

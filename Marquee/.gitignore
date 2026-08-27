@@ -13,6 +13,9 @@ release
 solution
 temp
 *.sppkg
+!sharepoint/solution/
+sharepoint/solution/*
+!sharepoint/solution/sps-marquee.sppkg
 .heft
 
 # Coverage directory used by tools like istanbul

@@ -1,0 +1,153 @@
+name: Publish SPFx packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Component package to publish
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - Accordion
+          - BannerClock
+          - Calendar
+          - Carousel
+          - Contact
+          - DynamicForms
+          - FullWidthControl
+          - GridControl
+          - LinkButton
+          - ListControl
+          - Marquee
+          - PrintControl
+          - ReportForms
+          - ScriptEditor
+          - Tab
+          - Tiles
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-spfx-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: Accordion
+            package_name: sharepoint-se-accordion
+          - project: BannerClock
+            package_name: sharepoint-se-banner-clock
+          - project: Calendar
+            package_name: sharepoint-se-calendar
+          - project: Carousel
+            package_name: sharepoint-se-carousel
+          - project: Contact
+            package_name: sharepoint-se-contact
+          - project: DynamicForms
+            package_name: sharepoint-se-dynamic-forms
+          - project: FullWidthControl
+            package_name: sharepoint-se-full-width-control
+          - project: GridControl
+            package_name: sharepoint-se-grid-control
+          - project: LinkButton
+            package_name: sharepoint-se-link-button
+          - project: ListControl
+            package_name: sharepoint-se-list-control
+          - project: Marquee
+            package_name: sharepoint-se-marquee
+          - project: PrintControl
+            package_name: sharepoint-se-print-control
+          - project: ReportForms
+            package_name: sharepoint-se-report-forms
+          - project: ScriptEditor
+            package_name: sharepoint-se-script-editor
+          - project: Tab
+            package_name: sharepoint-se-tabs
+          - project: Tiles
+            package_name: sharepoint-se-tiles
+
+    steps:
+      - name: Check out repository
+        if: github.event_name == 'release' || inputs.component == 'all' || inputs.component == matrix.project
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Packages
+        if: github.event_name == 'release' || inputs.component == 'all' || inputs.component == matrix.project
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+          scope: '@jfuentes7622'
+
+      - name: Prepare package
+        if: github.event_name == 'release' || inputs.component == 'all' || inputs.component == matrix.project
+        id: prepare
+        shell: pwsh
+        run: |
+          $project = '${{ matrix.project }}'
+          $packageName = '@jfuentes7622/${{ matrix.package_name }}'
+          $projectPackage = Get-Content "$project/package.json" -Raw | ConvertFrom-Json
+          $solutionConfig = Get-Content "$project/config/package-solution.json" -Raw | ConvertFrom-Json
+          $version = [string]$projectPackage.version
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Project version '$version' is not valid npm semantic versioning."
+          }
+
+          $sppkg = Join-Path $project ("sharepoint/" + [string]$solutionConfig.paths.zippedPackage)
+          if (-not (Test-Path $sppkg)) {
+            throw "Deployable package not found: $sppkg. Build and commit it before publishing."
+          }
+
+          $staging = Join-Path $env:RUNNER_TEMP '${{ matrix.package_name }}'
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          Copy-Item $sppkg $staging
+          Copy-Item "$project/README.md" (Join-Path $staging 'README.md')
+          Copy-Item "$project/config/package-solution.json" (Join-Path $staging 'package-solution.json')
+          Copy-Item 'LICENSE' $staging
+
+          $metadata = [ordered]@{
+            name = $packageName
+            version = $version
+            description = "Deployable SharePoint Framework package for $($solutionConfig.solution.name)"
+            license = 'MIT'
+            repository = [ordered]@{
+              type = 'git'
+              url = 'git+https://github.com/jfuentes7622/SharePoint-SE-Components.git'
+              directory = $project
+            }
+            homepage = "https://github.com/jfuentes7622/SharePoint-SE-Components/tree/main/$project"
+            keywords = @('sharepoint', 'sharepoint-server', 'spfx', 'sppkg')
+            files = @('*.sppkg', 'README.md', 'package-solution.json', 'LICENSE')
+            spfxSolutionVersion = [string]$solutionConfig.solution.version
+          }
+          $metadata | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $staging 'package.json') -Encoding utf8
+
+          "package_dir=$staging" >> $env:GITHUB_OUTPUT
+          "package_name=$packageName" >> $env:GITHUB_OUTPUT
+          "package_version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Publish package
+        if: github.event_name == 'release' || inputs.component == 'all' || inputs.component == matrix.project
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_DIR: ${{ steps.prepare.outputs.package_dir }}
+          PACKAGE_NAME: ${{ steps.prepare.outputs.package_name }}
+          PACKAGE_VERSION: ${{ steps.prepare.outputs.package_version }}
+        run: |
+          if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "$PACKAGE_NAME@$PACKAGE_VERSION is already published; skipping."
+          else
+            npm publish "$PACKAGE_DIR"
+          fi

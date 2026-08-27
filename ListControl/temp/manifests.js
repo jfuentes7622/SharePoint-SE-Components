@@ -2676,9 +2676,10 @@ function getManifests() {
     "id": "3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001",
     "alias": "ListControlWebPart",
     "componentType": "WebPart",
-    "version": "0.0.1",
+    "version": "0.0.6",
     "manifestVersion": 2,
     "requiresCustomScript": false,
+    "supportsFullBleed": true,
     "preconfiguredEntries": [
       {
         "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
@@ -2693,7 +2694,7 @@ function getManifests() {
         },
         "officeFabricIconFontName": "BulletedList",
         "properties": {
-          "description": "List control",
+          "description": "SPS List control",
           "instanceName": "",
           "listName": "",
           "viewId": "",
@@ -2742,6 +2743,8 @@ function getManifests() {
           "bodyFontStyle": "normal",
           "bodyTextAlign": "left",
           "bodyFontBold": false,
+          "dateDisplayFormat": "mdy",
+          "timeDisplayFormat": "24hour",
           "selectedTextColor": "",
           "selectedBackgroundColor": "#eef6ff",
           "selectedFontStyle": "normal",

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "e47c4f0e-0f0d-49d5-bcab-7a4d05742037",
+  "alias": "ReportFormsWebPart",
+  "componentType": "WebPart",
+
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "supportsFullBleed": true,
+
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70", 
+    "group": { "default": "Advanced" },
+    "title": { "default": "SPS Report Forms" },
+    "description": { "default": "Display a read-only report for a SharePoint list item." },
+    "officeFabricIconFontName": "ReportLibrary",
+    "properties": {
+      "description": "ReportForms",
+      "forceFullWidth": false,
+      "fixedWidth": 800,
+      "listName": "",
+      "mode": "view",
+      "dynamicItemId": "",
+      "dynamicItemIdReference": "",
+      "dynamicPreferredSourceInstanceId": "",
+      "useDynamicItemIdAsItemId": true,
+      "dynamicItemTargetField": "",
+      "permissionBaseLookupField": "",
+      "permissionScope": "list",
+      "permissionScopeItemId": "",
+      "useDynamicValueAsFilter": false,
+      "useItemId": false,
+      "itemId": 0,
+      "itemIdQueryParam": "itemid",
+      "isInDesignerMode": false,
+      "labelPosition": "top",
+      "showFieldDescription": false,
+      "enableDynamicDiagnostics": true
+    }
+  }]
+}

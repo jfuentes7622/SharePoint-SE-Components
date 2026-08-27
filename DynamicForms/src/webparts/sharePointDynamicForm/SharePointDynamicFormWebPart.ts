@@ -14,16 +14,20 @@ import {
   PropertyPaneTextField,
 } from '@microsoft/sp-webpart-base';
 import { PropertyPaneCustomField } from '@microsoft/sp-webpart-base/lib/propertyPane/propertyPaneFields/propertyPaneCustomField/PropertyPaneCustomField';
+import { PropertyPaneCheckbox } from '@microsoft/sp-webpart-base/lib/propertyPane/propertyPaneFields/propertyPaneCheckbox/PropertyPaneCheckbox';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
 
 import * as strings from 'SharePointDynamicFormWebPartStrings';
 import { FormSchema, FormMode } from '../../formEngine/core/types';
 import { SharePointDynamicFormContainer } from './components/SharePointDynamicForm';
+import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface ISharePointDynamicFormWebPartProps {
+  forceFullWidth?: boolean;
+  fixedWidth?: number;
   formSchemaJson: string;
   listName: string;
   mode: FormMode;
@@ -85,7 +89,7 @@ export interface ISharePointDynamicFormWebPartProps {
   filterDesignerType?: 'text' | 'number' | 'lookup' | 'boolean' | 'datetime';
   filterDesignerOperator?: 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'startswith' | 'endswith';
   filterDesignerLogical?: 'and' | 'or';
-  filterDesignerValueSource?: 'dynamic' | 'static' | 'expression';
+  filterDesignerValueSource?: 'dynamic' | 'static' | 'expression' | 'fieldValue';
   filterDesignerValue?: string;
   filterDesignerSelectedIndex?: string;
   filterDesignerLookupPick?: string;
@@ -294,6 +298,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   private _showFilterExpressionHelp: boolean = false;
   private _showDefaultExpressionHelp: boolean = false;
   private _fieldTypeByInternalName: { [internalName: string]: string } = {};
+  private _fieldChoicesByInternalName: { [internalName: string]: string[] } = {};
   private _fieldLookupListByInternalName: { [internalName: string]: string } = {};
   private _filterLookupItemOptions: IDropdownOption[] = [];
   private _defaultLookupItemOptions: IDropdownOption[] = [];
@@ -315,6 +320,8 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   }
 
   public render(): void {
+    var forceFullWidth = this.properties.forceFullWidth === true;
+    updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, forceFullWidth);
     this.tryRebindDynamicReferences();
     this.ensureDynamicValueChangeHandler();
 
@@ -371,6 +378,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         onSaveSchema: (schema) => this.saveSchema(schema),
         isPageEditMode: this.displayMode === DisplayMode.Edit,
         showFieldDescription: this.properties.showFieldDescription,
+        containerWidth: forceFullWidth ? 0 : toPositiveNumber(this.properties.fixedWidth, 800),
         // Button configuration
         submitButtonLabel: this.properties.submitButtonLabel,
         addSubmitButtonLabel: this.properties.addSubmitButtonLabel,
@@ -530,12 +538,27 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     }
 
     if (propertyPath === 'filterDesignerField' || propertyPath === 'filterDesignerType') {
+      if (propertyPath === 'filterDesignerField') {
+        this.properties.filterDesignerType = this.getFilterDesignerType(String(newValue || ''));
+        this.properties.filterDesignerValue = '';
+      }
       this._filterLookupItemOptions = [];
       this.properties.filterDesignerLookupPick = '';
       this._filterLookupMessage = '';
       if ((this.properties.filterDesignerType || 'text') === 'lookup' && this.isLookupTypeField(this.properties.filterDesignerField || '')) {
         this.handleLoadFilterLookupItems();
       }
+    }
+
+    if (propertyPath === 'filterDesignerValueSource') {
+      this.properties.filterDesignerValue = '';
+      this.properties.filterDesignerLookupPick = '';
+      this.context.propertyPane.refresh();
+    }
+
+    if (propertyPath === 'filterDesignerLookupPick' && (this.properties.filterDesignerValueSource || 'dynamic') === 'fieldValue') {
+      this.properties.filterDesignerValue = String(newValue || '');
+      this._filterLookupMessage = newValue ? 'Selected item ID ' + String(newValue) + '.' : '';
     }
 
     if (propertyPath === 'defaultDesignerField') {
@@ -1061,6 +1084,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       this._dynamicTargetLookupFields = [{ key: '', text: strings.PropDynamicTargetFieldNone }];
       this._lookupPermissionFields = [{ key: '', text: strings.PropPermissionBaseLookupFieldNone }];
       this._fieldTypeByInternalName = {};
+      this._fieldChoicesByInternalName = {};
       this._fieldLookupListByInternalName = {};
       this.context.propertyPane.refresh();
       return;
@@ -1069,7 +1093,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     try {
       var webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
       var response = await this.getWithAcceptFallback(
-        webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,Hidden,ReadOnlyField,Sealed,LookupList&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'Attachments')"
+        webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,Hidden,ReadOnlyField,Sealed,LookupList,Choices&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'Attachments')"
       );
       var data = await response.json();
       var fields = data && data.value ? data.value : [];
@@ -1079,11 +1103,16 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       }
 
       this._fieldTypeByInternalName = {};
+      this._fieldChoicesByInternalName = {};
       this._fieldLookupListByInternalName = {};
       fields.forEach((field: any) => {
         var fieldInternalName = String(field.InternalName || '');
         if (!fieldInternalName) { return; }
         this._fieldTypeByInternalName[fieldInternalName] = String(field.TypeAsString || '').toLowerCase();
+        var rawChoices = field.Choices;
+        this._fieldChoicesByInternalName[fieldInternalName] = Array.isArray(rawChoices)
+          ? rawChoices.map(function(choice: any) { return String(choice); })
+          : (rawChoices && Array.isArray(rawChoices.results) ? rawChoices.results.map(function(choice: any) { return String(choice); }) : []);
         var lookupListId = field.LookupList ? String(field.LookupList).replace(/[{}]/g, '') : '';
         if (lookupListId) {
           this._fieldLookupListByInternalName[fieldInternalName] = lookupListId;
@@ -1153,6 +1182,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       this._dynamicTargetLookupFields = [{ key: '', text: strings.PropDynamicTargetFieldNone }];
       this._lookupPermissionFields = [{ key: '', text: strings.PropPermissionBaseLookupFieldNone }];
       this._fieldTypeByInternalName = {};
+      this._fieldChoicesByInternalName = {};
       this._fieldLookupListByInternalName = {};
       this.context.propertyPane.refresh();
       console.warn('[SharePointDynamicFormWebPart] loadListFields: Failed to load fields for list "' + listName + '": ', error);
@@ -1162,6 +1192,71 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   private isLookupTypeField(internalName: string): boolean {
     var typeName = this._fieldTypeByInternalName[internalName || ''];
     return typeName === 'lookup' || typeName === 'lookupmulti';
+  }
+
+  private supportsFilterFieldValue(internalName: string): boolean {
+    var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
+    return typeName === 'choice' || typeName === 'multichoice' || typeName === 'lookup' || typeName === 'lookupmulti' || typeName === 'user' || typeName === 'usermulti';
+  }
+
+  private isMultiFilterField(internalName: string): boolean {
+    var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
+    return typeName === 'multichoice' || typeName === 'lookupmulti' || typeName === 'usermulti';
+  }
+
+  private getFilterDesignerType(internalName: string): 'text' | 'number' | 'lookup' | 'boolean' | 'datetime' {
+    var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
+    if (typeName === 'lookup' || typeName === 'lookupmulti' || typeName === 'user' || typeName === 'usermulti') { return 'lookup'; }
+    if (typeName === 'number' || typeName === 'currency' || typeName === 'integer' || typeName === 'counter') { return 'number'; }
+    if (typeName === 'boolean') { return 'boolean'; }
+    if (typeName === 'datetime') { return 'datetime'; }
+    return 'text';
+  }
+
+  private getSelectedFilterFieldValues(): string[] {
+    var rawValue = String(this.properties.filterDesignerValue || '').trim();
+    if (!rawValue) { return []; }
+    try {
+      var parsed = JSON.parse(rawValue);
+      return Array.isArray(parsed) ? parsed.map(function(value: any) { return String(value); }) : [String(parsed)];
+    } catch (_parseError) {
+      return rawValue.split(';').map(function(value: string) { return value.trim(); }).filter(function(value: string) { return !!value; });
+    }
+  }
+
+  private createFilterMultiValuePicker(options: IDropdownOption[]): any {
+    return PropertyPaneCustomField({
+      key: 'filterDesignerFieldValueMultiPicker',
+      onRender: (domElement: HTMLElement): void => {
+        while (domElement.firstChild) { domElement.removeChild(domElement.firstChild); }
+        var title = document.createElement('div');
+        title.textContent = 'Select one or more field values';
+        title.style.fontWeight = '600';
+        title.style.marginBottom = '8px';
+        domElement.appendChild(title);
+        var selected = this.getSelectedFilterFieldValues();
+        options.forEach((option: IDropdownOption) => {
+          var value = String(option.key);
+          var label = document.createElement('label');
+          label.style.display = 'block';
+          label.style.marginBottom = '6px';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = selected.indexOf(value) >= 0;
+          checkbox.style.marginRight = '6px';
+          checkbox.addEventListener('change', () => {
+            var nextValues = this.getSelectedFilterFieldValues();
+            var existingIndex = nextValues.indexOf(value);
+            if (checkbox.checked && existingIndex < 0) { nextValues.push(value); }
+            if (!checkbox.checked && existingIndex >= 0) { nextValues.splice(existingIndex, 1); }
+            this.properties.filterDesignerValue = JSON.stringify(nextValues);
+          });
+          label.appendChild(checkbox);
+          label.appendChild(document.createTextNode(option.text));
+          domElement.appendChild(label);
+        });
+      }
+    });
   }
 
   private async loadLookupListItems(listId: string): Promise<IDropdownOption[]> {
@@ -1313,6 +1408,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   protected onDispose(): void {
     this.unregisterDynamicValueChangeHandler();
     this.unregisterDynamicSourceChangeHandler();
+    releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
@@ -1701,7 +1797,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       var condType = (this.properties.filterDesignerType || 'text') as 'text' | 'number' | 'lookup' | 'boolean' | 'datetime';
       var condOperator = (this.properties.filterDesignerOperator || 'eq') as 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'startswith' | 'endswith';
       var condLogical = (this.properties.filterDesignerLogical || 'and') as 'and' | 'or';
-      var valueSource = (this.properties.filterDesignerValueSource || 'dynamic') as 'dynamic' | 'static' | 'expression';
+      var valueSource = (this.properties.filterDesignerValueSource || 'dynamic') as 'dynamic' | 'static' | 'expression' | 'fieldValue';
       var conditionValue: any;
 
       if (valueSource === 'dynamic') {
@@ -1721,6 +1817,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
             return;
           }
           conditionValue = rawValue;
+        } else if (valueSource === 'fieldValue' && this.isMultiFilterField(field)) {
+          conditionValue = this.getSelectedFilterFieldValues();
+          if (conditionValue.length === 0) { this._filterDesignerMessage = 'Select at least one field value.'; this.context.propertyPane.refresh(); return; }
         } else if (condType === 'number' || condType === 'lookup') {
           var parsedNumber = Number(rawValue);
           conditionValue = isNaN(parsedNumber) ? rawValue : parsedNumber;
@@ -1740,8 +1839,8 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         logical: condLogical,
         value: conditionValue
       };
-      if (valueSource === 'expression') {
-        newCondition.valueType = 'expression';
+      if (valueSource === 'expression' || valueSource === 'fieldValue') {
+        newCondition.valueType = valueSource;
       }
       existing.push(newCondition);
 
@@ -1753,6 +1852,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     }
 
     this.context.propertyPane.refresh();
+    this.render();
   }
 
   private handleLoadSelectedFilterCondition(): void {
@@ -1767,16 +1867,18 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
 
       var selected = existing[index] || {};
       var selectedValue = selected.value;
-      var valueSource: 'dynamic' | 'static' | 'expression' = String(selected.valueType || '').toLowerCase() === 'expression'
-        ? 'expression'
-        : (selectedValue === 'dynamic' ? 'dynamic' : 'static');
+      var storedValueType = String(selected.valueType || '').toLowerCase();
+      var valueSource: 'dynamic' | 'static' | 'expression' | 'fieldValue' = 'static';
+      if (storedValueType === 'expression') { valueSource = 'expression'; }
+      else if (storedValueType === 'fieldvalue') { valueSource = 'fieldValue'; }
+      else if (selectedValue === 'dynamic') { valueSource = 'dynamic'; }
 
       this.properties.filterDesignerField = selected.field ? String(selected.field) : '';
       this.properties.filterDesignerType = selected.type || 'text';
       this.properties.filterDesignerOperator = selected.operator || 'eq';
       this.properties.filterDesignerLogical = selected.logical === 'or' ? 'or' : 'and';
       this.properties.filterDesignerValueSource = valueSource;
-      this.properties.filterDesignerValue = valueSource !== 'dynamic' ? String(selectedValue === undefined || selectedValue === null ? '' : selectedValue) : '';
+      this.properties.filterDesignerValue = valueSource !== 'dynamic' ? (Array.isArray(selectedValue) ? JSON.stringify(selectedValue) : String(selectedValue === undefined || selectedValue === null ? '' : selectedValue)) : '';
       this._filterDesignerMessage = 'Condition loaded into designer fields.';
     } catch (error) {
       this._filterDesignerMessage = error && error.message ? error.message : 'Failed to load condition.';
@@ -1805,7 +1907,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       var condType = (this.properties.filterDesignerType || 'text') as 'text' | 'number' | 'lookup' | 'boolean' | 'datetime';
       var condOperator = (this.properties.filterDesignerOperator || 'eq') as 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'startswith' | 'endswith';
       var condLogical = (this.properties.filterDesignerLogical || 'and') as 'and' | 'or';
-      var valueSource = (this.properties.filterDesignerValueSource || 'dynamic') as 'dynamic' | 'static' | 'expression';
+      var valueSource = (this.properties.filterDesignerValueSource || 'dynamic') as 'dynamic' | 'static' | 'expression' | 'fieldValue';
       var conditionValue: any = 'dynamic';
 
       if (valueSource !== 'dynamic') {
@@ -1823,6 +1925,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
             return;
           }
           conditionValue = rawValue;
+        } else if (valueSource === 'fieldValue' && this.isMultiFilterField(field)) {
+          conditionValue = this.getSelectedFilterFieldValues();
+          if (conditionValue.length === 0) { this._filterDesignerMessage = 'Select at least one field value.'; this.context.propertyPane.refresh(); return; }
         } else if (condType === 'number' || condType === 'lookup') {
           var parsedNumber = Number(rawValue);
           conditionValue = isNaN(parsedNumber) ? rawValue : parsedNumber;
@@ -1841,8 +1946,8 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         logical: condLogical,
         value: conditionValue
       };
-      if (valueSource === 'expression') {
-        updatedCondition.valueType = 'expression';
+      if (valueSource === 'expression' || valueSource === 'fieldValue') {
+        updatedCondition.valueType = valueSource;
       }
       existing[index] = updatedCondition;
 
@@ -1854,6 +1959,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     }
 
     this.context.propertyPane.refresh();
+    this.render();
   }
 
   private handleRemoveSelectedFilterCondition(): void {
@@ -1876,6 +1982,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     }
 
     this.context.propertyPane.refresh();
+    this.render();
   }
 
   private handleResetFilterJson(): void {
@@ -1883,6 +1990,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this._filterJsonValidationMessage = strings.JsonValidationEmpty;
     this._filterDesignerMessage = 'Record filter JSON cleared.';
     this.context.propertyPane.refresh();
+    this.render();
   }
 
   private handleAddDefaultDesignerEntry(): void {
@@ -2554,6 +2662,17 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                     { key: 'view', text: strings.PropModeView },
                   ],
                 }),
+                PropertyPaneCheckbox('forceFullWidth', { text: 'Force Full Width' }),
+                ...(!this.properties.forceFullWidth ? [
+                  PropertyPaneSlider('fixedWidth', {
+                    label: 'Fixed width (px)',
+                    min: 480,
+                    max: 1600,
+                    step: 20,
+                    value: toPositiveNumber(this.properties.fixedWidth, 800),
+                    showValue: true,
+                  })
+                ] : []),
                 PropertyPaneTextField('itemIdQueryParam', {
                   label: strings.PropItemIdQueryParamLabel,
                   placeholder: 'itemid',
@@ -2789,7 +2908,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                 }),
                 PropertyPaneDropdown('filterDesignerField', {
                   label: strings.PropFilterDesignerFieldLabel,
-                  options: dynamicTargetFieldOptions,
+                  options: this._listFields,
                   selectedKey: this.properties.filterDesignerField || '',
                 }),
                 PropertyPaneDropdown('filterDesignerType', {
@@ -2832,10 +2951,11 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                     { key: 'dynamic', text: strings.PropFilterDesignerValueSourceDynamic },
                     { key: 'static', text: strings.PropFilterDesignerValueSourceStatic },
                     { key: 'expression', text: strings.PropExpressionValueType },
+                    ...(this.supportsFilterFieldValue(this.properties.filterDesignerField || '') ? [{ key: 'fieldValue', text: 'Field value' }] : [])
                   ],
                   selectedKey: this.properties.filterDesignerValueSource || 'dynamic',
                 }),
-                ...((this.properties.filterDesignerValueSource || 'dynamic') !== 'dynamic' ? [
+                ...((this.properties.filterDesignerValueSource || 'dynamic') !== 'dynamic' && (this.properties.filterDesignerValueSource || 'dynamic') !== 'fieldValue' ? [
                   PropertyPaneTextField('filterDesignerValue', {
                     label: (this.properties.filterDesignerValueSource || 'dynamic') === 'expression' ? strings.PropExpressionLabel : strings.PropFilterDesignerValueLabel,
                     placeholder: (this.properties.filterDesignerValueSource || 'dynamic') === 'expression' ? strings.PropExpressionPlaceholder : '',
@@ -2843,7 +2963,17 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                   }),
                   ...((this.properties.filterDesignerValueSource || 'dynamic') === 'expression' ? [this.createExpressionHelpField('filterExpressionHelp', false)] : [])
                 ] : []),
-                ...((this.properties.filterDesignerType || 'text') === 'lookup' && (this.properties.filterDesignerValueSource || 'dynamic') === 'static' ? [
+                ...((this.properties.filterDesignerValueSource || 'dynamic') === 'fieldValue' && !this.isMultiFilterField(this.properties.filterDesignerField || '') && (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).length > 0 ? [
+                  PropertyPaneDropdown('filterDesignerValue', {
+                    label: 'Select field value',
+                    options: (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).map(function(choice: string) { return { key: choice, text: choice }; }),
+                    selectedKey: this.properties.filterDesignerValue || ''
+                  })
+                ] : []),
+                ...((this.properties.filterDesignerValueSource || 'dynamic') === 'fieldValue' && this.isMultiFilterField(this.properties.filterDesignerField || '') && (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).length > 0 ? [
+                  this.createFilterMultiValuePicker((this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).map(function(choice: string) { return { key: choice, text: choice }; }))
+                ] : []),
+                ...((this.properties.filterDesignerType || 'text') === 'lookup' && ((this.properties.filterDesignerValueSource || 'dynamic') === 'static' || (this.properties.filterDesignerValueSource || 'dynamic') === 'fieldValue') ? [
                   PropertyPaneLabel('filterLookupHelperTitle', {
                     text: 'Lookup item picker: choose an item from the target list to fill in its ID.'
                   }),

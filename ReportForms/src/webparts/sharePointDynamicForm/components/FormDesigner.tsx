@@ -1,0 +1,3002 @@
+import * as React from 'react';
+import { MessageBar, MessageBarType } from 'office-ui-fabric-react';
+import { SPHttpClient } from '@microsoft/sp-http';
+import styles from './SharePointDynamicForm.module.scss';
+import { FormField, FormSchema, FormStep, SPFieldInfo, SPFieldType, FieldConfig, FieldType } from '../../../formEngine/core/types';
+import * as strings from 'SharePointDynamicFormWebPartStrings';
+import { RichTextEditor } from './RichTextEditor';
+
+type SPFxContext = any;
+
+export interface FormDesignerProps {
+  schema: FormSchema;
+  context: SPFxContext;
+  listName: string;
+  onChange: (schema: FormSchema) => void;
+}
+
+interface FormDesignerState {
+  spFields: SPFieldInfo[];
+  imageLibraries: Array<{ key: string; text: string }>;
+  imageFiles: Array<{ key: string; text: string }>;
+  selectedImageLibrary: string;
+  imageFilesLoading: boolean;
+  imageBrowserError: string | null;
+  reportListFields: Array<{ key: string; text: string }>;
+  listControlSources: Array<{ key: string; text: string; listName?: string }>;
+  listControlFields: Array<{ key: string; text: string }>;
+  listControlFieldsListName: string;
+  listControlFieldsLoading: boolean;
+  listControlFieldsError: string | null;
+  loadingFields: boolean;
+  fieldsError: string | null;
+  selectedStepIndex: number;
+  selectedFieldId: string | null;
+  activeDesignerTab: 'form' | 'container';
+}
+
+interface ISPFieldResponse {
+  Id: string;
+  InternalName: string;
+  Title: string;
+  Description?: string;
+  TypeAsString: string;
+  RichText?: boolean;
+  Required: boolean;
+  ReadOnlyField: boolean;
+  Hidden: boolean;
+  FromBaseType?: boolean;
+  Choices?: string[] | { results: string[] } | string;
+  LookupList?: string;
+  LookupField?: string;
+  AllowMultipleValues?: boolean;
+  MaxLength?: number;
+  TextField?: string;
+  TermSetId?: string;
+  DisplayFormat?: number | string;
+}
+
+var SYSTEM_FIELDS: { [key: string]: boolean } = {
+  ID: true,
+  Created: true,
+  Modified: true,
+  Author: true,
+  Editor: true,
+  OData__UIVersionString: true,
+  GUID: true,
+  ContentType: true,
+  AppAuthor: true,
+  AppEditor: true,
+  Edit: true,
+  ItemChildCount: true,
+  FolderChildCount: true,
+  ComplianceAssetId: true,
+};
+
+function createId(prefix: string): string {
+  return prefix + '_' + new Date().getTime().toString(36) + '_' + Math.floor(Math.random() * 100000).toString(36);
+}
+
+function escapeODataText(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function copySchema(schema: FormSchema): FormSchema {
+  return JSON.parse(JSON.stringify(schema));
+}
+
+function getStepTheme(schema: FormSchema, step: FormStep): { layout: 'stack' | 'grid'; columns: number } {
+  var theme = step.theme || schema.theme || {};
+  return {
+    layout: theme.layout === 'grid' ? 'grid' : 'stack',
+    columns: theme.columns && theme.columns > 1 ? theme.columns : 1,
+  };
+}
+
+function parseChoices(choices: string[] | { results: string[] } | string | undefined): string[] | undefined {
+  if (!choices) {
+    return undefined;
+  }
+  if (Array.isArray(choices)) {
+    return choices.slice(0);
+  }
+  if (typeof choices === 'object' && Array.isArray(choices.results)) {
+    return choices.results.slice(0);
+  }
+  if (typeof choices === 'string') {
+    return choices.split(';').filter(function(choice) { return !!choice; });
+  }
+  return undefined;
+}
+function decodeHtmlEntities(value: string): string {
+  if (!value || value.indexOf('&') < 0 || typeof document === 'undefined') {
+    return value;
+  }
+  var decoder = document.createElement('textarea');
+  decoder.innerHTML = value;
+  return decoder.value;
+}
+
+function mapSPFieldType(type: string): SPFieldType {
+  switch (type) {
+    case 'Text':
+      return SPFieldType.Text;
+    case 'Note':
+      return SPFieldType.Note;
+    case 'Number':
+    case 'Currency':
+      return SPFieldType.Number;
+    case 'Integer':
+      return SPFieldType.Integer;
+    case 'DateTime':
+      return SPFieldType.DateTime;
+    case 'Choice':
+      return SPFieldType.Choice;
+    case 'MultiChoice':
+      return SPFieldType.MultiChoice;
+    case 'Lookup':
+      return SPFieldType.Lookup;
+    case 'User':
+      return SPFieldType.User;
+    case 'UserMulti':
+      return SPFieldType.UserMulti;
+    case 'Boolean':
+      return SPFieldType.Boolean;
+    case 'URL':
+    case 'Hyperlink':
+      return SPFieldType.URL;
+    case 'Image':
+    case 'Thumbnail':
+      return SPFieldType.Image;
+    case 'TaxonomyFieldType':
+      return SPFieldType.Taxonomy;
+    case 'TaxonomyFieldTypeMulti':
+      return SPFieldType.TaxonomyMulti;
+    case 'Attachments':
+      return SPFieldType.Attachments;
+    default:
+      return SPFieldType.Text;
+  }
+}
+
+function mapFormFieldType(type: SPFieldType): FieldType {
+  switch (type) {
+    case SPFieldType.Note:
+      return 'multiline';
+    case SPFieldType.Number:
+    case SPFieldType.Integer:
+      return 'number';
+    case SPFieldType.DateTime:
+      return 'datetime';
+    case SPFieldType.Choice:
+      return 'dropdown';
+    case SPFieldType.MultiChoice:
+      return 'multiselect';
+    case SPFieldType.Lookup:
+      return 'lookup';
+    case SPFieldType.User:
+    case SPFieldType.UserMulti:
+      return 'person';
+    case SPFieldType.Boolean:
+      return 'boolean';
+    case SPFieldType.URL:
+    case SPFieldType.Hyperlink:
+      return 'url';
+    case SPFieldType.Image:
+      return 'image';
+    case SPFieldType.Taxonomy:
+    case SPFieldType.TaxonomyMulti:
+      return 'taxonomy';
+    case SPFieldType.Attachments:
+      return 'attachment';
+    default:
+      return 'text';
+  }
+}
+
+function getFieldTypeLabel(type: FieldType): string {
+  switch (type) {
+    case 'text':
+      return strings.PropertyFieldTypeText;
+    case 'multiline':
+      return strings.PropertyFieldTypeMultiline;
+    case 'number':
+      return strings.PropertyFieldTypeNumber;
+    case 'datetime':
+      return strings.PropertyFieldTypeDatetime;
+    case 'dropdown':
+      return strings.PropertyFieldTypeDropdown;
+    case 'multiselect':
+      return strings.PropertyFieldTypeMultiselect;
+    case 'lookup':
+      return strings.PropertyFieldTypeLookup;
+    case 'person':
+      return strings.PropertyFieldTypePerson;
+    case 'boolean':
+      return strings.PropertyFieldTypeBoolean;
+    case 'image':
+      return strings.PropertyFieldTypeImage;
+    case 'url':
+      return strings.PropertyFieldTypeUrl;
+    case 'taxonomy':
+      return strings.PropertyFieldTypeTaxonomy;
+    case 'attachment':
+      return strings.PropertyFieldTypeAttachment;
+    case 'richtext':
+      return strings.PropertyFieldTypeRichtext;
+    case 'listcontrol':
+      return strings.PropertyFieldTypeListControl;
+    case 'customimage':
+      return 'Image';
+    case 'divider':
+      return 'Divider';
+    default:
+      return type;
+  }
+}
+
+export class FormDesigner extends React.Component<FormDesignerProps, FormDesignerState> {
+  public constructor(props: FormDesignerProps) {
+    super(props);
+    this.state = {
+      spFields: [],
+      imageLibraries: [],
+      imageFiles: [],
+      selectedImageLibrary: '',
+      imageFilesLoading: false,
+      imageBrowserError: null,
+      reportListFields: [],
+      listControlSources: [],
+      listControlFields: [],
+      listControlFieldsListName: '',
+      listControlFieldsLoading: false,
+      listControlFieldsError: null,
+      loadingFields: false,
+      fieldsError: null,
+      selectedStepIndex: 0,
+      selectedFieldId: null,
+      activeDesignerTab: 'form',
+    };
+
+    this.handleAddRichText = this.handleAddRichText.bind(this);
+    this.handleAddCustomImage = this.handleAddCustomImage.bind(this);
+    this.handleAddDivider = this.handleAddDivider.bind(this);
+    this.handleAddListControl = this.handleAddListControl.bind(this);
+  }
+
+  public componentDidMount(): void {
+    this.loadFields();
+    this.loadImageLibraries();
+    this.loadListControlSources();
+  }
+
+  public componentDidUpdate(prevProps: FormDesignerProps, prevState: FormDesignerState): void {
+    if (prevProps.listName !== this.props.listName) {
+      this.loadFields();
+    }
+
+    if (this.state.selectedStepIndex >= this.props.schema.steps.length) {
+      this.setState({ selectedStepIndex: Math.max(0, this.props.schema.steps.length - 1), selectedFieldId: null });
+    }
+
+    if (prevState.selectedFieldId !== this.state.selectedFieldId) {
+      this.loadSelectedListControlFields();
+    }
+  }
+
+  private getWebUrl(): string {
+    return this.props.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+  }
+
+  private async getWithAcceptFallback(url: string): Promise<any> {
+    var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+
+    if (!response.ok) {
+      response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        headers: {
+          Accept: 'application/json;odata=verbose'
+        }
+      });
+    }
+
+    if (!response.ok) {
+      response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        headers: {
+          Accept: 'application/json;odata=minimalmetadata'
+        }
+      });
+    }
+
+    if (!response.ok) {
+      response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        headers: {
+          Accept: 'application/json;odata=nometadata'
+        }
+      });
+    }
+
+    return response;
+  }
+
+  private async loadFields(): Promise<void> {
+    if (!this.props.listName) {
+      this.setState({ spFields: [], reportListFields: [], loadingFields: false, fieldsError: strings.DesignerNoListSelected });
+      return;
+    }
+
+    this.setState({ loadingFields: true, fieldsError: null });
+    try {
+      var response = await this.getWithAcceptFallback(
+        this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=Id,InternalName,Title,Description,TypeAsString,RichText,Required,ReadOnlyField,Hidden,FromBaseType,Choices,LookupList,LookupField,AllowMultipleValues,MaxLength,TextField,TermSetId,DisplayFormat"
+      );
+      if (!response.ok) {
+        throw new Error(strings.DesignerLoadFieldsFailed);
+      }
+
+      var data = await response.json();
+      var fields = data && data.value ? data.value as ISPFieldResponse[] : [];
+      if (!fields || fields.length === 0) {
+        fields = data && data.d && data.d.results ? data.d.results as ISPFieldResponse[] : [];
+      }
+      var reportListFields = fields
+        .filter(function(field) { return !!field.InternalName; })
+        .map(function(field) {
+          return {
+            key: String(field.InternalName),
+            text: String(field.Title || field.InternalName) + ' (' + String(field.InternalName) + ')'
+          };
+        });
+      var mapped = fields
+        .filter(function(field) {
+          var isAttachmentField = field.InternalName === 'Attachments';
+          if (field.Hidden) {
+            return false;
+          }
+          if (field.FromBaseType && field.InternalName !== 'Title' && !isAttachmentField) {
+            return false;
+          }
+          return !SYSTEM_FIELDS[field.InternalName];
+        })
+        .map(function(field) {
+          return {
+            id: field.Id,
+            internalName: field.InternalName,
+            title: field.Title || field.InternalName,
+            description: field.Description || undefined,
+            type: mapSPFieldType(field.TypeAsString),
+            richText: field.RichText === true,
+            required: field.Required || false,
+            readOnly: field.ReadOnlyField || false,
+            choices: parseChoices(field.Choices),
+            lookupList: field.LookupList || undefined,
+            lookupField: field.LookupField || undefined,
+            allowMultipleValues: field.AllowMultipleValues || false,
+            maxLength: field.MaxLength || undefined,
+            textField: field.TextField || undefined,
+            termSetId: field.TermSetId || undefined,
+            displayFormat: String(field.DisplayFormat) === '0' ? 'dateOnly' : 'dateTime',
+          } as SPFieldInfo;
+        });
+
+      this.setState({ spFields: mapped, reportListFields: reportListFields, loadingFields: false, fieldsError: null });
+    } catch (error) {
+      this.setState({
+        spFields: [],
+        reportListFields: [],
+        loadingFields: false,
+        fieldsError: error && error.message ? error.message : strings.DesignerLoadFieldsFailed,
+      });
+    }
+  }
+
+  private async loadImageLibraries(): Promise<void> {
+    try {
+      var response = await this.getWithAcceptFallback(this.getWebUrl() + '/_api/web/lists?$select=Title,BaseTemplate,Hidden&$filter=Hidden eq false');
+      if (!response.ok) {
+        throw new Error('Unable to load image libraries.');
+      }
+      var data = await response.json();
+      var lists: any[] = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+      var libraries = lists
+        .filter(function(list) { return list.BaseTemplate === 101 || list.BaseTemplate === 109; })
+        .map(function(list) { return { key: String(list.Title), text: String(list.Title) }; });
+      this.setState({ imageLibraries: libraries, imageBrowserError: null });
+    } catch (error) {
+      this.setState({ imageLibraries: [], imageBrowserError: error && error.message ? error.message : 'Unable to load image libraries.' });
+    }
+  }
+
+  private async loadImageFiles(libraryName: string): Promise<void> {
+    if (!libraryName) {
+      this.setState({ selectedImageLibrary: '', imageFiles: [], imageFilesLoading: false, imageBrowserError: null });
+      return;
+    }
+    this.setState({ selectedImageLibrary: libraryName, imageFiles: [], imageFilesLoading: true, imageBrowserError: null });
+    try {
+      var response = await this.getWithAcceptFallback(
+        this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(libraryName) + "')/items?$select=FileLeafRef,FileRef,FSObjType&$filter=FSObjType eq 0&$top=5000"
+      );
+      if (!response.ok) {
+        throw new Error('Unable to load images from the selected library.');
+      }
+      var data = await response.json();
+      var items: any[] = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+      var imagePattern = /\.(apng|avif|bmp|gif|jpe?g|png|svg|webp)$/i;
+      var files = items
+        .filter(function(item) { return imagePattern.test(String(item.FileLeafRef || '')) && !!item.FileRef; })
+        .map(function(item) { return { key: String(item.FileRef), text: String(item.FileLeafRef) }; });
+      this.setState({ imageFiles: files, imageFilesLoading: false, imageBrowserError: null });
+    } catch (error) {
+      this.setState({ imageFiles: [], imageFilesLoading: false, imageBrowserError: error && error.message ? error.message : 'Unable to load images from the selected library.' });
+    }
+  }
+
+  private loadListControlSources(): void {
+    var provider = this.props.context.dynamicDataProvider || this.props.context._dynamicDataProvider;
+    var options: Array<{ key: string; text: string; listName?: string }> = [];
+    if (provider && provider.getAvailableSources) {
+      var sources = provider.getAvailableSources() || [];
+      for (var i = 0; i < sources.length; i += 1) {
+        var source = sources[i];
+        var metadata = source && source.metadata;
+        var componentId = metadata && metadata.componentId ? String(metadata.componentId).toLowerCase() : '';
+        var alias = metadata && metadata.alias ? String(metadata.alias).toLowerCase() : '';
+        if (componentId !== '3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001' && alias !== 'listcontrolwebpart') {
+          continue;
+        }
+
+        var instanceName = '';
+        var listName = '';
+        if (source.getPropertyValue) {
+          try {
+            instanceName = String(source.getPropertyValue('instanceName') || '').trim();
+          } catch (_instanceNameError) {
+            instanceName = '';
+          }
+          try {
+            listName = String(source.getPropertyValue('listName') || '').trim();
+          } catch (_listNameError) {
+            listName = '';
+          }
+        }
+        options.push({
+          key: String(source.id),
+          text: String(instanceName || metadata.title || metadata.alias || source.id) + ' (' + String(source.id) + ')',
+          listName: listName || undefined
+        });
+      }
+    }
+    this.setState({ listControlSources: options }, () => this.loadSelectedListControlFields());
+  }
+
+  private loadSelectedListControlFields(): void {
+    var selectedField = this.getSelectedField();
+    var sourceId = selectedField && selectedField.type === 'listcontrol' && selectedField.config
+      ? String(selectedField.config.listControlSourceId || '')
+      : '';
+    var listName = '';
+    for (var i = 0; i < this.state.listControlSources.length; i += 1) {
+      if (this.state.listControlSources[i].key === sourceId) {
+        listName = String(this.state.listControlSources[i].listName || '');
+        break;
+      }
+    }
+    if (!listName) {
+      this.setState({ listControlFields: [], listControlFieldsListName: '', listControlFieldsLoading: false, listControlFieldsError: sourceId ? 'The selected List Control did not provide its configured list name.' : null });
+      return;
+    }
+    if (this.state.listControlFieldsListName === listName && (this.state.listControlFieldsLoading || this.state.listControlFields.length > 0)) {
+      return;
+    }
+    this.loadListControlFields(listName);
+  }
+
+  private async loadListControlFields(listName: string): Promise<void> {
+    this.setState({ listControlFields: [], listControlFieldsListName: listName, listControlFieldsLoading: true, listControlFieldsError: null });
+    try {
+      var response = await this.getWithAcceptFallback(
+        this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,Hidden&$filter=Hidden eq false"
+      );
+      if (!response.ok) {
+        throw new Error('Unable to load the selected List Control columns.');
+      }
+      var data = await response.json();
+      var fields: any[] = data && data.value ? data.value : [];
+      if (!fields || fields.length === 0) {
+        fields = data && data.d && data.d.results ? data.d.results : [];
+      }
+      var options = fields
+        .filter(function(item) { return !!item.InternalName && item.InternalName !== 'Attachments'; })
+        .map(function(item) {
+          return { key: String(item.InternalName), text: String(item.Title || item.InternalName) + ' (' + String(item.InternalName) + ')' };
+        });
+      this.setState({ listControlFields: options, listControlFieldsLoading: false, listControlFieldsError: null });
+    } catch (error) {
+      this.setState({
+        listControlFields: [],
+        listControlFieldsLoading: false,
+        listControlFieldsError: error && error.message ? error.message : 'Unable to load the selected List Control columns.'
+      });
+    }
+  }
+
+  private getCurrentStep(): FormStep | null {
+    if (!this.props.schema.steps || this.props.schema.steps.length === 0) {
+      return null;
+    }
+    return this.props.schema.steps[this.state.selectedStepIndex] || null;
+  }
+
+  private getSelectedField(): FormField | null {
+    var currentStep = this.getCurrentStep();
+    var selectedFieldId = this.state.selectedFieldId;
+    if (!currentStep || !selectedFieldId) {
+      return null;
+    }
+
+    for (var i = 0; i < currentStep.fields.length; i += 1) {
+      var field = currentStep.fields[i];
+      if (field && field.id === selectedFieldId) {
+        return field;
+      }
+    }
+
+    return null;
+  }
+
+  private getAvailableFields(): SPFieldInfo[] {
+    var used: { [key: string]: boolean } = {};
+    for (var i = 0; i < this.props.schema.steps.length; i += 1) {
+      var stepFields = this.props.schema.steps[i].fields;
+      for (var j = 0; j < stepFields.length; j += 1) {
+        var field = stepFields[j];
+        if (field && field.type !== 'richtext' && field.type !== 'listcontrol') {
+          used[field.fieldName] = true;
+        }
+      }
+    }
+
+    return this.state.spFields.filter(function(field) {
+      return !used[field.internalName];
+    });
+  }
+
+  private updateSchema(nextSchema: FormSchema, selectedFieldId?: string | null): void {
+    this.props.onChange(nextSchema);
+    if (selectedFieldId !== undefined) {
+      this.setState({ selectedFieldId: selectedFieldId });
+    }
+  }
+
+  private updateCurrentStep(mutator: (step: FormStep) => FormStep): void {
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex] = mutator(nextSchema.steps[this.state.selectedStepIndex]);
+    this.updateSchema(nextSchema);
+  }
+
+  private updateForm(mutator: (schema: FormSchema) => FormSchema): void {
+    var nextSchema = copySchema(this.props.schema);
+    this.updateSchema(mutator(nextSchema), this.state.selectedFieldId);
+  }
+
+  private updateSelectedField(mutator: (field: FormField) => FormField): void {
+    var selectedField = this.getSelectedField();
+    if (!selectedField) {
+      return;
+    }
+
+    var nextSchema = copySchema(this.props.schema);
+    var step = nextSchema.steps[this.state.selectedStepIndex];
+    for (var i = 0; i < step.fields.length; i += 1) {
+      var field = step.fields[i];
+      if (field && field.id === selectedField.id) {
+        step.fields[i] = mutator(field);
+        break;
+      }
+    }
+    this.updateSchema(nextSchema, selectedField.id);
+  }
+
+  private selectStep(index: number): void {
+    this.setState({ selectedStepIndex: index, selectedFieldId: null });
+  }
+
+  private addStep(): void {
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps.push({
+      id: createId('step'),
+      title: strings.DesignerStepDefaultTitle.replace('{0}', String(nextSchema.steps.length + 1)),
+      description: '',
+      fields: [],
+      visible: true,
+    });
+    this.props.onChange(nextSchema);
+    this.setState({ selectedStepIndex: nextSchema.steps.length - 1, selectedFieldId: null });
+  }
+
+  private deleteCurrentStep(): void {
+    if (this.props.schema.steps.length <= 1) {
+      return;
+    }
+
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps.splice(this.state.selectedStepIndex, 1);
+    this.props.onChange(nextSchema);
+    this.setState({
+      selectedStepIndex: Math.max(0, this.state.selectedStepIndex - 1),
+      selectedFieldId: null,
+    });
+  }
+
+  private addFieldFromSPField(spField: SPFieldInfo): void {
+    var currentStep = this.getCurrentStep();
+    if (!currentStep) {
+      return;
+    }
+
+    var config: FieldConfig = {};
+    if (spField.choices && spField.choices.length) {
+      config.choices = spField.choices.slice(0);
+    }
+    if (spField.type === SPFieldType.Choice) {
+      config.choiceDisplay = 'dropdown';
+    }
+    if (spField.type === SPFieldType.MultiChoice) {
+      config.choiceDisplay = 'checkboxes';
+    }
+    if (spField.lookupList) {
+      config.lookupList = spField.lookupList;
+    }
+    if (spField.lookupField) {
+      config.lookupField = spField.lookupField;
+    }
+    if (spField.allowMultipleValues) {
+      config.allowMultiple = spField.allowMultipleValues;
+    }
+    if (spField.maxLength) {
+      config.maxLength = spField.maxLength;
+    }
+    if (spField.type === SPFieldType.Note && spField.richText === true) {
+      config.isRichText = true;
+    }
+    if (spField.type === SPFieldType.DateTime) {
+      config.displayFormat = spField.displayFormat || 'dateTime';
+    }
+    if (spField.termSetId) {
+      config.termSetId = spField.termSetId;
+    }
+    if (spField.internalName === 'Attachments' && this.props.listName) {
+      config.listName = this.props.listName;
+    }
+
+    var nextField: FormField = {
+      id: createId('field'),
+      type: mapFormFieldType(spField.type),
+      label: spField.title,
+      fieldName: spField.internalName,
+      description: spField.description,
+      required: spField.required,
+      readOnly: spField.readOnly,
+      disabled: false,
+      config: Object.keys(config).length > 0 ? config : undefined,
+    };
+
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex].fields.push(nextField);
+    this.updateSchema(nextSchema, nextField.id);
+  }
+
+  private handleAddRichText(): void {
+    var nextField: FormField = {
+      id: createId('field'),
+      type: 'richtext',
+      label: strings.DesignerCustomRichTextTitle,
+      fieldName: createId('richtext'),
+      required: false,
+      readOnly: false,
+      disabled: false,
+      defaultValue: '',
+      config: {
+        helpText: ''
+      },
+    };
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex].fields.push(nextField);
+    this.updateSchema(nextSchema, nextField.id);
+  }
+
+  private handleAddCustomImage(): void {
+    var nextField: FormField = {
+      id: createId('field'), type: 'customimage', label: 'Image', fieldName: createId('customimage'),
+      required: false, readOnly: true, disabled: false, columnSpan: 1,
+      config: { imageUrl: '', imageAltText: '', imageFit: 'contain', imageAlignment: 'left' }
+    };
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex].fields.push(nextField);
+    this.updateSchema(nextSchema, nextField.id);
+  }
+
+  private handleAddDivider(): void {
+    var nextField: FormField = {
+      id: createId('field'), type: 'divider', label: 'Divider', fieldName: createId('divider'),
+      required: false, readOnly: true, disabled: false, columnSpan: 1,
+      config: { dividerColor: '#c8c6c4', dividerThickness: 1, dividerStyle: 'solid', dividerSpacing: 16, dividerOrientation: 'horizontal', dividerLength: 80 }
+    };
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex].fields.push(nextField);
+    this.updateSchema(nextSchema, nextField.id);
+  }
+
+  private handleAddListControl(): void {
+    var nextField: FormField = {
+      id: createId('field'),
+      type: 'listcontrol',
+      label: strings.DesignerCustomListControlTitle,
+      fieldName: createId('listcontrol'),
+      required: false,
+      readOnly: true,
+      disabled: false,
+      columnSpan: 1,
+      config: {},
+    };
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex].fields.push(nextField);
+    this.updateSchema(nextSchema, nextField.id);
+  }
+
+  private getChoiceDisplay(field: FormField): 'dropdown' | 'radio' | 'checkboxes' {
+    var configured = String(field.config && field.config.choiceDisplay || '').trim().toLowerCase();
+    if (field.type === 'multiselect') {
+      return 'checkboxes';
+    }
+    if (configured === 'radio' || configured === 'checkboxes') {
+      return configured as 'radio' | 'checkboxes';
+    }
+    return 'dropdown';
+  }
+
+  private deleteField(fieldId: string): void {
+    var nextSchema = copySchema(this.props.schema);
+    var fields = nextSchema.steps[this.state.selectedStepIndex].fields;
+    nextSchema.steps[this.state.selectedStepIndex].fields = fields.filter(function(field) {
+      return !(field && field.id === fieldId);
+    });
+    this.updateSchema(nextSchema, this.state.selectedFieldId === fieldId ? null : this.state.selectedFieldId);
+  }
+
+  private moveField(fieldId: string, direction: number): void {
+    var nextSchema = copySchema(this.props.schema);
+    var fields = nextSchema.steps[this.state.selectedStepIndex].fields;
+    var index = -1;
+    for (var i = 0; i < fields.length; i += 1) {
+      if (fields[i] && fields[i]!.id === fieldId) {
+        index = i;
+        break;
+      }
+    }
+
+    if (index < 0) {
+      return;
+    }
+
+    var targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= fields.length) {
+      return;
+    }
+
+    var temp = fields[index];
+    fields[index] = fields[targetIndex];
+    fields[targetIndex] = temp;
+    this.updateSchema(nextSchema, fieldId);
+  }
+
+  private renderPreview(): JSX.Element {
+    var schema = this.props.schema;
+
+    // Form-level wrapper style
+    var formWrapperStyle: React.CSSProperties = { padding: '12px' };
+    var formTitleStyle: React.CSSProperties = { textAlign: schema.nameAlignment || 'left' };
+    if (schema.theme) {
+      if (schema.theme.fontSize) { formTitleStyle.fontSize = schema.theme.fontSize; }
+      if (schema.theme.fontFamily) { formTitleStyle.fontFamily = schema.theme.fontFamily; }
+      if (schema.theme.fontWeight) { formTitleStyle.fontWeight = schema.theme.fontWeight as any; }
+      if (schema.theme.color) { formTitleStyle.color = schema.theme.color; }
+      if (schema.theme.backgroundColor) { formWrapperStyle.backgroundColor = schema.theme.backgroundColor; }
+      if (schema.theme.borderColor || schema.theme.borderWidth) {
+        formWrapperStyle.border = (schema.theme.borderWidth || 1) + 'px solid ' + (schema.theme.borderColor || '#cccccc');
+        formWrapperStyle.padding = '16px';
+      }
+      if (schema.theme.borderStyle === 'rounded') {
+        formWrapperStyle.borderRadius = String(schema.theme.borderRadius || 8) + 'px';
+      }
+    }
+
+    // Form-level layout for containers
+    var formGridLayout = !!(schema.theme && schema.theme.layout === 'grid' && schema.theme.columns && schema.theme.columns > 1);
+    var formColumns = formGridLayout ? (schema.theme.columns || 2) : 1;
+    var formLayoutStyle: React.CSSProperties = formGridLayout
+      ? { display: 'grid', gridTemplateColumns: 'repeat(' + String(formColumns) + ', minmax(0, 1fr))', gap: '16px' }
+      : {};
+
+    var visibleSteps = schema.steps.filter(function(step) { return step.visible !== false; });
+
+    // Build description style with separate font settings
+    var descriptionStyle: React.CSSProperties = { marginBottom: '16px' };
+    descriptionStyle.textAlign = schema.descriptionAlignment || 'left';
+    if (schema.theme) {
+      if (schema.theme.descriptionFontSize) { descriptionStyle.fontSize = schema.theme.descriptionFontSize; }
+      if (schema.theme.descriptionFontFamily) { descriptionStyle.fontFamily = schema.theme.descriptionFontFamily; }
+      if (schema.theme.descriptionFontWeight) { descriptionStyle.fontWeight = schema.theme.descriptionFontWeight as any; }
+      if (schema.theme.descriptionColor) { descriptionStyle.color = schema.theme.descriptionColor; }
+    }
+
+    return (
+      <div className={styles.designerPreviewSection}>
+        <div className={styles.designerPreviewTitle}>Preview</div>
+        <div style={formWrapperStyle}>
+          {schema.showTitle !== false && (schema.name || schema.description || schema.logoUrl) && <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', width: '100%' }}>
+            <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+              {schema.name && <h2 className={styles.designerPreviewFormName} style={formTitleStyle}>{schema.name}</h2>}
+              {schema.description && <div style={descriptionStyle}>{schema.description}</div>}
+            </div>
+            {schema.logoUrl && <img src={schema.logoUrl} alt={schema.logoAltText || ''} style={{ flex: '0 0 auto', maxWidth: '160px', maxHeight: '80px', objectFit: 'contain' }} />}
+          </div>}
+          <div style={formLayoutStyle}>
+            {visibleSteps.map((step) => {
+              // Step container style
+              var stepTheme = getStepTheme(schema, step);
+              var previewGrid = stepTheme.layout === 'grid' && stepTheme.columns > 1;
+              var stepContainerStyle: React.CSSProperties = previewGrid
+                ? { display: 'grid', gridTemplateColumns: 'repeat(' + String(stepTheme.columns) + ', minmax(0, 1fr))', gap: '12px' }
+                : {};
+              var stepTextStyle: React.CSSProperties = {};
+              var stepDescriptionStyle: React.CSSProperties = {};
+
+              if (step.theme) {
+                if (step.theme.fontSize) { stepTextStyle.fontSize = step.theme.fontSize; }
+                if (step.theme.fontFamily) { stepTextStyle.fontFamily = step.theme.fontFamily; }
+                if (step.theme.fontWeight) { stepTextStyle.fontWeight = step.theme.fontWeight as any; }
+                if (step.theme.color) { stepTextStyle.color = step.theme.color; }
+                if (step.theme.descriptionFontSize) { stepDescriptionStyle.fontSize = step.theme.descriptionFontSize; }
+                if (step.theme.descriptionFontFamily) { stepDescriptionStyle.fontFamily = step.theme.descriptionFontFamily; }
+                if (step.theme.descriptionFontWeight) { stepDescriptionStyle.fontWeight = step.theme.descriptionFontWeight as any; }
+                if (step.theme.descriptionColor) { stepDescriptionStyle.color = step.theme.descriptionColor; }
+                if (step.theme.backgroundColor) { stepContainerStyle.backgroundColor = step.theme.backgroundColor; }
+                if (step.theme.borderColor || step.theme.borderWidth) {
+                  stepContainerStyle.border = (step.theme.borderWidth || 1) + 'px solid ' + (step.theme.borderColor || '#cccccc');
+                }
+                if (step.theme.borderStyle === 'rounded') {
+                  stepContainerStyle.borderRadius = String(step.theme.borderRadius || 8) + 'px';
+                }
+                if (step.theme.backgroundColor || step.theme.borderColor || step.theme.borderWidth) {
+                  stepContainerStyle.padding = '12px';
+                }
+              }
+
+              return (
+                <div key={step.id} style={{ marginBottom: formGridLayout ? '0' : '20px' }}>
+                  {step.showTitle !== false && step.title && <div className={styles.designerPreviewStepTitle} style={Object.assign({}, stepTextStyle, { textAlign: step.titleAlignment || 'left' })}>{step.title}</div>}
+                  {step.showTitle !== false && step.description && <div className={styles.designerPreviewStepDescription} style={Object.assign({}, stepDescriptionStyle, { textAlign: step.descriptionAlignment || 'left' })}>{step.description}</div>}
+                  <div style={stepContainerStyle}>
+                    {step.fields.map((field) => {
+                      if (!field || field.visible === false) {
+                        return null;
+                      }
+
+                      if (field.type === 'listcontrol') {
+                        var listControlCellStyle: React.CSSProperties = previewGrid
+                          ? (field.startNewRow === true
+                            ? { gridColumn: '1 / -1' }
+                            : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
+                          : { marginBottom: '8px' };
+                        var listControlName = field.config && field.config.listControlSourceName
+                          ? field.config.listControlSourceName
+                          : strings.DesignerListControlNotSelected;
+                        return (
+                          <div key={field.id} style={listControlCellStyle}>
+                            <div style={{ border: '1px dashed #0078d4', padding: '12px', background: '#f3f9fd' }}>
+                              <div style={{ fontWeight: 600 }}>{field.label}</div>
+                              <div style={{ marginTop: '4px', fontSize: '12px', color: '#605e5c' }}>{strings.DesignerListControlPreview.replace('{0}', listControlName)}</div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Custom richtext fields render as content, not form inputs
+                      if (field.type === 'richtext' && field.fieldName.startsWith('richtext')) {
+                        var richTextCellStyle: React.CSSProperties = previewGrid
+                          ? (field.startNewRow === true
+                            ? { gridColumn: '1 / -1' }
+                            : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
+                          : { marginBottom: '8px' };
+                        var richTextStyle: React.CSSProperties = {
+                          border: '1px dashed #c8c6c4',
+                          borderRadius: '0px',
+                          padding: '12px',
+                          background: '#faf9f8',
+                          wordBreak: 'break-word',
+                          lineHeight: '1.6',
+                          fontSize: '12px',
+                          color: '#605e5c'
+                        };
+                        if (field.inputFontSize) { richTextStyle.fontSize = field.inputFontSize; }
+                        if (field.inputFontFamily) { richTextStyle.fontFamily = field.inputFontFamily; }
+                        if (field.inputFontWeight) { richTextStyle.fontWeight = field.inputFontWeight as any; }
+                        if (field.inputColor) { richTextStyle.color = field.inputColor; }
+                        if (field.fieldBackgroundColor) { richTextStyle.backgroundColor = field.fieldBackgroundColor; }
+                        if (field.fieldBorderColor) { richTextStyle.borderColor = field.fieldBorderColor; }
+                        if (field.fieldBorderStyle === 'rounded') {
+                          richTextStyle.borderRadius = String(field.fieldBorderRadius || 8) + 'px';
+                        }
+                        var richTextContentRaw = field.defaultValue || '(empty content)';
+                        var richTextContent = decodeHtmlEntities(String(richTextContentRaw));
+                        return (
+                          <div key={field.id} style={richTextCellStyle}>
+                            <div style={richTextStyle} dangerouslySetInnerHTML={{ __html: richTextContent } as any} />
+                          </div>
+                        );
+                      }
+
+                      if (field.type === 'customimage' || field.type === 'divider') {
+                        var customCellStyle: React.CSSProperties = previewGrid
+                          ? (field.startNewRow === true ? { gridColumn: '1 / -1' } : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
+                          : { marginBottom: '8px' };
+                        var customConfig = field.config || {};
+                        if (field.type === 'customimage') {
+                          var previewImageUrl = String(customConfig.imageUrl || '').trim();
+                          return (
+                            <div key={field.id} style={Object.assign({}, customCellStyle, { textAlign: (customConfig.imageAlignment || 'left') as any })}>
+                              {previewImageUrl
+                                ? <img src={previewImageUrl} alt={String(customConfig.imageAltText || field.label || '')} style={{ maxWidth: '100%', width: customConfig.imageWidth ? String(customConfig.imageWidth) + 'px' : 'auto', height: customConfig.imageHeight ? String(customConfig.imageHeight) + 'px' : 'auto', objectFit: (customConfig.imageFit || 'contain') as any }} />
+                                : <div style={{ border: '1px dashed #c8c6c4', padding: '16px', color: '#605e5c', textAlign: 'center' }}>Select an image from a SharePoint library</div>}
+                            </div>
+                          );
+                        }
+                        var previewDividerSpacing = customConfig.dividerSpacing === undefined ? 16 : Math.max(0, customConfig.dividerSpacing);
+                        var previewDividerOrientation = customConfig.dividerOrientation || 'horizontal';
+                        var previewDividerBorder = String(Math.max(1, customConfig.dividerThickness || 1)) + 'px ' + String(customConfig.dividerStyle || 'solid') + ' ' + String(customConfig.dividerColor || '#c8c6c4');
+                        if (previewDividerOrientation === 'vertical') {
+                          return <div key={field.id} style={Object.assign({}, customCellStyle, { display: 'flex', justifyContent: 'center' })}><div role="separator" aria-orientation="vertical" style={{ borderLeft: previewDividerBorder, height: String(Math.max(1, customConfig.dividerLength || 80)) + 'px', margin: '0 ' + String(previewDividerSpacing) + 'px' }} /></div>;
+                        }
+                        return <div key={field.id} style={customCellStyle}><hr style={{ border: 0, borderTop: previewDividerBorder, margin: String(previewDividerSpacing) + 'px 0' }} /></div>;
+                      }
+
+                      var fieldCellStyle: React.CSSProperties = previewGrid
+                        ? (field.startNewRow === true
+                          ? { gridColumn: '1 / -1' }
+                          : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
+                        : { marginBottom: '8px' };
+
+                      // Field wrapper style
+                      var fieldWrapperStyle: React.CSSProperties = {
+                        border: '1px dashed #c8c6c4',
+                        borderRadius: '0px',
+                        padding: '8px 10px',
+                        background: '#faf9f8',
+                      };
+                      if (field.fieldBackgroundColor) { fieldWrapperStyle.backgroundColor = field.fieldBackgroundColor; }
+                      if (field.fieldBorderColor || field.fieldBorderWidth) {
+                        fieldWrapperStyle.border = (field.fieldBorderWidth || 1) + 'px solid ' + (field.fieldBorderColor || '#cccccc');
+                      }
+                      if (field.fieldBorderStyle === 'rounded') {
+                        fieldWrapperStyle.borderRadius = String(field.fieldBorderRadius || 8) + 'px';
+                      }
+
+                      // Label style
+                      var labelStyle: React.CSSProperties = { fontWeight: 600 };
+                      if (field.labelFontSize) { labelStyle.fontSize = field.labelFontSize; }
+                      if (field.labelFontFamily) { labelStyle.fontFamily = field.labelFontFamily; }
+                      if (field.labelFontWeight) { labelStyle.fontWeight = field.labelFontWeight as any; }
+                      if (field.labelColor) { labelStyle.color = field.labelColor; }
+
+                      // Input/value style
+                      var inputStyle: React.CSSProperties = { fontSize: '12px', color: '#605e5c', marginTop: '4px' };
+                      if (field.inputFontSize) { inputStyle.fontSize = field.inputFontSize; }
+                      if (field.inputFontFamily) { inputStyle.fontFamily = field.inputFontFamily; }
+                      if (field.inputFontWeight) { inputStyle.fontWeight = field.inputFontWeight as any; }
+                      if (field.inputColor) { inputStyle.color = field.inputColor; }
+
+                      // Determine label position
+                      var previewLabelPosition = field.labelPosition || (schema.theme && schema.theme.labelPosition) || 'top';
+                      var fieldContentStyle: React.CSSProperties = { display: 'flex', gap: '10px' };
+                      if (field.type === 'boolean' && previewLabelPosition === 'bottom') {
+                        fieldContentStyle.flexDirection = 'column-reverse';
+                      } else if (previewLabelPosition === 'left') {
+                        fieldContentStyle.flexDirection = 'row';
+                        fieldContentStyle.alignItems = 'center';
+                      } else if (field.type === 'boolean' && previewLabelPosition === 'right') {
+                        fieldContentStyle.flexDirection = 'row-reverse';
+                        fieldContentStyle.justifyContent = 'flex-end';
+                        fieldContentStyle.alignItems = 'center';
+                      } else {
+                        fieldContentStyle.flexDirection = 'column';
+                      }
+                      var previewLabelStyle: React.CSSProperties = Object.assign(
+                        {},
+                        labelStyle,
+                        previewLabelPosition === 'left' || previewLabelPosition === 'right'
+                          ? { flexShrink: 0, minWidth: '100px' }
+                          : {}
+                      );
+                      var previewBooleanText = field.config && field.config.booleanText ? field.config.booleanText : '';
+
+                      return (
+                        <div key={field.id} style={fieldCellStyle}>
+                          <div style={fieldWrapperStyle}>
+                            <div style={fieldContentStyle}>
+                              <div style={previewLabelStyle}>{field.label}</div>
+                              {field.type === 'boolean' ? (
+                                <label style={Object.assign({}, inputStyle, { display: 'inline-flex', alignItems: 'center', gap: '6px', width: 'fit-content', marginTop: 0 })}>
+                                  <input type="checkbox" checked={field.defaultValue === true} readOnly={true} />
+                                  {previewBooleanText && <span>{previewBooleanText}</span>}
+                                </label>
+                              ) : (
+                                <div style={inputStyle}>{getFieldTypeLabel(field.type)}</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  private renderPalette(): JSX.Element {
+    var availableFields = this.getAvailableFields();
+
+    return (
+      <div className={styles.designerPanel}>
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>{strings.DesignerCustomFields}</div>
+          <div className={styles.designerPanelHint}>{strings.DesignerCustomFieldsDesc}</div>
+          <button type="button" className={styles.designerPaletteButton} onClick={this.handleAddRichText}>
+            <span>{strings.DesignerCustomRichTextTitle}</span>
+            <span className={styles.designerPaletteMeta}>{strings.DesignerRichTextChip}</span>
+          </button>
+          <button type="button" className={styles.designerPaletteButton} onClick={this.handleAddCustomImage}>
+            <span>Image</span>
+            <span className={styles.designerPaletteMeta}>From SharePoint library</span>
+          </button>
+          <button type="button" className={styles.designerPaletteButton} onClick={this.handleAddDivider}>
+            <span>Divider</span>
+            <span className={styles.designerPaletteMeta}>Layout</span>
+          </button>
+          <button type="button" className={styles.designerPaletteButton} onClick={this.handleAddListControl}>
+            <span>{strings.DesignerCustomListControlTitle}</span>
+            <span className={styles.designerPaletteMeta}>{strings.PropertyFieldTypeListControl}</span>
+          </button>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>{strings.DesignerSPFields}</div>
+          <div className={styles.designerPanelHint}>{strings.DesignerAddableFieldsCount.replace('{0}', String(availableFields.length))}</div>
+          {this.state.loadingFields && <div className={styles.designerEmptyState}>{strings.CommonLoading}</div>}
+          {!this.state.loadingFields && this.state.fieldsError && (
+            <MessageBar messageBarType={MessageBarType.warning}>{this.state.fieldsError}</MessageBar>
+          )}
+          {!this.state.loadingFields && !this.state.fieldsError && availableFields.length === 0 && (
+            <div className={styles.designerEmptyState}>{strings.DesignerNoAddableFields}</div>
+          )}
+          {!this.state.loadingFields && !this.state.fieldsError && availableFields.map((field) => (
+            <button
+              key={field.internalName}
+              type="button"
+              className={styles.designerPaletteButton}
+              onClick={() => this.addFieldFromSPField(field)}
+            >
+              <span>{field.title}</span>
+              <span className={styles.designerPaletteMeta}>{getFieldTypeLabel(mapFormFieldType(field.type))}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  private renderCanvas(): JSX.Element {
+    var currentStep = this.getCurrentStep();
+    if (!currentStep) {
+      return <div className={styles.designerEmptyState}>{strings.DesignerStepNotFound}</div>;
+    }
+
+    return (
+      <div className={styles.designerCanvas}>
+        <div className={styles.designerTabs}>
+          {this.props.schema.steps.map((step, index) => (
+            <button
+              key={step.id}
+              type="button"
+              className={index === this.state.selectedStepIndex ? styles.designerTabActive : styles.designerTab}
+              onClick={() => this.selectStep(index)}
+            >
+              {step.title}
+            </button>
+          ))}
+          <button type="button" className={styles.designerActionButton} onClick={() => this.addStep()}>{strings.DesignerAddStep}</button>
+          {this.props.schema.steps.length > 1 && (
+            <button type="button" className={styles.designerDeleteButton} onClick={() => this.deleteCurrentStep()}>{strings.DesignerDeleteStep}</button>
+          )}
+        </div>
+
+        <div className={styles.designerCanvasBody}>
+          <div className={styles.designerStepHeader}>
+            <div className={styles.designerStepTitle}>{currentStep.title || strings.DesignerStepNotFound}</div>
+            {currentStep.description && <div className={styles.designerStepDescription}>{currentStep.description}</div>}
+          </div>
+
+          {currentStep.fields.length === 0 && (
+            <div className={styles.designerEmptyState}>{strings.DesignerClickAddField}</div>
+          )}
+
+          {currentStep.fields.map((field) => {
+            if (!field) {
+              return null;
+            }
+            return (
+              <div key={field.id} className={field.id === this.state.selectedFieldId ? styles.designerFieldCardActive : styles.designerFieldCard}>
+                <div className={styles.designerFieldInfo}>
+                  <div className={styles.designerFieldLabel}>{field.label}</div>
+                  <div className={styles.designerFieldMeta}>{getFieldTypeLabel(field.type)}</div>
+                </div>
+                <div className={styles.designerFieldActions}>
+                  <button type="button" className={styles.designerInlineButton} onClick={() => this.moveField(field.id, -1)} disabled={currentStep.fields[0] === field}>{strings.DesignerMoveUp}</button>
+                  <button type="button" className={styles.designerInlineButton} onClick={() => this.moveField(field.id, 1)} disabled={currentStep.fields[currentStep.fields.length - 1] === field}>{strings.DesignerMoveDown}</button>
+                  <button type="button" className={styles.designerInlineButton} onClick={() => this.setState({ selectedFieldId: field.id })}>{strings.DesignerEdit}</button>
+                  <button type="button" className={styles.designerInlineButtonDanger} onClick={() => this.deleteField(field.id)}>{strings.DesignerDelete}</button>
+                </div>
+              </div>
+            );
+          })}
+
+          {this.renderPreview()}
+        </div>
+      </div>
+    );
+  }
+
+  private renderCustomPlacementEditor(field: FormField): JSX.Element {
+    return (
+      <div>
+        <label className={styles.designerFormLabel}>{strings.PropertyPanelColumnSpan}</label>
+        <input className={styles.designerInput} type="number" min={1} max={12} value={String(Math.max(1, field.columnSpan || 1))} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.columnSpan = isNaN(parsed) ? 1 : Math.max(1, parsed); return nextField; })} />
+        <label className={styles.designerCheckboxRow}><input type="checkbox" checked={field.startNewRow === true} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.startNewRow = ev.currentTarget.checked; return nextField; })} /><span>{strings.DesignerStartNewRow}</span></label>
+      </div>
+    );
+  }
+
+  private renderFieldEditor(field: FormField): JSX.Element {
+    if (field.type === 'customimage') {
+      var imageConfig = field.config || {};
+      return (
+        <div className={styles.designerPanel}><div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Image</div>
+          <div className={styles.designerPanelHint}>Add an image from a SharePoint library. This is a visual element and is not saved to a list field.</div>
+          <label className={styles.designerFormLabel}>Image library</label>
+          <select className={styles.designerInput} value={this.state.selectedImageLibrary} onChange={(ev) => this.loadImageFiles(ev.currentTarget.value)}><option value="">Select a library</option>{this.state.imageLibraries.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}</select>
+          <label className={styles.designerFormLabel}>Image file</label>
+          <select className={styles.designerInput} value={imageConfig.imageUrl || ''} disabled={!this.state.selectedImageLibrary || this.state.imageFilesLoading} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageUrl: ev.currentTarget.value || undefined }); return nextField; })}><option value="">{this.state.imageFilesLoading ? 'Loading images...' : 'Select an image'}</option>{this.state.imageFiles.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}</select>
+          {this.state.imageBrowserError && <div className={styles.designerPanelHint}>{this.state.imageBrowserError}</div>}
+          <label className={styles.designerFormLabel}>Image URL</label>
+          <input className={styles.designerInput} type="text" value={imageConfig.imageUrl || ''} placeholder="/sites/site/Library/logo.png" onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageUrl: ev.currentTarget.value || undefined }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Alternative text</label>
+          <input className={styles.designerInput} type="text" value={imageConfig.imageAltText || ''} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageAltText: ev.currentTarget.value || undefined }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Width (px, blank for natural size)</label>
+          <input className={styles.designerInput} type="number" min={1} value={imageConfig.imageWidth === undefined ? '' : String(imageConfig.imageWidth)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { imageWidth: isNaN(parsed) ? undefined : Math.max(1, parsed) }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Height (px, blank for natural size)</label>
+          <input className={styles.designerInput} type="number" min={1} value={imageConfig.imageHeight === undefined ? '' : String(imageConfig.imageHeight)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { imageHeight: isNaN(parsed) ? undefined : Math.max(1, parsed) }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Fit</label>
+          <select className={styles.designerInput} value={imageConfig.imageFit || 'contain'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageFit: ev.currentTarget.value as 'contain' | 'cover' }); return nextField; })}><option value="contain">Contain</option><option value="cover">Cover</option></select>
+          <label className={styles.designerFormLabel}>Alignment</label>
+          <select className={styles.designerInput} value={imageConfig.imageAlignment || 'left'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageAlignment: ev.currentTarget.value as 'left' | 'center' | 'right' }); return nextField; })}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+          {this.renderCustomPlacementEditor(field)}
+        </div></div>
+      );
+    }
+
+    if (field.type === 'divider') {
+      var dividerConfig = field.config || {};
+      return (
+        <div className={styles.designerPanel}><div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Divider</div>
+          <div className={styles.designerPanelHint}>Separate fields within this container. This is a visual element and is not saved to a list field.</div>
+          <label className={styles.designerFormLabel}>Orientation</label><select className={styles.designerInput} value={dividerConfig.dividerOrientation || 'horizontal'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { dividerOrientation: ev.currentTarget.value as 'horizontal' | 'vertical' }); return nextField; })}><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select>
+          <label className={styles.designerFormLabel}>Color</label><input type="color" value={dividerConfig.dividerColor || '#c8c6c4'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { dividerColor: ev.currentTarget.value }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Thickness (px)</label><input className={styles.designerInput} type="number" min={1} max={20} value={String(dividerConfig.dividerThickness || 1)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { dividerThickness: isNaN(parsed) ? 1 : Math.max(1, parsed) }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Line style</label><select className={styles.designerInput} value={dividerConfig.dividerStyle || 'solid'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { dividerStyle: ev.currentTarget.value as 'solid' | 'dashed' | 'dotted' }); return nextField; })}><option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option></select>
+          {dividerConfig.dividerOrientation === 'vertical' && <div><label className={styles.designerFormLabel}>Length (px)</label><input className={styles.designerInput} type="number" min={1} max={1000} value={String(dividerConfig.dividerLength || 80)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { dividerLength: isNaN(parsed) ? 80 : Math.max(1, parsed) }); return nextField; })} /></div>}
+          <label className={styles.designerFormLabel}>{dividerConfig.dividerOrientation === 'vertical' ? 'Horizontal spacing (px)' : 'Vertical spacing (px)'}</label><input className={styles.designerInput} type="number" min={0} max={100} value={String(dividerConfig.dividerSpacing === undefined ? 16 : dividerConfig.dividerSpacing)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { dividerSpacing: isNaN(parsed) ? 16 : Math.max(0, parsed) }); return nextField; })} />
+          {this.renderCustomPlacementEditor(field)}
+        </div></div>
+      );
+    }
+
+    if (field.type === 'listcontrol') {
+      var selectedSourceId = field.config && field.config.listControlSourceId ? field.config.listControlSourceId : '';
+      var selectedSourceAvailable = this.state.listControlSources.some(function(option) { return option.key === selectedSourceId; });
+      var sourceOptions = this.state.listControlSources.slice(0);
+      if (selectedSourceId && !selectedSourceAvailable) {
+        sourceOptions.push({
+          key: selectedSourceId,
+          text: (field.config && field.config.listControlSourceName ? field.config.listControlSourceName : selectedSourceId) + ' (' + strings.DesignerListControlUnavailable + ')'
+        });
+      }
+      var reportFieldOptions = this.state.reportListFields.slice(0);
+      var configuredReportField = field.config && field.config.listControlFilterSourceField ? field.config.listControlFilterSourceField : '';
+      var configuredReportFieldAvailable = reportFieldOptions.some(function(option) { return option.key === configuredReportField; });
+      if (configuredReportField && !configuredReportFieldAvailable) {
+        for (var stepIndex = 0; stepIndex < this.props.schema.steps.length; stepIndex += 1) {
+          var reportFields = this.props.schema.steps[stepIndex].fields;
+          for (var reportFieldIndex = 0; reportFieldIndex < reportFields.length; reportFieldIndex += 1) {
+            var reportField = reportFields[reportFieldIndex];
+            if (reportField && reportField.id === configuredReportField) {
+              reportFieldOptions.push({ key: reportField.id, text: reportField.label + ' (' + reportField.fieldName + ')' });
+              break;
+            }
+          }
+        }
+      }
+      var selectedFilterSource = field.config && field.config.listControlFilterSourceField ? field.config.listControlFilterSourceField : '';
+      var selectedFilterTarget = field.config && field.config.listControlFilterTargetField ? field.config.listControlFilterTargetField : '';
+      var selectedFilterOperator = field.config && field.config.listControlFilterOperator ? field.config.listControlFilterOperator : 'eq';
+      return (
+        <div className={styles.designerPanel}>
+          <div className={styles.designerPanelSection}>
+            <div className={styles.designerPanelTitle}>{strings.DesignerCustomListControlTitle}</div>
+            <div className={styles.designerPanelHint}>{strings.DesignerCustomListControlDesc}</div>
+
+            <label className={styles.designerFormLabel}>{strings.PropertyPanelFieldName}</label>
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={field.label}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.label = ev.currentTarget.value;
+                return nextField;
+              })}
+            />
+
+            <label className={styles.designerFormLabel}>{strings.DesignerListControlSource}</label>
+            <select
+              className={styles.designerInput}
+              value={selectedSourceId}
+              onChange={(ev) => {
+                var sourceId = ev.currentTarget.value;
+                var sourceName = '';
+                for (var sourceIndex = 0; sourceIndex < sourceOptions.length; sourceIndex += 1) {
+                  if (sourceOptions[sourceIndex].key === sourceId) {
+                    sourceName = sourceOptions[sourceIndex].text;
+                    break;
+                  }
+                }
+                this.updateSelectedField(function(nextField) {
+                  nextField.config = Object.assign({}, nextField.config || {}, {
+                    listControlSourceId: sourceId || undefined,
+                    listControlSourceName: sourceName || undefined,
+                    listControlSourceListName: selectedSource && selectedSource.listName ? selectedSource.listName : undefined,
+                    listControlFilterTargetField: undefined,
+                  });
+                  return nextField;
+                });
+                var selectedSource = sourceOptions.filter(function(option) { return option.key === sourceId; })[0];
+                if (selectedSource && selectedSource.listName) {
+                  this.loadListControlFields(selectedSource.listName);
+                } else {
+                  this.setState({ listControlFields: [], listControlFieldsListName: '', listControlFieldsLoading: false, listControlFieldsError: sourceId ? 'The selected List Control did not provide its configured list name.' : null });
+                }
+              }}
+            >
+              <option value="">{strings.DesignerListControlNotSelected}</option>
+              {sourceOptions.map(function(option) {
+                return <option key={option.key} value={option.key}>{option.text}</option>;
+              })}
+            </select>
+            <button type="button" className={styles.designerInlineButton} onClick={() => this.loadListControlSources()}>{strings.DesignerListControlRefresh}</button>
+
+            <label className={styles.designerFormLabel}>Report List Field</label>
+            <select
+              className={styles.designerInput}
+              value={selectedFilterSource}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.config = Object.assign({}, nextField.config || {}, { listControlFilterSourceField: ev.currentTarget.value || undefined });
+                return nextField;
+              })}
+            >
+              <option value="">No runtime filter</option>
+              {reportFieldOptions.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+            </select>
+
+            <label className={styles.designerFormLabel}>List Control column</label>
+            <select
+              className={styles.designerInput}
+              value={selectedFilterTarget}
+              disabled={!selectedSourceId || this.state.listControlFieldsLoading}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.config = Object.assign({}, nextField.config || {}, { listControlFilterTargetField: ev.currentTarget.value || undefined });
+                return nextField;
+              })}
+            >
+              <option value="">{this.state.listControlFieldsLoading ? 'Loading columns...' : 'Select a column'}</option>
+              {this.state.listControlFields.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+            </select>
+            {this.state.listControlFieldsError && <div className={styles.designerPanelHint}>{this.state.listControlFieldsError}</div>}
+
+            <label className={styles.designerFormLabel}>Filter operator</label>
+            <select
+              className={styles.designerInput}
+              value={selectedFilterOperator}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.config = Object.assign({}, nextField.config || {}, { listControlFilterOperator: ev.currentTarget.value || 'eq' });
+                return nextField;
+              })}
+            >
+              <option value="eq">Equals</option>
+              <option value="ne">Does not equal</option>
+              <option value="contains">Contains</option>
+              <option value="notcontains">Does not contain</option>
+              <option value="startswith">Starts with</option>
+              <option value="endswith">Ends with</option>
+              <option value="gt">Greater than</option>
+              <option value="ge">Greater than or equal</option>
+              <option value="lt">Less than</option>
+              <option value="le">Less than or equal</option>
+            </select>
+
+            <label className={styles.designerFormLabel}>{strings.PropertyPanelColumnSpan}</label>
+            <input
+              className={styles.designerInput}
+              type="number"
+              min={1}
+              max={12}
+              value={String(Math.max(1, field.columnSpan || 1))}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                var parsed = parseInt(ev.currentTarget.value, 10);
+                nextField.columnSpan = isNaN(parsed) ? 1 : Math.max(1, parsed);
+                return nextField;
+              })}
+            />
+            <label className={styles.designerCheckboxRow}>
+              <input
+                type="checkbox"
+                checked={field.startNewRow === true}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.startNewRow = ev.currentTarget.checked;
+                  return nextField;
+                })}
+              />
+              <span>{strings.DesignerStartNewRow}</span>
+            </label>
+          </div>
+
+          <div className={styles.designerPanelSection}>
+            <div className={styles.designerPanelTitle}>Title Font Settings</div>
+
+            <label className={styles.designerFormLabel}>Font Size (px)</label>
+            <input
+              className={styles.designerInput}
+              type="number"
+              min={8}
+              max={72}
+              value={String(field.labelFontSize || 14)}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                var parsed = parseInt(ev.currentTarget.value, 10);
+                nextField.labelFontSize = isNaN(parsed) ? undefined : parsed;
+                return nextField;
+              })}
+            />
+
+            <label className={styles.designerFormLabel}>Font Family</label>
+            <select
+              className={styles.designerInput}
+              value={field.labelFontFamily || 'inherit'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.labelFontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+                return nextField;
+              })}
+            >
+              <option value="inherit">Inherit</option>
+              <option value="Arial">Arial</option>
+              <option value="'Segoe UI'">Segoe UI</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Courier New">Courier New</option>
+              <option value="Times New Roman">Times New Roman</option>
+            </select>
+
+            <label className={styles.designerFormLabel}>Font Weight</label>
+            <select
+              className={styles.designerInput}
+              value={field.labelFontWeight || 'normal'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.labelFontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+                return nextField;
+              })}
+            >
+              <option value="normal">Normal</option>
+              <option value="500">Medium (500)</option>
+              <option value="600">Semi-Bold (600)</option>
+              <option value="bold">Bold</option>
+              <option value="700">Bold (700)</option>
+            </select>
+
+            <label className={styles.designerFormLabel}>Title Color</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="color"
+                value={field.labelColor || '#000000'}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.labelColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+              />
+              <input
+                className={styles.designerInput}
+                type="text"
+                value={field.labelColor || ''}
+                placeholder="#000000"
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.labelColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ flex: 1 }}
+              />
+            </div>
+          </div>
+
+          <div className={styles.designerPanelSection}>
+            <div className={styles.designerPanelTitle}>Field Background &amp; Border</div>
+
+            <label className={styles.designerFormLabel}>Background Color</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="color"
+                value={field.fieldBackgroundColor || '#ffffff'}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.fieldBackgroundColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+              />
+              <input
+                className={styles.designerInput}
+                type="text"
+                value={field.fieldBackgroundColor || ''}
+                placeholder="#ffffff"
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.fieldBackgroundColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ flex: 1 }}
+              />
+            </div>
+
+            <label className={styles.designerFormLabel}>Border Style</label>
+            <select
+              className={styles.designerInput}
+              value={field.fieldBorderStyle || 'square'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBorderStyle = ev.currentTarget.value as 'square' | 'rounded' || undefined;
+                return nextField;
+              })}
+            >
+              <option value="square">Square Corners</option>
+              <option value="rounded">Rounded Corners</option>
+            </select>
+
+            {(field.fieldBorderStyle || 'square') === 'rounded' && (
+              <div>
+                <label className={styles.designerFormLabel}>Corner Radius (px)</label>
+                <input
+                  className={styles.designerInput}
+                  type="number"
+                  min={0}
+                  max={40}
+                  value={String(field.fieldBorderRadius || 8)}
+                  onChange={(ev) => this.updateSelectedField(function(nextField) {
+                    var parsedRadius = parseInt(ev.currentTarget.value, 10);
+                    nextField.fieldBorderRadius = isNaN(parsedRadius) ? 8 : parsedRadius;
+                    return nextField;
+                  })}
+                />
+              </div>
+            )}
+
+            <label className={styles.designerFormLabel}>Border Color</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="color"
+                value={field.fieldBorderColor || '#cccccc'}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.fieldBorderColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+              />
+              <input
+                className={styles.designerInput}
+                type="text"
+                value={field.fieldBorderColor || ''}
+                placeholder="#cccccc"
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.fieldBorderColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ flex: 1 }}
+              />
+            </div>
+
+            <label className={styles.designerFormLabel}>Border Width (px)</label>
+            <input
+              className={styles.designerInput}
+              type="number"
+              min={0}
+              max={10}
+              value={String(field.fieldBorderWidth || 1)}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                var parsed = parseInt(ev.currentTarget.value, 10);
+                nextField.fieldBorderWidth = isNaN(parsed) ? 1 : parsed;
+                return nextField;
+              })}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Custom richtext fields have a different editor UI - no field properties
+    if (field.type === 'richtext' && field.fieldName.startsWith('richtext')) {
+      var contentValue = field.defaultValue || '';
+      return (
+        <div className={styles.designerPanel}>
+          <div className={styles.designerPanelSection}>
+            <div className={styles.designerPanelTitle}>Rich Text Content</div>
+            <div className={styles.designerPanelHint}>Add instructional or informational text for the form. This content is not saved to SharePoint.</div>
+
+            <label className={styles.designerFormLabel}>Content</label>
+            <div dir="ltr" style={{ direction: 'ltr', textAlign: 'left', display: 'block' }}>
+              <RichTextEditor
+                value={String(contentValue)}
+                onChange={(html) => this.updateSelectedField(function(nextField) {
+                  nextField.defaultValue = html;
+                  return nextField;
+                })}
+                placeholder="Enter your rich text content here..."
+              />
+            </div>
+          </div>
+
+          <div className={styles.designerPanelSection}>
+            <div className={styles.designerPanelTitle}>Content Styling</div>
+
+            <label className={styles.designerFormLabel}>Font Size (px)</label>
+            <input
+              className={styles.designerInput}
+              type="number"
+              min={8}
+              max={72}
+              value={String(field.inputFontSize || 14)}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                var parsed = parseInt(ev.currentTarget.value, 10);
+                nextField.inputFontSize = isNaN(parsed) ? undefined : parsed;
+                return nextField;
+              })}
+            />
+
+            <label className={styles.designerFormLabel}>Font Family</label>
+            <select
+              className={styles.designerInput}
+              value={field.inputFontFamily || 'inherit'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.inputFontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+                return nextField;
+              })}
+            >
+              <option value="inherit">Inherit</option>
+              <option value="Arial">Arial</option>
+              <option value="'Segoe UI'">Segoe UI</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Courier New">Courier New</option>
+              <option value="Times New Roman">Times New Roman</option>
+            </select>
+
+            <label className={styles.designerFormLabel}>Font Weight</label>
+            <select
+              className={styles.designerInput}
+              value={field.inputFontWeight || 'normal'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.inputFontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+                return nextField;
+              })}
+            >
+              <option value="normal">Normal</option>
+              <option value="500">Medium (500)</option>
+              <option value="600">Semi-Bold (600)</option>
+              <option value="bold">Bold</option>
+              <option value="700">Bold (700)</option>
+            </select>
+
+            <label className={styles.designerFormLabel}>Font Color</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="color"
+                value={field.inputColor || '#000000'}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.inputColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+              />
+              <input
+                className={styles.designerInput}
+                type="text"
+                value={field.inputColor || ''}
+                placeholder="#000000"
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.inputColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ flex: 1 }}
+              />
+            </div>
+
+            <label className={styles.designerFormLabel}>Background Color</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="color"
+                value={field.fieldBackgroundColor || '#f5f5f5'}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.fieldBackgroundColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+              />
+              <input
+                className={styles.designerInput}
+                type="text"
+                value={field.fieldBackgroundColor || ''}
+                placeholder="#f5f5f5"
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.fieldBackgroundColor = ev.currentTarget.value || undefined;
+                  return nextField;
+                })}
+                style={{ flex: 1 }}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    var helpText = field.config && field.config.helpText ? field.config.helpText : '';
+    var choiceDisplay = this.getChoiceDisplay(field);
+    var spField: SPFieldInfo | null = null;
+    for (var i = 0; i < this.state.spFields.length; i += 1) {
+      if (this.state.spFields[i].internalName === field.fieldName) {
+        spField = this.state.spFields[i];
+        break;
+      }
+    }
+
+    return (
+      <div className={styles.designerPanel}>
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>{strings.PropertyPanelTitle}</div>
+
+          <label className={styles.designerFormLabel}>{strings.PropertyPanelFieldName}</label>
+          <input
+            className={styles.designerInput}
+            type="text"
+            value={field.label}
+            title={strings.PropertyPanelFieldName}
+            placeholder={strings.PropertyPanelFieldName}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.label = ev.currentTarget.value;
+              return nextField;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>{strings.PropertyPanelFieldType}</label>
+          <div className={styles.designerReadOnlyValue}>{getFieldTypeLabel(field.type)}</div>
+
+          <label className={styles.designerFormLabel}>{strings.PropertyPanelFieldInternalName}</label>
+          <div className={styles.designerReadOnlyValue}>{field.fieldName}</div>
+
+          <label className={styles.designerFormLabel}>{strings.PropertyPanelColumnSpan}</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={1}
+            max={12}
+            value={String(Math.max(1, field.columnSpan || 1))}
+            title={strings.PropertyPanelColumnSpan}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextField.columnSpan = isNaN(parsed) ? 1 : Math.max(1, parsed);
+              return nextField;
+            })}
+          />
+
+          <label className={styles.designerCheckboxRow}>
+            <input
+              type="checkbox"
+              checked={field.startNewRow === true}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.startNewRow = ev.currentTarget.checked;
+                return nextField;
+              })}
+            />
+            <span>{strings.DesignerStartNewRow}</span>
+          </label>
+
+          <label className={styles.designerFormLabel}>Label Position</label>
+          <select
+            className={styles.designerInput}
+            value={field.labelPosition || 'top'}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              var nextPosition = ev.currentTarget.value;
+              nextField.labelPosition = (
+                nextPosition === 'bottom' || nextPosition === 'left' || nextPosition === 'right'
+                  ? nextPosition
+                  : 'top'
+              ) as 'top' | 'bottom' | 'left' | 'right';
+              return nextField;
+            })}
+          >
+            <option value="top">Above input (top)</option>
+            {field.type === 'boolean' && <option value="bottom">Below input (bottom)</option>}
+            <option value="left">Next to input (left)</option>
+            {field.type === 'boolean' && <option value="right">After input (right)</option>}
+          </select>
+
+          <label className={styles.designerCheckboxRow}>
+            <input
+              type="checkbox"
+              checked={field.visible !== false}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.visible = ev.currentTarget.checked;
+                return nextField;
+              })}
+            />
+            <span>{strings.DesignerShowStep}</span>
+          </label>
+
+          <label className={styles.designerFormLabel}>{strings.PropertyPanelHelpText}</label>
+          <textarea
+            className={styles.designerTextarea}
+            value={helpText}
+            title={strings.PropertyPanelHelpText}
+            placeholder={strings.PropertyPanelHelpTextPlaceholder}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.config = nextField.config || {};
+              nextField.config.helpText = ev.currentTarget.value;
+              return nextField;
+            })}
+          />
+
+          {!spField && field.type !== 'richtext' && (
+            <MessageBar messageBarType={MessageBarType.warning}>{strings.PropertyPanelMissingSPField}</MessageBar>
+          )}
+        </div>
+
+        {(field.type === 'datetime' || field.type === 'boolean' || field.type === 'dropdown' || field.type === 'richtext' || (field.type === 'lookup' && (!field.config || !field.config.allowMultiple))) && (
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Display Settings</div>
+
+          {field.type === 'datetime' && (
+            <div>
+              <label className={styles.designerFormLabel}>{strings.PropertyPanelDateFormat}</label>
+              <select
+                className={styles.designerInput}
+                value={field.config && field.config.displayFormat || 'dateTime'}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  var nextFormat = ev.currentTarget.value === 'dateOnly' || ev.currentTarget.value === 'timeOnly' ? ev.currentTarget.value : 'dateTime';
+                  nextField.config = nextField.config || {};
+                  nextField.config.displayFormat = nextFormat as 'dateOnly' | 'dateTime' | 'timeOnly';
+                  console.log('[FormDesigner] datetime field "' + nextField.label + '" format changed to: ' + nextFormat);
+                  return nextField;
+                })}
+              >
+                <option value="dateOnly">{strings.PropertyPanelDateFormatDateOnly}</option>
+                <option value="dateTime">{strings.PropertyPanelDateFormatDateTime}</option>
+                <option value="timeOnly">{strings.PropertyPanelDateFormatTimeOnly}</option>
+              </select>
+              {(!field.config || field.config.displayFormat !== 'dateOnly') && (
+                <div>
+                  <label className={styles.designerFormLabel}>{strings.PropertyPanelTimeZone}</label>
+                  <select
+                    className={styles.designerInput}
+                    value={(field.config && field.config.timeZone) || 'UTC'}
+                    onChange={(ev) => this.updateSelectedField(function(nextField) {
+                      var nextZone = (ev.currentTarget.value === 'local' ? 'local' : 'UTC') as 'UTC' | 'local';
+                      nextField.config = nextField.config || {};
+                      nextField.config.timeZone = nextZone;
+                      console.log('[FormDesigner] datetime field "' + nextField.label + '" time zone changed to: ' + nextZone);
+                      return nextField;
+                    })}
+                  >
+                    <option value="UTC">{strings.PropertyPanelTimeZoneUtc}</option>
+                    <option value="local">{strings.PropertyPanelTimeZoneLocal}</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
+          {field.type === 'boolean' && (
+            <div>
+              <label className={styles.designerFormLabel}>{strings.PropertyPanelBooleanText}</label>
+              <input
+                className={styles.designerInput}
+                type="text"
+                value={field.config && field.config.booleanText ? field.config.booleanText : ''}
+                placeholder={strings.PropertyPanelBooleanTextPlaceholder}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.config = nextField.config || {};
+                  nextField.config.booleanText = ev.currentTarget.value;
+                  return nextField;
+                })}
+              />
+              <div className={styles.designerPanelHint}>{strings.PropertyPanelBooleanTextHint}</div>
+            </div>
+          )}
+
+          {field.type === 'dropdown' && (
+            <div>
+              <label className={styles.designerFormLabel}>{strings.PropertyPanelChoiceDisplay}</label>
+              <select
+                className={styles.designerInput}
+                value={choiceDisplay}
+                title={strings.PropertyPanelChoiceDisplay}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.config = nextField.config || {};
+                  nextField.config.choiceDisplay = ev.currentTarget.value as 'dropdown' | 'radio' | 'checkboxes';
+                  return nextField;
+                })}
+              >
+                <option value="dropdown">{strings.PropertyPanelChoiceDisplayDropdown}</option>
+                <option value="radio">{strings.PropertyPanelChoiceDisplayRadio}</option>
+              </select>
+            </div>
+          )}
+
+          {field.type === 'lookup' && (
+            <div>
+              <label className={styles.designerFormLabel}>{strings.PropertyPanelChoiceDisplay}</label>
+              <select
+                className={styles.designerInput}
+                value={choiceDisplay}
+                title={strings.PropertyPanelChoiceDisplay}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.config = nextField.config || {};
+                  nextField.config.choiceDisplay = ev.currentTarget.value as 'dropdown' | 'radio' | 'checkboxes';
+                  return nextField;
+                })}
+              >
+                <option value="dropdown">{strings.PropertyPanelChoiceDisplayDropdown}</option>
+                <option value="radio">{strings.PropertyPanelChoiceDisplayRadio}</option>
+              </select>
+            </div>
+          )}
+
+          {field.type === 'richtext' && (
+            <div>
+              <label className={styles.designerFormLabel}>{strings.PropertyPanelRichTextContent}</label>
+              <textarea
+                className={styles.designerTextareaLarge}
+                value={field.defaultValue ? String(field.defaultValue) : ''}
+                title={strings.PropertyPanelRichTextContent}
+                placeholder={strings.DesignerRichTextPlaceholder}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  nextField.defaultValue = ev.currentTarget.value;
+                  return nextField;
+                })}
+              />
+            </div>
+          )}
+
+        </div>
+        )}
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Label Font Settings</div>
+
+          <label className={styles.designerFormLabel}>Font Size (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={8}
+            max={72}
+            value={String(field.labelFontSize || 14)}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextField.labelFontSize = isNaN(parsed) ? undefined : parsed;
+              return nextField;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Font Family</label>
+          <select
+            className={styles.designerInput}
+            value={field.labelFontFamily || 'inherit'}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.labelFontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+              return nextField;
+            })}
+          >
+            <option value="inherit">Inherit</option>
+            <option value="Arial">Arial</option>
+            <option value="'Segoe UI'">Segoe UI</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Weight</label>
+          <select
+            className={styles.designerInput}
+            value={field.labelFontWeight || 'normal'}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.labelFontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+              return nextField;
+            })}
+          >
+            <option value="normal">Normal</option>
+            <option value="500">Medium (500)</option>
+            <option value="600">Semi-Bold (600)</option>
+            <option value="bold">Bold</option>
+            <option value="700">Bold (700)</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Label Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={field.labelColor || '#000000'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.labelColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={field.labelColor || ''}
+              placeholder="#000000"
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.labelColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Input Font Settings</div>
+
+          <label className={styles.designerFormLabel}>Font Size (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={8}
+            max={72}
+            value={String(field.inputFontSize || 14)}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextField.inputFontSize = isNaN(parsed) ? undefined : parsed;
+              return nextField;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Font Family</label>
+          <select
+            className={styles.designerInput}
+            value={field.inputFontFamily || 'inherit'}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.inputFontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+              return nextField;
+            })}
+          >
+            <option value="inherit">Inherit</option>
+            <option value="Arial">Arial</option>
+            <option value="'Segoe UI'">Segoe UI</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Weight</label>
+          <select
+            className={styles.designerInput}
+            value={field.inputFontWeight || 'normal'}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.inputFontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+              return nextField;
+            })}
+          >
+            <option value="normal">Normal</option>
+            <option value="500">Medium (500)</option>
+            <option value="600">Semi-Bold (600)</option>
+            <option value="bold">Bold</option>
+            <option value="700">Bold (700)</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Input Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={field.inputColor || '#000000'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.inputColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={field.inputColor || ''}
+              placeholder="#000000"
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.inputColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Field Background & Border</div>
+
+          <label className={styles.designerFormLabel}>Background Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={field.fieldBackgroundColor || '#ffffff'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBackgroundColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={field.fieldBackgroundColor || ''}
+              placeholder="#ffffff"
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBackgroundColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+
+          <label className={styles.designerFormLabel}>Border Style</label>
+          <select
+            className={styles.designerInput}
+            value={field.fieldBorderStyle || 'square'}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.fieldBorderStyle = ev.currentTarget.value as 'square' | 'rounded' || undefined;
+              return nextField;
+            })}
+          >
+            <option value="square">Square Corners</option>
+            <option value="rounded">Rounded Corners</option>
+          </select>
+
+          {(field.fieldBorderStyle || 'square') === 'rounded' && (
+            <div>
+              <label className={styles.designerFormLabel}>Corner Radius (px)</label>
+              <input
+                className={styles.designerInput}
+                type="number"
+                min={0}
+                max={40}
+                value={String(field.fieldBorderRadius || 8)}
+                onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  var parsedRadius = parseInt(ev.currentTarget.value, 10);
+                  nextField.fieldBorderRadius = isNaN(parsedRadius) ? 8 : parsedRadius;
+                  return nextField;
+                })}
+              />
+            </div>
+          )}
+
+          <label className={styles.designerFormLabel}>Border Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={field.fieldBorderColor || '#cccccc'}
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBorderColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={field.fieldBorderColor || ''}
+              placeholder="#cccccc"
+              onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBorderColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+
+          <label className={styles.designerFormLabel}>Border Width (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={0}
+            max={10}
+            value={String(field.fieldBorderWidth || 1)}
+            onChange={(ev) => this.updateSelectedField(function(nextField) {
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextField.fieldBorderWidth = isNaN(parsed) ? 1 : parsed;
+              return nextField;
+            })}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  private renderFormSettings(): JSX.Element {
+    var theme = (this.props.schema && this.props.schema.theme) || {};
+    return (
+      <div>
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>{strings.PropertyPanelFormMessages}</div>
+          <label className={styles.designerFormLabel}>{strings.PropertyPanelPermissionDeniedMessage}</label>
+          <textarea
+            className={styles.designerTextarea}
+            value={this.props.schema.permissionDeniedMessage || strings.PermissionDeniedDefault}
+            placeholder={strings.PermissionDeniedDefault}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              nextForm.permissionDeniedMessage = ev.currentTarget.value || undefined;
+              return nextForm;
+            })}
+          />
+          <div className={styles.designerPanelHint}>{strings.PropertyPanelPermissionDeniedMessageHint}</div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Form Font Settings</div>
+
+          <label className={styles.designerFormLabel}>Font Size (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={8}
+            max={72}
+            value={String(theme.fontSize || 14)}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              if (!nextForm.theme) nextForm.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextForm.theme.fontSize = isNaN(parsed) ? undefined : parsed;
+              return nextForm;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Font Family</label>
+          <select
+            className={styles.designerInput}
+            value={theme.fontFamily || 'inherit'}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              if (!nextForm.theme) nextForm.theme = {};
+              nextForm.theme.fontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+              return nextForm;
+            })}
+          >
+            <option value="inherit">Inherit</option>
+            <option value="Arial">Arial</option>
+            <option value="'Segoe UI'">Segoe UI</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Weight</label>
+          <select
+            className={styles.designerInput}
+            value={theme.fontWeight || 'normal'}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              if (!nextForm.theme) nextForm.theme = {};
+              nextForm.theme.fontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+              return nextForm;
+            })}
+          >
+            <option value="normal">Normal</option>
+            <option value="500">Medium (500)</option>
+            <option value="600">Semi-Bold (600)</option>
+            <option value="bold">Bold</option>
+            <option value="700">Bold (700)</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.color || '#000000'}
+              onChange={(ev) => this.updateForm(function(nextForm) {
+                if (!nextForm.theme) nextForm.theme = {};
+                nextForm.theme.color = ev.currentTarget.value || undefined;
+                return nextForm;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.color || ''}
+              placeholder="#000000"
+              onChange={(ev) => this.updateForm(function(nextForm) {
+                if (!nextForm.theme) nextForm.theme = {};
+                nextForm.theme.color = ev.currentTarget.value || undefined;
+                return nextForm;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Description Font Settings</div>
+
+          <label className={styles.designerFormLabel}>Font Size (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={8}
+            max={72}
+            value={String(theme.descriptionFontSize || 14)}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              if (!nextForm.theme) nextForm.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextForm.theme.descriptionFontSize = isNaN(parsed) ? undefined : parsed;
+              return nextForm;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Font Family</label>
+          <select
+            className={styles.designerInput}
+            value={theme.descriptionFontFamily || 'inherit'}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              if (!nextForm.theme) nextForm.theme = {};
+              nextForm.theme.descriptionFontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+              return nextForm;
+            })}
+          >
+            <option value="inherit">Inherit</option>
+            <option value="Arial">Arial</option>
+            <option value="'Segoe UI'">Segoe UI</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Weight</label>
+          <select
+            className={styles.designerInput}
+            value={theme.descriptionFontWeight || 'normal'}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              if (!nextForm.theme) nextForm.theme = {};
+              nextForm.theme.descriptionFontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+              return nextForm;
+            })}
+          >
+            <option value="normal">Normal</option>
+            <option value="500">Medium (500)</option>
+            <option value="600">Semi-Bold (600)</option>
+            <option value="bold">Bold</option>
+            <option value="700">Bold (700)</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.descriptionColor || '#666666'}
+              onChange={(ev) => this.updateForm(function(nextForm) {
+                if (!nextForm.theme) nextForm.theme = {};
+                nextForm.theme.descriptionColor = ev.currentTarget.value || undefined;
+                return nextForm;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.descriptionColor || ''}
+              placeholder="#666666"
+              onChange={(ev) => this.updateForm(function(nextForm) {
+                if (!nextForm.theme) nextForm.theme = {};
+                nextForm.theme.descriptionColor = ev.currentTarget.value || undefined;
+                return nextForm;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Form Background & Border</div>
+
+          <label className={styles.designerFormLabel}>Background Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.backgroundColor || '#ffffff'}
+              onChange={(ev) => this.updateForm(function(nextForm) {
+                if (!nextForm.theme) nextForm.theme = {};
+                nextForm.theme.backgroundColor = ev.currentTarget.value || undefined;
+                return nextForm;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.backgroundColor || ''}
+              placeholder="#ffffff"
+              onChange={(ev) => this.updateForm(function(nextForm) {
+                if (!nextForm.theme) nextForm.theme = {};
+                nextForm.theme.backgroundColor = ev.currentTarget.value || undefined;
+                return nextForm;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+
+          <label className={styles.designerFormLabel}>Border Style</label>
+          <select
+            className={styles.designerInput}
+            value={theme.borderStyle || 'square'}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              if (!nextForm.theme) nextForm.theme = {};
+              nextForm.theme.borderStyle = ev.currentTarget.value as 'square' | 'rounded' || undefined;
+              return nextForm;
+            })}
+          >
+            <option value="square">Square Corners</option>
+            <option value="rounded">Rounded Corners</option>
+          </select>
+
+          {(theme.borderStyle || 'square') === 'rounded' && (
+            <div>
+              <label className={styles.designerFormLabel}>Corner Radius (px)</label>
+              <input
+                className={styles.designerInput}
+                type="number"
+                min={0}
+                max={40}
+                value={String(theme.borderRadius || 8)}
+                onChange={(ev) => this.updateForm(function(nextForm) {
+                  if (!nextForm.theme) nextForm.theme = {};
+                  var parsedRadius = parseInt(ev.currentTarget.value, 10);
+                  nextForm.theme.borderRadius = isNaN(parsedRadius) ? 8 : parsedRadius;
+                  return nextForm;
+                })}
+              />
+            </div>
+          )}
+
+          <label className={styles.designerFormLabel}>Border Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.borderColor || '#cccccc'}
+              onChange={(ev) => this.updateForm(function(nextForm) {
+                if (!nextForm.theme) nextForm.theme = {};
+                nextForm.theme.borderColor = ev.currentTarget.value || undefined;
+                return nextForm;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.borderColor || ''}
+              placeholder="#cccccc"
+              onChange={(ev) => this.updateForm(function(nextForm) {
+                if (!nextForm.theme) nextForm.theme = {};
+                nextForm.theme.borderColor = ev.currentTarget.value || undefined;
+                return nextForm;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+
+          <label className={styles.designerFormLabel}>Border Width (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={0}
+            max={10}
+            value={String(theme.borderWidth || 1)}
+            onChange={(ev) => this.updateForm(function(nextForm) {
+              if (!nextForm.theme) nextForm.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextForm.theme.borderWidth = isNaN(parsed) ? 1 : parsed;
+              return nextForm;
+            })}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  private renderStepContainerSettings(): JSX.Element {
+    var currentStep = this.getCurrentStep();
+    if (!currentStep) {
+      return <div />;
+    }
+    var theme = (currentStep.theme) || {};
+    return (
+      <div>
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Container Font Settings</div>
+
+          <label className={styles.designerFormLabel}>Font Size (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={8}
+            max={72}
+            value={String(theme.fontSize || 14)}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextStep.theme.fontSize = isNaN(parsed) ? undefined : parsed;
+              return nextStep;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Font Family</label>
+          <select
+            className={styles.designerInput}
+            value={theme.fontFamily || 'inherit'}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              nextStep.theme.fontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+              return nextStep;
+            })}
+          >
+            <option value="inherit">Inherit</option>
+            <option value="Arial">Arial</option>
+            <option value="'Segoe UI'">Segoe UI</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Weight</label>
+          <select
+            className={styles.designerInput}
+            value={theme.fontWeight || 'normal'}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              nextStep.theme.fontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+              return nextStep;
+            })}
+          >
+            <option value="normal">Normal</option>
+            <option value="500">Medium (500)</option>
+            <option value="600">Semi-Bold (600)</option>
+            <option value="bold">Bold</option>
+            <option value="700">Bold (700)</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.color || '#000000'}
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.color = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.color || ''}
+              placeholder="#000000"
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.color = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Container Description Font Settings</div>
+
+          <label className={styles.designerFormLabel}>Font Size (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={8}
+            max={72}
+            value={String(theme.descriptionFontSize || 14)}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextStep.theme.descriptionFontSize = isNaN(parsed) ? undefined : parsed;
+              return nextStep;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Font Family</label>
+          <select
+            className={styles.designerInput}
+            value={theme.descriptionFontFamily || 'inherit'}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              nextStep.theme.descriptionFontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+              return nextStep;
+            })}
+          >
+            <option value="inherit">Inherit</option>
+            <option value="Arial">Arial</option>
+            <option value="'Segoe UI'">Segoe UI</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Weight</label>
+          <select
+            className={styles.designerInput}
+            value={theme.descriptionFontWeight || 'normal'}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              nextStep.theme.descriptionFontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+              return nextStep;
+            })}
+          >
+            <option value="normal">Normal</option>
+            <option value="500">Medium (500)</option>
+            <option value="600">Semi-Bold (600)</option>
+            <option value="bold">Bold</option>
+            <option value="700">Bold (700)</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.descriptionColor || '#666666'}
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.descriptionColor = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.descriptionColor || ''}
+              placeholder="#666666"
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.descriptionColor = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Container Background & Border</div>
+
+          <label className={styles.designerFormLabel}>Background Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.backgroundColor || '#ffffff'}
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.backgroundColor = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.backgroundColor || ''}
+              placeholder="#ffffff"
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.backgroundColor = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+
+          <label className={styles.designerFormLabel}>Border Style</label>
+          <select
+            className={styles.designerInput}
+            value={theme.borderStyle || 'square'}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              nextStep.theme.borderStyle = ev.currentTarget.value as 'square' | 'rounded' || undefined;
+              return nextStep;
+            })}
+          >
+            <option value="square">Square Corners</option>
+            <option value="rounded">Rounded Corners</option>
+          </select>
+
+          {(theme.borderStyle || 'square') === 'rounded' && (
+            <div>
+              <label className={styles.designerFormLabel}>Corner Radius (px)</label>
+              <input
+                className={styles.designerInput}
+                type="number"
+                min={0}
+                max={40}
+                value={String(theme.borderRadius || 8)}
+                onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                  if (!nextStep.theme) nextStep.theme = {};
+                  var parsedRadius = parseInt(ev.currentTarget.value, 10);
+                  nextStep.theme.borderRadius = isNaN(parsedRadius) ? 8 : parsedRadius;
+                  return nextStep;
+                })}
+              />
+            </div>
+          )}
+
+          <label className={styles.designerFormLabel}>Border Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.borderColor || '#cccccc'}
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.borderColor = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.borderColor || ''}
+              placeholder="#cccccc"
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.borderColor = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+
+          <label className={styles.designerFormLabel}>Border Width (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={0}
+            max={10}
+            value={String(theme.borderWidth || 1)}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextStep.theme.borderWidth = isNaN(parsed) ? 1 : parsed;
+              return nextStep;
+            })}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  private renderStepEditor(): JSX.Element {
+    var currentStep = this.getCurrentStep();
+    if (!currentStep) {
+      return <div className={styles.designerPanel}><div className={styles.designerEmptyState}>{strings.DesignerStepNotFound}</div></div>;
+    }
+
+    var activeTab = this.state.activeDesignerTab;
+
+    return (
+      <div className={styles.designerPanel}>
+        <div style={{ display: 'flex', gap: '4px', paddingBottom: '12px', borderBottom: '1px solid #e1dfdd', marginBottom: '4px' }}>
+          <button
+            className={activeTab === 'form' ? styles.designerTabActive : styles.designerTab}
+            onClick={() => this.setState({ activeDesignerTab: 'form' })}
+          >
+            Form
+          </button>
+          <button
+            className={activeTab === 'container' ? styles.designerTabActive : styles.designerTab}
+            onClick={() => this.setState({ activeDesignerTab: 'container' })}
+          >
+            Container
+          </button>
+        </div>
+
+        {activeTab === 'form' && <div>
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>{strings.DesignerTitle}</div>
+
+          <label className={styles.designerFormLabel}>{strings.DesignerFormName}</label>
+          <input
+            className={styles.designerInput}
+            type="text"
+            value={this.props.schema.name || ''}
+            title={strings.DesignerFormName}
+            placeholder={strings.DesignerFormName}
+            onChange={(ev) => this.updateForm(function(schema) {
+              schema.name = ev.currentTarget.value;
+              return schema;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Form name alignment</label>
+          <select className={styles.designerInput} value={this.props.schema.nameAlignment || 'left'} onChange={(ev) => this.updateForm(function(schema) { schema.nameAlignment = ev.currentTarget.value as 'left' | 'center' | 'right'; return schema; })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          </select>
+
+          <label className={styles.designerCheckboxRow}>
+            <input
+              type="checkbox"
+              checked={this.props.schema.showTitle !== false}
+              onChange={(ev) => this.updateForm(function(schema) {
+                schema.showTitle = ev.currentTarget.checked;
+                return schema;
+              })}
+            />
+            <span>Show form name</span>
+          </label>
+
+          <label className={styles.designerFormLabel}>{strings.DescriptionFieldLabel}</label>
+          <textarea
+            className={styles.designerTextarea}
+            value={this.props.schema.description || ''}
+            title={strings.DescriptionFieldLabel}
+            placeholder={strings.DescriptionFieldLabel}
+            onChange={(ev) => this.updateForm(function(schema) {
+              schema.description = ev.currentTarget.value;
+              return schema;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Form description alignment</label>
+          <select className={styles.designerInput} value={this.props.schema.descriptionAlignment || 'left'} onChange={(ev) => this.updateForm(function(schema) { schema.descriptionAlignment = ev.currentTarget.value as 'left' | 'center' | 'right'; return schema; })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Logo image library</label>
+          <select className={styles.designerInput} value={this.state.selectedImageLibrary} onChange={(ev) => this.loadImageFiles(ev.currentTarget.value)}>
+            <option value="">Select a library</option>{this.state.imageLibraries.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+          </select>
+          <label className={styles.designerFormLabel}>Logo image</label>
+          <select className={styles.designerInput} value={this.props.schema.logoUrl || ''} disabled={!this.state.selectedImageLibrary || this.state.imageFilesLoading} onChange={(ev) => this.updateForm(function(schema) { schema.logoUrl = ev.currentTarget.value || undefined; return schema; })}>
+            <option value="">{this.state.imageFilesLoading ? 'Loading images...' : 'Select an image'}</option>{this.state.imageFiles.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+          </select>
+          {this.state.imageBrowserError && <div className={styles.designerPanelHint}>{this.state.imageBrowserError}</div>}
+          <label className={styles.designerFormLabel}>Logo URL</label>
+          <input className={styles.designerInput} type="text" value={this.props.schema.logoUrl || ''} placeholder="/sites/site/Library/logo.png" onChange={(ev) => this.updateForm(function(schema) { schema.logoUrl = ev.currentTarget.value || undefined; return schema; })} />
+          <label className={styles.designerFormLabel}>Logo alternative text</label>
+          <input className={styles.designerInput} type="text" value={this.props.schema.logoAltText || ''} onChange={(ev) => this.updateForm(function(schema) { schema.logoAltText = ev.currentTarget.value || undefined; return schema; })} />
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Form Layout</div>
+          <div className={styles.designerPanelHint}>How containers (steps) are arranged in the form</div>
+
+          <label className={styles.designerFormLabel}>Layout Style</label>
+          <select
+            className={styles.designerInput}
+            value={(this.props.schema.theme && this.props.schema.theme.layout) || 'stack'}
+            onChange={(ev) => this.updateForm(function(schema) {
+              if (!schema.theme) schema.theme = {};
+              schema.theme.layout = ev.currentTarget.value === 'grid' ? 'grid' : 'stack';
+              if (schema.theme.layout !== 'grid') {
+                schema.theme.columns = 1;
+              } else if (!schema.theme.columns || schema.theme.columns < 2) {
+                schema.theme.columns = 2;
+              }
+              return schema;
+            })}
+          >
+            <option value="stack">{strings.DesignerLayoutStack}</option>
+            <option value="grid">{strings.DesignerLayoutGrid}</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Number of Columns</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={1}
+            max={4}
+            value={String((this.props.schema.theme && this.props.schema.theme.columns) || 1)}
+            onChange={(ev) => this.updateForm(function(schema) {
+              if (!schema.theme) schema.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              schema.theme.columns = isNaN(parsed) ? 1 : Math.max(1, Math.min(4, parsed));
+              if (schema.theme.columns <= 1) {
+                schema.theme.layout = 'stack';
+              } else if (!schema.theme.layout) {
+                schema.theme.layout = 'grid';
+              }
+              return schema;
+            })}
+          />
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Form Styling</div>
+          <div className={styles.designerPanelHint}>Configure styling for the entire form wrapper</div>
+        </div>
+
+        {this.renderFormSettings()}
+        </div>}
+
+        {activeTab === 'container' && <div>
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Container Details</div>
+
+          <label className={styles.designerFormLabel}>{strings.DesignerStepTitlePlaceholder}</label>
+          <input
+            className={styles.designerInput}
+            type="text"
+            value={currentStep.title}
+            title={strings.DesignerStepTitlePlaceholder}
+            placeholder={strings.DesignerStepTitlePlaceholder}
+            onChange={(ev) => this.updateCurrentStep(function(step) {
+              step.title = ev.currentTarget.value;
+              return step;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Container name alignment</label>
+          <select className={styles.designerInput} value={currentStep.titleAlignment || 'left'} onChange={(ev) => this.updateCurrentStep(function(step) { step.titleAlignment = ev.currentTarget.value as 'left' | 'center' | 'right'; return step; })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          </select>
+
+          <label className={styles.designerCheckboxRow}>
+            <input
+              type="checkbox"
+              checked={currentStep.showTitle !== false}
+              onChange={(ev) => this.updateCurrentStep(function(step) {
+                step.showTitle = ev.currentTarget.checked;
+                return step;
+              })}
+            />
+            <span>Show container name</span>
+          </label>
+
+          <label className={styles.designerFormLabel}>{strings.DesignerStepDescriptionPlaceholder}</label>
+          <textarea
+            className={styles.designerTextarea}
+            value={currentStep.description || ''}
+            title={strings.DesignerStepDescriptionPlaceholder}
+            placeholder={strings.DesignerStepDescriptionPlaceholder}
+            onChange={(ev) => this.updateCurrentStep(function(step) {
+              step.description = ev.currentTarget.value;
+              return step;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Container description alignment</label>
+          <select className={styles.designerInput} value={currentStep.descriptionAlignment || 'left'} onChange={(ev) => this.updateCurrentStep(function(step) { step.descriptionAlignment = ev.currentTarget.value as 'left' | 'center' | 'right'; return step; })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          </select>
+
+          <label className={styles.designerCheckboxRow}>
+            <input
+              type="checkbox"
+              checked={currentStep.visible !== false}
+              onChange={(ev) => this.updateCurrentStep(function(step) {
+                step.visible = ev.currentTarget.checked;
+                return step;
+              })}
+            />
+            <span>{strings.DesignerShowStep}</span>
+          </label>
+
+          <div className={styles.designerPanelHint}>{strings.DesignerShowStepHelp}</div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Container Layout</div>
+          <div className={styles.designerPanelHint}>How fields are arranged within this container</div>
+
+          <label className={styles.designerFormLabel}>{strings.DesignerStepLayout}</label>
+          <select
+            className={styles.designerInput}
+            value={getStepTheme(this.props.schema, currentStep).layout}
+            title={strings.DesignerStepLayout}
+            onChange={(ev) => this.updateCurrentStep(function(step) {
+              step.theme = step.theme || {};
+              step.theme.layout = ev.currentTarget.value === 'grid' ? 'grid' : 'stack';
+              if (step.theme.layout !== 'grid') {
+                step.theme.columns = 1;
+              } else if (!step.theme.columns || step.theme.columns < 2) {
+                step.theme.columns = 2;
+              }
+              return step;
+            })}
+          >
+            <option value="stack">{strings.DesignerLayoutStack}</option>
+            <option value="grid">{strings.DesignerLayoutGrid}</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>{strings.DesignerColumns}</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={1}
+            max={4}
+            value={String(getStepTheme(this.props.schema, currentStep).columns)}
+            title={strings.DesignerColumns}
+            onChange={(ev) => this.updateCurrentStep(function(step) {
+              step.theme = step.theme || {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              step.theme.columns = isNaN(parsed) ? 1 : Math.max(1, Math.min(4, parsed));
+              if (step.theme.columns <= 1) {
+                step.theme.layout = 'stack';
+              } else if (!step.theme.layout) {
+                step.theme.layout = 'grid';
+              }
+              return step;
+            })}
+          />
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Container Styling</div>
+          <div className={styles.designerPanelHint}>Font, background and border for this container</div>
+        </div>
+
+        {this.renderStepContainerSettings()}
+        </div>}
+      </div>
+    );
+  }
+
+  public render(): JSX.Element {
+    var selectedField = this.getSelectedField();
+
+    return (
+      <div className={styles.designerWorkspace}>
+        {this.renderPalette()}
+        {this.renderCanvas()}
+        {selectedField ? this.renderFieldEditor(selectedField) : this.renderStepEditor()}
+      </div>
+    );
+  }
+}

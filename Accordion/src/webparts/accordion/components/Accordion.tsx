@@ -176,6 +176,7 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
       backgroundColor: this.props.headerBackgroundColor,
       color: this.props.headerTextColor,
       fontWeight: this.props.headerFontBold ? 'bold' : 'normal',
+      fontSize: this.props.headerFontSize + 'px',
       fontFamily: this.props.fontFamily,
       fontStyle: this.props.fontStyle as React.CSSProperties['fontStyle']
     };
@@ -186,8 +187,30 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
       backgroundColor: this.props.contentBackgroundColor,
       color: this.props.contentTextColor,
       fontWeight: this.props.contentFontBold ? 'bold' : 'normal',
+      fontSize: this.props.contentFontSize + 'px',
       fontFamily: this.props.fontFamily,
       fontStyle: this.props.fontStyle as React.CSSProperties['fontStyle']
+    };
+  }
+
+  private _getAccordionStyle(): React.CSSProperties {
+    return {
+      borderRadius: this.props.cornerStyle === 'rounded' ? this.props.cornerRadius + 'px' : '0',
+      overflow: 'hidden',
+      width: '100%'
+    };
+  }
+
+  private _getCloseBarStyle(): React.CSSProperties {
+    const alignment = this.props.closeBarAlignment || 'right';
+    return {
+      backgroundColor: this.props.closeBarBackgroundColor,
+      color: this.props.closeBarTextColor,
+      fontSize: this.props.closeBarFontSize + 'px',
+      fontWeight: this.props.closeBarFontBold ? 'bold' : 'normal',
+      fontFamily: this.props.fontFamily,
+      fontStyle: this.props.fontStyle as React.CSSProperties['fontStyle'],
+      justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'center' ? 'center' : 'flex-end'
     };
   }
 
@@ -208,53 +231,39 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
     if (this.props.optionChoice == 'single' &&  this.props.listName!=='' && this.props.itemName!=='' && this.props.itemContent!=='') {
       const headerStyle: React.CSSProperties = this._getHeaderStyle();
       const contentStyle: React.CSSProperties = this._getContentStyle();
+      const radioGroupName = this.props.spfxContext.webPartTag + '_accordion';
+      const closeId = this.props.spfxContext.webPartTag + '_close';
       return (
-        <div className={styles.accordion} >
-          {this.state.items.map((item, key) => {
-            return (<div className={styles.row} key={key}>
-              <div className="row">
-                <div className="col">
-                  <div className="tabs">
-                    <div className="tab"><input className="input" type="radio" id={item.aId} name="rd"></input><label className="tab-label" style={headerStyle} htmlFor={item.aId}>{item.aHeader}</label>
-                      <div className="tab-content" style={contentStyle}><div dangerouslySetInnerHTML={{ __html: item.aContent }} /></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            );
-          })
-          }
-          <div className="row">
-            <div className="col">
-              <div className="tabs">
-                <div className="tab"><input className="input" type="radio" id="rd3" name="rd"></input>
-                  <label htmlFor="rd3" className="tab-close">Close others &times;</label></div>
-              </div>
-            </div>
+        <div className={styles.accordion}>
+          <div className="tabs" style={this._getAccordionStyle()}>
+            {this.state.items.map((item, key) => {
+              return (<div className="tab" key={key}>
+                <input className="input" type="radio" id={item.aId} name={radioGroupName}></input>
+                <label className="tab-label" style={headerStyle} htmlFor={item.aId}>{item.aHeader}</label>
+                <div className="tab-content" style={contentStyle}><div dangerouslySetInnerHTML={{ __html: item.aContent }} /></div>
+              </div>);
+            })}
+            {this.props.showCloseBar && <div className="tab">
+              <input className="input" type="radio" id={closeId} name={radioGroupName}></input>
+              <label htmlFor={closeId} className="tab-close" style={this._getCloseBarStyle()}>{this.props.closeBarText}</label>
+            </div>}
           </div>
-
         </div>);
     }
     else if (this.props.optionChoice == 'multiple' &&  this.props.listName!=='' && this.props.itemName!=='' && this.props.itemContent!=='') {
       const headerStyle: React.CSSProperties = this._getHeaderStyle();
       const contentStyle: React.CSSProperties = this._getContentStyle();
       return (
-        <div className={styles.accordion} >
-          {this.state.items.map( (item, key) => {
-            return (<div className={styles.row} key={key}>
-              <div className="row">
-                <div className="col">
-                  <div className="tabs">
-                    <div className="tab">
-                      <input className="input" type="checkbox" id={item.aId}></input><label className="tab-label" style={headerStyle} htmlFor={item.aId}>{item.aHeader}</label>
-                      <div className="tab-content" style={contentStyle}><div dangerouslySetInnerHTML={{ __html: item.aContent }} /></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>);
-          })}
+        <div className={styles.accordion}>
+          <div className="tabs" style={this._getAccordionStyle()}>
+            {this.state.items.map( (item, key) => {
+              return (<div className="tab" key={key}>
+                <input className="input" type="checkbox" id={item.aId}></input>
+                <label className="tab-label" style={headerStyle} htmlFor={item.aId}>{item.aHeader}</label>
+                <div className="tab-content" style={contentStyle}><div dangerouslySetInnerHTML={{ __html: item.aContent }} /></div>
+              </div>);
+            })}
+          </div>
         </div>
       );
     }

@@ -6,6 +6,7 @@ declare interface IListControlWebPartStrings {
   PropertyGroupData: string;
   PropertyGroupButtons: string;
   PropertyGroupBodyStyle: string;
+  PropertyGroupDateDisplay: string;
   PropertyGroupSelectedStyle: string;
   PropertyGroupHeaderStyle: string;
   PropInstanceNameLabel: string;
@@ -150,6 +151,8 @@ declare interface IListControlWebPartStrings {
   PropShowDeleteLabel: string;
   PropBodyTextColorLabel: string;
   PropBodyFontFamilyLabel: string;
+  PropDateDisplayFormatLabel: string;
+  PropTimeDisplayFormatLabel: string;
   PropBodyFontSizeLabel: string;
   PropBodyFontStyleLabel: string;
   PropBodyTextAlignLabel: string;
@@ -194,6 +197,8 @@ declare interface IListControlWebPartStrings {
   RuntimeFilterOperatorLabel: string;
   RuntimeFilterValueLabel: string;
   RuntimeFilterValuePlaceholder: string;
+  RuntimeFilterDateLabel: string;
+  RuntimeFilterEndDateLabel: string;
   RuntimeFilterApply: string;
   RuntimeFilterClear: string;
   RuntimeFilterClose: string;

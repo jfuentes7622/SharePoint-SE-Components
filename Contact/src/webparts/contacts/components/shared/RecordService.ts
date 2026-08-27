@@ -30,7 +30,7 @@ export default class RecordSvc implements IRecordService {
  public async GetPersonnel(dir: string, div: string): Promise<Array<PersonGroupModel>> {
     if (this._configData.directorateField)
       {
-    const groups = await this.GetSPListFieldChoices(this._configData.personnelListName, 'Group');
+    const groups = await this.GetSPListFieldChoices(this._configData.personnelListName, this._configData.groupField || 'Group');
     this.logDiagnostic('GetPersonnel DIR:' + dir);
     this.logDiagnostic('GetPersonnel DIV:' + div);
     const records = await this._spListService.GetPersonnelData(dir, div);

@@ -29,6 +29,104 @@ li.slide {
   border: 1px solid #bbb;
 }
 
+.carouselSurface {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+  background-clip: padding-box;
+}
+
+.carouselViewport {
+  box-sizing: border-box;
+  position: relative;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.webPartTitle {
+  box-sizing: border-box;
+  width: 100%;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.slideFrame {
+  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.slideTitlePanel,
+.slideFooter {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.slideTitle,
+.slideDescription,
+.slideLinkRow {
+  box-sizing: border-box;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.slideDescription p:first-child,
+.slideDescription ul:first-child,
+.slideDescription ol:first-child {
+  margin-top: 0;
+}
+
+.slideDescription p:last-child,
+.slideDescription ul:last-child,
+.slideDescription ol:last-child {
+  margin-bottom: 0;
+}
+
+.slideDescription a {
+  color: inherit;
+}
+
+.slideLinkRow {
+  margin-top: 4px;
+}
+
+.slideLinkRow a {
+  display: inline-block;
+  text-decoration: underline;
+}
+
+.carouselArrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #323130;
+  font-size: 32px;
+  line-height: 1;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.previousArrow {
+  left: 12px;
+}
+
+.nextArrow {
+  right: 12px;
+}
+
 .iskmCarousel {
   .container {
     min-width: 500px;
@@ -37,6 +135,12 @@ li.slide {
 
   .carouselDiv {
     display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    max-width: 100%;
+    margin-right: auto;
+    margin-left: auto;
     text-align: -webkit-center!important;
     width: $carouselWidth;
     height: $carouselHeight;
@@ -115,6 +219,7 @@ li.slide {
   .imageCircle {
     border-radius: 50%;
     object-fit: cover;
+    overflow: hidden;
   }
 
   .imageSquare {

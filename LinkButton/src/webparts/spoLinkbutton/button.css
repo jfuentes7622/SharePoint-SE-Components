@@ -2,6 +2,7 @@ a.button {
     -webkit-appearance: button;
     -moz-appearance: button;
     appearance: button;
+    box-sizing: border-box;
     display: flex;
     text-decoration: none;
     height: 5vh; /* Default fallback */
@@ -11,12 +12,13 @@ a.button {
     color: white;
     background-color: #8A1717; 
     border-radius: 5px;
-    max-width: 400px;
+    max-width: 100%;
     text-align: center;
     align-items: center;
     justify-content: flex-start;
     gap: 8px;
     padding: 0 12px;
+    overflow: hidden;
     cursor: pointer;
     outline: transparent;
     position: relative;
@@ -29,6 +31,27 @@ a.button .button-icon-container {
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
+
+a.button.button-with-side-image {
+    gap: 0;
+    padding: 0;
+}
+
+a.button.button-with-side-image .button-icon-container {
+    align-self: stretch;
+    max-height: none;
+}
+
+a.button.button-with-side-image .button-text-container {
+    box-sizing: border-box;
+    height: 100%;
+    padding: 0 12px;
 }
 
 a.button .button-text-container {
@@ -41,16 +64,34 @@ a.button .button-text-container {
 }
 
 a.button img.button-icon {
+    display: block;
     vertical-align: middle;
-    object-fit: contain;
+    object-fit: cover;
+    max-width: 100%;
+    max-height: 100%;
+}
+
+a.button img.button-background-image {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+}
+
+a.button.button-with-background-image .button-text-container {
+    position: relative;
+    z-index: 1;
 }
 
 a.button:hover {
     background-color: #fafafa;
     color:#8A1717;
     border: 1px solid #8A1717;
-}
-
-a.button:hover img.button-icon {
-    opacity: 0.8;
 }

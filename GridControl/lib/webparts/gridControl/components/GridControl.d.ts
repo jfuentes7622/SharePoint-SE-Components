@@ -35,6 +35,8 @@ export interface IGridControlProps {
     bodyFontStyle: string;
     bodyFontBold: boolean;
     bodyTextAlign: string;
+    dateDisplayFormat: string;
+    timeDisplayFormat: string;
     selectedTextColor: string;
     selectedBackgroundColor: string;
     selectedFontStyle: string;
@@ -75,6 +77,8 @@ export interface IListFieldDefinition {
     Name: string;
     RealFieldName?: string;
     DisplayName?: string;
+    TypeAsString?: string;
+    DisplayFormat?: number;
     Hidden?: string | boolean;
     ConfiguredWidth?: string;
 }
@@ -88,12 +92,22 @@ export interface IGridFieldMetadata {
     description: string;
     choices: string[];
     displayFormat: number;
+    lookupList: string;
+    lookupField: string;
+    allowMultiple: boolean;
+}
+export interface IGridLookupOption {
+    id: number;
+    text: string;
 }
 export interface IGridControlState {
     selectedViewId: string;
     fields: IListFieldDefinition[];
     fieldMetadataByName: {
         [fieldName: string]: IGridFieldMetadata;
+    };
+    lookupOptionsByField: {
+        [fieldName: string]: IGridLookupOption[];
     };
     rows: any[];
     loading: boolean;
@@ -106,8 +120,13 @@ export interface IGridControlState {
     sortFieldName: string;
     sortDirection: 'asc' | 'desc' | '';
     activeFilterFieldName: string;
+    filterPopoverStyle: any;
+    activeFilterIsDate: boolean;
     draftFilterOperator: FilterOperator;
     draftFilterValue: string;
+    draftFilterEndValue: string;
+    datePickerTarget: 'start' | 'end' | '';
+    datePickerMonth: string;
     columnFilters: {
         [fieldName: string]: IColumnFilter;
     };
@@ -120,25 +139,42 @@ export interface IGridControlState {
         [fieldName: string]: string;
     };
     saving: boolean;
+    embeddedByDynamicForms: boolean;
+    runtimeFilterJson: string;
+    runtimeDefaultField: string;
+    runtimeDefaultValue: any;
+    runtimeReadOnly: boolean;
+    runtimeConfigOwner: string;
 }
 export declare type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
 export interface IColumnFilter {
     operator: FilterOperator;
-    value: string;
+    value: any;
+    endValue?: string;
     compareDateOnly?: boolean;
 }
 export declare class GridControl extends React.Component<IGridControlProps, IGridControlState> {
     private _refreshEventHandler;
+    private _runtimeConfigEventHandler;
+    private _loadRowsRequestId;
+    private _listItemEntityTypeName;
+    private _listItemEntityTypeListName;
     constructor(props: IGridControlProps);
     componentDidMount(): void;
     componentWillUnmount(): void;
     componentDidUpdate(prevProps: IGridControlProps, prevState: IGridControlState): void;
     private getInitialViewId(views);
     private handleExternalRefresh(event);
+    private handleRuntimeConfig(event);
+    private cancelRuntimeEdit();
     private getWebUrl();
     private getJsonWithFallback(url);
-    private postJsonWithFallback(url, body);
+    private logPostAttempt(label, url, response, payload);
+    private postJsonWithFallback(url, body, baseHeaders?, verboseBody?, allowFallback?);
     private buildViewIdCandidates(selectedViewId);
+    private buildMinimalViewXml(viewQuery, viewFieldNames, rowLimit, scope);
+    private loadSelectedViewXml(selectedViewId, viewFieldNames);
+    private addFieldsToViewXml(viewXml, fieldNames);
     private loadSelectedViewFieldNames(selectedViewId);
     private getDisplayFields();
     private getGridSchemaFields();
@@ -150,9 +186,15 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private loadListFieldTypeMap(viewFieldNames);
     private loadListFieldTitleMap();
     private loadGridFieldMetadata();
+    private loadListItemEntityTypeName();
+    private loadLookupOptions(metadata);
+    private loadLookupOptionsByField(metadataByName);
     private applyFieldDisplayNames(fields, titleMap);
+    private applyFieldTypes(fields, metadataByName);
     private getRowFieldValue(row, field);
+    private getUrlCellValue(row, field);
     private stringifyCellValue(value);
+    private formatDateCellValue(value, field);
     private isMeaningfulCellValue(value);
     private filterRenderableRows(rows, visibleFields);
     private loadRowsFromItemsEndpoint(viewFieldNames);
@@ -164,6 +206,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private toggleVisibleItemsChecked(rows);
     private getGridFieldMetadata(field);
     private isEditableGridField(field);
+    private getLookupIds(value);
     private normalizeEditingValue(value, metadata);
     private beginRowEdit(row);
     private beginNewRow();
@@ -171,6 +214,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private updateEditingValue(fieldName, value);
     private validateEditingValues();
     private buildEditingPayload();
+    private buildVerboseEditingPayload(payload, entityTypeName);
     private saveEditingRow();
     private renderEditingControl(field);
     private renderEditingRow(displayFields);
@@ -183,12 +227,18 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private getFieldKey(field);
     private getFilterOperatorOptions();
     private toggleSort(field);
-    private openFilter(field);
+    private openFilter(field, anchorElement);
     private closeFilter();
+    private getIsoDate(date);
+    private toggleDatePicker(target);
+    private changeDatePickerMonth(offset);
+    private selectFilterDate(value);
+    private renderDatePicker();
     private applyActiveFilter();
     private clearActiveFilter();
     private compareComparableValues(leftValue, rightValue);
     private rowMatchesFilter(row, field, filter);
+    private getFilterCellText(row, field);
     private parsePresetFilterConditions();
     private resolveFieldByReference(fieldsByKey, fieldRef);
     private rowMatchesPresetConditions(row, fieldsByKey, conditions);

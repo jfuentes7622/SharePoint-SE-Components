@@ -4,5 +4,6 @@ export default class SlideItemModel {
     public slideTitle: string;
     public slideImgUrl: string;
     public slideText: string;
-    public slideNavigationUrl: string;    
+    public slideNavigationUrl: string;
+    public slideLinkText: string;
 }

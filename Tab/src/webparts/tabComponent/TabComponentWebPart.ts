@@ -12,34 +12,35 @@ import { DisplayMode,Version } from '@microsoft/sp-core-library';
 
 import {
   IPropertyPaneConfiguration,
-  IPropertyPaneCustomFieldProps,
-  IPropertyPaneField,
-  PropertyPaneFieldType,
   PropertyPaneTextField,
   PropertyPaneCheckbox,
   PropertyPaneDropdown,
+  PropertyPaneSlider,
   PropertyPaneLabel
 } from '@microsoft/sp-webpart-base';
 
 import { BaseClientSideWebPart,  WebPartContext } from '@microsoft/sp-webpart-base';
-import { SPHttpClient } from '@microsoft/sp-http';
 import { Environment, EnvironmentType } from '@microsoft/sp-core-library';
 import * as strings from 'TabComponentWebPartStrings';
+import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 import TabComponent from './components/TabComponent';
 import { ITabComponentProps, ITabVisualSettings } from './components/ITabComponentProps';
 import ErrorComponent, { IErrorComponentProps } from './components/ErrorComponent';
-import TabCollectionEditor, { IImageOption } from './components/TabCollectionEditor';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
+import { PropertyFieldCollectionData, CustomCollectionFieldType } from '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData';
 
 require('../tabComponent/assets/TabStyles-round.css');
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
+const picturePickerModule: any = require('sp-client-custom-fields/lib/PropertyFieldPicturePickerHost');
+const PropertyFieldPicturePickerHost: any = picturePickerModule.default || picturePickerModule;
 
 export interface IConfigListData {
   collectionData: any[];
 }
 
 export interface ITabComponentWebPartProps {
+  forceFullWidth?: boolean;
   description: string;
   disableColor: string;
   overrideCSS: string;
@@ -54,6 +55,21 @@ export interface ITabComponentWebPartProps {
   tabHeight: number | string;
   tabWidth: number | string;
   autoTabWidth: boolean;
+  tabTextColor: string;
+  tabBorderColor: string;
+  tabBorderWidth: number | string;
+  tabBorderStyle: 'none' | 'solid' | 'dashed' | 'dotted' | 'double';
+  tabCornerRadius: number | string;
+  tabLineColor: string;
+  tabLineWidth: number | string;
+  webPartBorderColor: string;
+  webPartBorderWidth: number | string;
+  webPartBorderStyle: 'none' | 'solid' | 'dashed' | 'dotted' | 'double';
+  webPartCornerStyle: 'square' | 'rounded';
+  webPartCornerRadius: number | string;
+  inactiveImageFade: number | string;
+  contentPaddingTop: number | string;
+  contentPaddingBottom: number | string;
   collectionData: ITabCollectionItem[];
   tabs: any[];
   enableDiagnostics?: boolean;
@@ -73,7 +89,6 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   private foundAnotherTab: boolean = false;
   private tabsProcessedCount = 0;
   private ContentArea: HTMLElement;
-  private imageOptions: IImageOption[] = [];
 
 
   public constructor(context?: WebPartContext) {
@@ -110,6 +125,9 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
 
   private windowLoaded(): void {
     this.logDiagnostic('Window load event fired; removing part-Loading attribute from tracked zones.');
+    if (!this.ContentArea) {
+      return;
+    }
     // Remove the attribute from the webparts so the normal CSS rules apply
     Array.from(this.ContentArea.querySelectorAll('[part-Loading]')).forEach(d => {
       d.removeAttribute('part-Loading');
@@ -118,95 +136,43 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    if (propertyPath === 'tabs') {
+      this.properties.collectionData = [];
+    }
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
-  }
-
-  protected onInit(): Promise<void> {
-    return this.loadSiteImages();
-  }
-
-  protected onPropertyPaneConfigurationStart(): void {
-    if (this.imageOptions.length === 0) {
-      this.loadSiteImages();
-    }
-  }
-
-  private async getJson(url: string): Promise<any> {
-    let response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
-    if (!response.ok) {
-      response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
-        headers: { Accept: 'application/json;odata=verbose' }
-      });
-    }
-    if (!response.ok) {
-      throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
-    }
-    return response.json();
-  }
-
-  private async loadSiteImages(): Promise<void> {
-    try {
-      const webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
-      const listData = await this.getJson(webUrl
-        + '/_api/web/lists?$select=Id,Title,Hidden,BaseTemplate&$filter=Hidden eq false and BaseTemplate eq 101');
-      const libraries = listData && listData.value ? listData.value
-        : (listData && listData.d && listData.d.results ? listData.d.results : []);
-      const imageExtensions = /\.(apng|avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
-      const options: IImageOption[] = [];
-      for (let libraryIndex = 0; libraryIndex < libraries.length; libraryIndex += 1) {
-        const library = libraries[libraryIndex];
-        const itemData = await this.getJson(webUrl + "/_api/web/lists(guid'" + String(library.Id)
-          + "')/items?$select=FileRef,FileLeafRef,FSObjType&$filter=FSObjType eq 0&$top=5000");
-        const items = itemData && itemData.value ? itemData.value
-          : (itemData && itemData.d && itemData.d.results ? itemData.d.results : []);
-        items.forEach((item: any) => {
-          const fileName = String(item.FileLeafRef || '');
-          const fileUrl = String(item.FileRef || '');
-          if (fileUrl && imageExtensions.test(fileName)) {
-            options.push({ key: fileUrl, text: String(library.Title) + ' / ' + fileName });
-          }
-        });
-      }
-      this.imageOptions = options.sort((left: IImageOption, right: IImageOption) => {
-        return left.text.localeCompare(right.text);
-      });
-      this.logDiagnostic('Loaded site images. Count=' + String(this.imageOptions.length));
-      this.context.propertyPane.refresh();
-    } catch (error) {
-      this.imageOptions = [];
-      this.logDiagnostic('Failed to load site images: ' + (error && error.message ? error.message : String(error)));
-    }
-  }
-
-  private getTabCollectionField(): IPropertyPaneField<IPropertyPaneCustomFieldProps> {
-    return {
-      type: PropertyPaneFieldType.Custom,
-      targetProperty: 'collectionData',
-      properties: {
-        key: 'tabsCollectionData',
-        onRender: (element: HTMLElement): void => {
-          ReactDom.render(React.createElement(TabCollectionEditor, {
-            value: this.getConfiguredTabs(),
-            imageOptions: this.imageOptions,
-            onChange: (value: ITabCollectionItem[]): void => {
-              const oldValue = this.properties.collectionData || this.properties.tabs || [];
-              this.properties.collectionData = value;
-              this.onPropertyPaneFieldChanged('collectionData', oldValue, value);
-              this.render();
-            }
-          }), element);
-        },
-        onDispose: (element: HTMLElement): void => {
-          ReactDom.unmountComponentAtNode(element);
-        }
-      }
-    };
   }
 
   private handleColorPropertyChange(propertyPath: string, oldValue: any, newValue: any): void {
     this.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
     this.context.propertyPane.refresh();
     this.render();
+  }
+
+  private renderTabImagePicker(field: any, value: any,
+    onUpdate: (fieldId: string, fieldValue: any) => void): React.ReactElement<any> {
+    const properties: any = {};
+    properties[field.id] = String(value || '');
+    return React.createElement(PropertyFieldPicturePickerHost, {
+      key: 'tabImagePicker-' + String(value || ''),
+      targetProperty: field.id,
+      label: '',
+      initialValue: String(value || ''),
+      context: this.context,
+      previewImage: true,
+      allowedFileExtensions: '.gif,.jpg,.jpeg,.bmp,.png,.svg,.webp',
+      readOnly: false,
+      disabled: false,
+      properties: properties,
+      disableReactivePropertyChanges: true,
+      deferredValidationTime: 0,
+      onGetErrorMessage: undefined,
+      onPropertyChange: (propertyPath: string, oldValue: any, newValue: any): void => {
+        onUpdate(field.id, String(newValue || ''));
+      },
+      render: (): void => undefined,
+      onRender: undefined,
+      onDispose: undefined
+    });
   }
 
   // Searches through the ancestors of childElem and returns true if targetElem is found
@@ -243,18 +209,18 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
       this.tabsProcessedCount += 1;
     }
 
-    //found another tab control, but might not begood
-    if (targetElem.querySelector("div[id^='TabControl']") !== null) {
+    // Only another section-mode Tab ends this section-mode control's range.
+    // WebPart-mode Tabs can be nested inside a section controlled by this instance.
+    if (targetElem.querySelector('[data-spse-tab-type="1"]') !== null) {
       this.foundAnotherTab = true;
       return true;
     }
-
-    if (this.tabsProcessedCount > (this.properties.tabs.length + 1) && this.found === true) { return true; }
 
     return this.foundAnotherTab;
   }
 
   public render(): void {
+    updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
     // Need to send a message if webpart is used on a classic page
     if (Environment.type === EnvironmentType.ClassicSharePoint) {
       this.logDiagnostic('Classic SharePoint environment detected; rendering unsupported-environment message instead of tabs.');
@@ -285,13 +251,21 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     this.domElement.style.setProperty('--disableColor', this.properties.disableColor);
     this.domElement.style.setProperty('--selectedColor', this.properties.selectedColor);
     const tabtype = (this.properties.TabType) ? this.properties.TabType : '1';
+    this.domElement.setAttribute('data-spse-tab-type', tabtype);
     // Find the root section by traversing the DOM tree up until it finds an element with the CanvasSection class
     this.ContentArea = this.domElement;
 
       if (tabtype === '1') {
-        this.ContentArea = this.domElement.ownerDocument.querySelectorAll(".Canvas, .grid")[0].parentElement!;
+        const canvasRoot = this.domElement.ownerDocument.querySelector('.Canvas, .grid') as HTMLElement;
+        this.ContentArea = canvasRoot && canvasRoot.parentElement
+          ? canvasRoot.parentElement
+          : (this.domElement.parentElement || this.domElement);
       } else {
-         while (!this.ContentArea.classList.contains('CanvasSection')) { this.ContentArea = this.ContentArea.parentElement!; }
+        let sectionRoot: HTMLElement | null = this.domElement;
+        while (sectionRoot && !sectionRoot.classList.contains('CanvasSection')) {
+          sectionRoot = sectionRoot.parentElement;
+        }
+        this.ContentArea = sectionRoot || this.domElement.parentElement || this.domElement;
       }
     //}
 
@@ -326,7 +300,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
       });
     }
 
-    const configuredTabs = this.getConfiguredTabs();
+    const configuredTabs = this.ensureConfiguredTabs(ctrlZones.length);
     if (configuredTabs.length !== ctrlZones.length) {
       console.warn('[TabComponentWebPart] Configured tab entries (' + String(configuredTabs.length) + ') do not match discovered zone count (' + String(ctrlZones.length) + '). Extra zones will use default "Tab N" labels; extra configured entries are ignored.');
     }
@@ -367,7 +341,22 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
           tabHeight: globalTabHeight,
           tabWidth: globalTabWidth,
           autoTabWidth: this.properties.autoTabWidth || false,
-          tabShape: this.properties.tabShape || 'rounded'
+          tabShape: this.properties.tabShape || 'rounded',
+          tabTextColor: this.properties.tabTextColor || '#ffffff',
+          tabBorderColor: this.properties.tabBorderColor || '#000000',
+          tabBorderWidth: this.parseNumberSetting(this.properties.tabBorderWidth, 0, 0, 20),
+          tabBorderStyle: this.properties.tabBorderStyle || 'solid',
+          tabCornerRadius: this.parseNumberSetting(this.properties.tabCornerRadius, 10, 0, 40),
+          tabLineColor: this.properties.tabLineColor || '#8A1717',
+          tabLineWidth: this.parseNumberSetting(this.properties.tabLineWidth, 3, 0, 20),
+          webPartBorderColor: this.properties.webPartBorderColor || '#cccccc',
+          webPartBorderWidth: this.parseNumberSetting(this.properties.webPartBorderWidth, 0, 0, 20),
+          webPartBorderStyle: this.properties.webPartBorderStyle || 'solid',
+          webPartCornerStyle: this.properties.webPartCornerStyle || 'square',
+          webPartCornerRadius: this.parseNumberSetting(this.properties.webPartCornerRadius, 8, 0, 40),
+          inactiveImageFade: this.parseNumberSetting(this.properties.inactiveImageFade, 45, 0, 100),
+          contentPaddingTop: this.parseNumberSetting(this.properties.contentPaddingTop, 0, 0, 100),
+          contentPaddingBottom: this.parseNumberSetting(this.properties.contentPaddingBottom, 0, 0, 100)
         }
       } as ITabComponentProps
     );
@@ -376,6 +365,8 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
 
   protected onDispose(): void {
     this.logDiagnostic('onDispose invoked; unmounting React tree.');
+    releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
+    this.domElement.removeAttribute('data-spse-tab-type');
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
@@ -409,8 +400,49 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
             {
               groupName: strings.BasicGroupName,
               groupFields: [
-                PropertyPaneLabel('tabsCollectionLabel', { text: strings.Tabs }),
-                this.getTabCollectionField(),
+                PropertyFieldCollectionData('tabs', {
+                  key: 'tabsListField',
+                  label: strings.Tabs,
+                  value: this.getConfiguredTabs(),
+                  panelHeader: strings.ManageTabs,
+                  manageBtnLabel: strings.ManageTabs,
+                  enableSorting: true,
+                  fields: [
+                    { id: 'Title', title: 'Title', required: true, type: CustomCollectionFieldType.string },
+                    {
+                      id: 'textPosition',
+                      title: 'Text Position',
+                      required: false,
+                      type: CustomCollectionFieldType.dropdown,
+                      defaultValue: 'left',
+                      options: [
+                        { key: 'left', text: 'Left of Tab' },
+                        { key: 'center', text: 'Center of Tab' },
+                        { key: 'right', text: 'Right of Tab' }
+                      ]
+                    },
+                    {
+                      id: 'imageUrl',
+                      title: 'Image URL',
+                      required: false,
+                      type: CustomCollectionFieldType.custom,
+                      onCustomRender: this.renderTabImagePicker.bind(this)
+                    },
+                    {
+                      id: 'imagePosition',
+                      title: 'Image Position',
+                      required: false,
+                      type: CustomCollectionFieldType.dropdown,
+                      defaultValue: 'left',
+                      options: [
+                        { key: 'left', text: 'Image Left' },
+                        { key: 'right', text: 'Image Right' }
+                      ]
+                    },
+                    { id: 'onlyImage', title: 'Only Image', required: false, type: CustomCollectionFieldType.boolean, defaultValue: false }
+                  ]
+                }),
+                PropertyPaneCheckbox('forceFullWidth', { text: 'Force Full Width' }),
                 PropertyPaneDropdown('TabType', {
                   label: strings.TabType,
                   options: [
@@ -418,14 +450,6 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
                     { key: '2', text: 'WebParts' }
                   ],
                   selectedKey: this.properties.TabType || '1'
-                }),
-                PropertyPaneDropdown('tabShape', {
-                  label: 'Tab Shape',
-                  options: [
-                    { key: 'rounded', text: 'Rounded Top Corners' },
-                    { key: 'square', text: 'Squared' }
-                  ],
-                  selectedKey: this.properties.tabShape || 'rounded'
                 }),
                 PropertyPaneDropdown('fontFamily', {
                   label: 'Font',
@@ -455,25 +479,38 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
                   text: 'Bold',
                   checked: this.properties.isBold || false
                 }),
-                PropertyPaneTextField('fontSize', {
+                PropertyPaneSlider('fontSize', {
                   label: 'Font Size (px)',
-                  value: `${this.parseNumberSetting(this.properties.fontSize, 14, 10, 36)}`,
-                  description: 'Enter a number between 10 and 36'
+                  min: 10,
+                  max: 36,
+                  step: 1,
+                  value: this.parseNumberSetting(this.properties.fontSize, 14, 10, 36)
                 }),
-                PropertyPaneTextField('tabHeight', {
+                PropertyPaneSlider('tabHeight', {
                   label: 'Tab Height (px)',
-                  value: `${this.parseNumberSetting(this.properties.tabHeight, 60, 36, 160)}`,
-                  description: 'Enter a number between 36 and 160'
+                  min: 36,
+                  max: 160,
+                  step: 1,
+                  value: this.parseNumberSetting(this.properties.tabHeight, 60, 36, 160)
                 }),
                 PropertyPaneCheckbox('autoTabWidth', {
                   text: 'Auto Size Width',
                   checked: this.properties.autoTabWidth || false
                 }),
-                PropertyPaneTextField('tabWidth', {
+                PropertyPaneSlider('tabWidth', {
                   label: 'Tab Width (px)',
-                  value: `${this.parseNumberSetting(this.properties.tabWidth, 120, 60, 400)}`,
-                  description: 'Enter a number between 60 and 400',
+                  min: 60,
+                  max: 400,
+                  step: 1,
+                  value: this.parseNumberSetting(this.properties.tabWidth, 120, 60, 400),
                   disabled: this.properties.autoTabWidth === true
+                }),
+                PropertyPaneSlider('inactiveImageFade', {
+                  label: 'Inactive Image Fade (%)',
+                  min: 0,
+                  max: 100,
+                  step: 5,
+                  value: this.parseNumberSetting(this.properties.inactiveImageFade, 45, 0, 100)
                 }),
                 PropertyFieldColorPicker('selectedColor', {
                   label: strings.SelectedColor,
@@ -490,6 +527,129 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
                   style: PropertyFieldColorPickerStyle.Inline,
                   properties: this.properties,
                   key: 'tabsDisableColorField'
+                }),
+                PropertyFieldColorPicker('tabTextColor', {
+                  label: 'Tab Foreground Color',
+                  selectedColor: this.properties.tabTextColor || '#ffffff',
+                  onPropertyChange: this.handleColorPropertyChange.bind(this),
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  properties: this.properties,
+                  key: 'tabsTextColorField'
+                }),
+                PropertyFieldColorPicker('tabBorderColor', {
+                  label: 'Tab Border Color',
+                  selectedColor: this.properties.tabBorderColor || '#000000',
+                  onPropertyChange: this.handleColorPropertyChange.bind(this),
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  properties: this.properties,
+                  key: 'tabsBorderColorField'
+                }),
+                PropertyPaneSlider('tabBorderWidth', {
+                  label: 'Tab Border Width (px)',
+                  min: 0,
+                  max: 20,
+                  step: 1,
+                  value: this.parseNumberSetting(this.properties.tabBorderWidth, 0, 0, 20)
+                }),
+                PropertyPaneDropdown('tabBorderStyle', {
+                  label: 'Tab Border Type',
+                  options: [
+                    { key: 'none', text: 'None' },
+                    { key: 'solid', text: 'Solid' },
+                    { key: 'dashed', text: 'Dashed' },
+                    { key: 'dotted', text: 'Dotted' },
+                    { key: 'double', text: 'Double' }
+                  ],
+                  selectedKey: this.properties.tabBorderStyle || 'solid'
+                }),
+                PropertyPaneDropdown('tabShape', {
+                  label: 'Tab Corner Style',
+                  options: [
+                    { key: 'square', text: 'Square' },
+                    { key: 'rounded', text: 'Rounded' }
+                  ],
+                  selectedKey: this.properties.tabShape || 'rounded'
+                }),
+                ...((this.properties.tabShape || 'rounded') === 'rounded' ? [
+                  PropertyPaneSlider('tabCornerRadius', {
+                    label: 'Tab Corner Radius (px)',
+                    min: 0,
+                    max: 40,
+                    step: 1,
+                    value: this.parseNumberSetting(this.properties.tabCornerRadius, 10, 0, 40)
+                  })
+                ] : []),
+                PropertyFieldColorPicker('tabLineColor', {
+                  label: 'Line Below Tabs Color',
+                  selectedColor: this.properties.tabLineColor || '#8A1717',
+                  onPropertyChange: this.handleColorPropertyChange.bind(this),
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  properties: this.properties,
+                  key: 'tabsLineColorField'
+                }),
+                PropertyPaneSlider('tabLineWidth', {
+                  label: 'Line Below Tabs Size (px)',
+                  min: 0,
+                  max: 20,
+                  step: 1,
+                  value: this.parseNumberSetting(this.properties.tabLineWidth, 3, 0, 20)
+                }),
+                PropertyFieldColorPicker('webPartBorderColor', {
+                  label: 'Web Part Border Color',
+                  selectedColor: this.properties.webPartBorderColor || '#cccccc',
+                  onPropertyChange: this.handleColorPropertyChange.bind(this),
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  properties: this.properties,
+                  key: 'tabsWebPartBorderColorField'
+                }),
+                PropertyPaneSlider('webPartBorderWidth', {
+                  label: 'Web Part Border Width (px)',
+                  min: 0,
+                  max: 20,
+                  step: 1,
+                  value: this.parseNumberSetting(this.properties.webPartBorderWidth, 0, 0, 20)
+                }),
+                PropertyPaneDropdown('webPartBorderStyle', {
+                  label: 'Web Part Border Type',
+                  options: [
+                    { key: 'none', text: 'None' },
+                    { key: 'solid', text: 'Solid' },
+                    { key: 'dashed', text: 'Dashed' },
+                    { key: 'dotted', text: 'Dotted' },
+                    { key: 'double', text: 'Double' }
+                  ],
+                  selectedKey: this.properties.webPartBorderStyle || 'solid'
+                }),
+                PropertyPaneDropdown('webPartCornerStyle', {
+                  label: 'Web Part Corner Style',
+                  options: [
+                    { key: 'square', text: 'Square' },
+                    { key: 'rounded', text: 'Rounded' }
+                  ],
+                  selectedKey: this.properties.webPartCornerStyle || 'square'
+                }),
+                ...((this.properties.webPartCornerStyle || 'square') === 'rounded' ? [
+                  PropertyPaneSlider('webPartCornerRadius', {
+                    label: 'Web Part Corner Radius (px)',
+                    min: 0,
+                    max: 40,
+                    step: 1,
+                    value: this.parseNumberSetting(this.properties.webPartCornerRadius, 8, 0, 40)
+                  })
+                ] : []),
+                PropertyPaneSlider('contentPaddingTop', {
+                  label: 'Content Padding Top (px)',
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  value: this.parseNumberSetting(this.properties.contentPaddingTop, 0, 0, 100)
+                }),
+                PropertyPaneSlider('contentPaddingBottom', {
+                  label: 'Content Padding Bottom (px)',
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  value: this.parseNumberSetting(this.properties.contentPaddingBottom, 0, 0, 100)
                 }),
                 PropertyPaneTextField('overrideCSS', {
                   label: strings.OverrideCSS,
@@ -540,5 +700,25 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     }
 
     return Array.isArray(this.properties.tabs) ? this.properties.tabs as ITabCollectionItem[] : [];
+  }
+
+  private ensureConfiguredTabs(zoneCount: number): ITabCollectionItem[] {
+    const configuredTabs = this.getConfiguredTabs().slice();
+    if (zoneCount <= configuredTabs.length) {
+      return configuredTabs;
+    }
+
+    for (let index = configuredTabs.length; index < zoneCount; index += 1) {
+      configuredTabs.push({
+        Title: `Tab ${index + 1}`,
+        textPosition: 'left',
+        imagePosition: 'left',
+        onlyImage: false
+      });
+    }
+    this.properties.tabs = configuredTabs;
+    this.properties.collectionData = [];
+    this.logDiagnostic('Created missing configured tab entries. Count=' + String(zoneCount) + '.');
+    return configuredTabs;
   }
 }

@@ -19,6 +19,8 @@ export interface ICalendarProps {
   dataSources: ICalendarDataSource[];
   defaultView: string;
   showWeekends: boolean;
+  showMonthEventStartTime: boolean;
+  showMonthEventDuration: boolean;
   calendarHeight: number;
   enableSwimlanes: boolean;
   swimlaneFieldName: string;

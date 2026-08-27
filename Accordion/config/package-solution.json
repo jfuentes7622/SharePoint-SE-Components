@@ -3,8 +3,9 @@
   "solution": {
     "name": "SPS-Accordion",
     "id": "ff98fba2-e4d7-4ccd-b192-dc5decc0651c",
-    "version": "1.0.0.9",
-    "includeClientSideAssets": true
+    "version": "1.0.0.19",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true
   },
   "paths": {
     "zippedPackage": "solution/sps-accordion.sppkg"

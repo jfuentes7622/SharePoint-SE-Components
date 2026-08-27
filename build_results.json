@@ -1,0 +1,156 @@
+[
+    {
+        "Project":  "Accordion",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "Accordion\\sharepoint\\solution\\sps-accordion.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "Calendar",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "Calendar\\sharepoint\\solution\\sps-calendar.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "Carousel",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "Carousel\\sharepoint\\solution\\carousel.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "Contact",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "Contact\\sharepoint\\solution\\sps-contacts.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "DynamicForms",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "DynamicForms\\sharepoint\\solution\\share-point-dynamic-form.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "GridControl",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "GridControl\\sharepoint\\solution\\grid-control.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "LinkButton",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "LinkButton\\sharepoint\\solution\\sps-linkbutton.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "ListControl",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "ListControl\\sharepoint\\solution\\list-control.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "Marquee",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "Marquee\\sharepoint\\solution\\sps-marquee.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "PrintControl",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "PrintControl\\sharepoint\\solution\\sps-print-control.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "ReportForms",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "ReportForms\\sharepoint\\solution\\sps-report-forms.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "ScriptEditor",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "ScriptEditor\\sharepoint\\solution\\sps-script-editor-web-part.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "Tab",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "Tab\\sharepoint\\solution\\sps-tabs.sppkg",
+        "AllErrorsWarnings":  ""
+    },
+    {
+        "Project":  "Tiles",
+        "CleanExit":  0,
+        "CleanOutput":  "",
+        "BundleExit":  0,
+        "BundleOutput":  "",
+        "PackageExit":  0,
+        "PackageOutput":  "",
+        "PackagePath":  "Tiles\\sharepoint\\solution\\sps-tiles.sppkg",
+        "AllErrorsWarnings":  ""
+    }
+]

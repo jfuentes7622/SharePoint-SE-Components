@@ -1,0 +1,21 @@
+{
+    "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+    "solution": {
+        "name": "SPS Full Width Control",
+        "id": "6d83f014-43a7-4ca9-a33e-36b6465372c1",
+        "version": "1.0.0.3",
+        "includeClientSideAssets": true,
+        "skipFeatureDeployment": true,
+        "features": [
+            {
+                "title": "SPS Full Width Control Feature",
+                "description": "Activates the SPS Full Width Control solution.",
+                "id": "4e3d4f74-1161-4fe4-b7ca-94a704f84875",
+                "version": "1.0.0.3"
+            }
+        ]
+    },
+    "paths": {
+        "zippedPackage": "solution/sps-full-width-control.sppkg"
+    }
+}

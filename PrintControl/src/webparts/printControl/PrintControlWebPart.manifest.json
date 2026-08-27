@@ -1,0 +1,32 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "bf001251-763c-4a22-b36a-f82eab79cbe3",
+  "alias": "PrintControlWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+    "group": { "default": "SPS" },
+    "title": { "default": "SPS Print Control" },
+    "description": { "default": "Print the SharePoint page content area without site chrome or navigation." },
+    "officeFabricIconFontName": "Print",
+    "properties": {
+      "buttonLabel": "Print",
+      "alignment": "right",
+      "buttonTextColor": "#000000",
+      "buttonBackgroundColor": "#f0f0f0",
+      "buttonBorderColor": "#f0f0f0",
+      "buttonBorderWidth": 1,
+      "buttonFontFamily": "",
+      "buttonFontSize": 14,
+      "buttonFontStyle": "normal",
+      "buttonFontBold": false,
+      "buttonCornerStyle": "square",
+      "buttonCornerRadius": 4,
+      "contentSelector": "",
+      "enableDiagnostics": true
+    }
+  }]
+}

@@ -237,6 +237,27 @@ export class GridDesigner extends React.Component<IGridDesignerProps, IGridDesig
     return this.props.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
   }
 
+  private async getFieldsResponse(url: string): Promise<any> {
+    var acceptHeaders = [
+      '',
+      'application/json;odata=verbose',
+      'application/json;odata=minimalmetadata',
+      'application/json;odata=nometadata'
+    ];
+    var response: any;
+    for (var i = 0; i < acceptHeaders.length; i += 1) {
+      response = await this.props.context.spHttpClient.get(
+        url,
+        SPHttpClient.configurations.v1,
+        acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined
+      );
+      if (response.ok) {
+        return response;
+      }
+    }
+    return response;
+  }
+
   private async loadFields(): Promise<void> {
     if (!this.props.listName) {
       this.setState({ error: 'Select a SharePoint list before opening Grid Designer.' });
@@ -244,13 +265,16 @@ export class GridDesigner extends React.Component<IGridDesignerProps, IGridDesig
     }
     this.setState({ loading: true, error: '' });
     try {
-      var url = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
-        + "')/fields?$select=InternalName,Title,Description,TypeAsString,Required,ReadOnlyField,Hidden,FromBaseType,Choices,MaxLength,DisplayFormat";
-      var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
-        headers: { Accept: 'application/json;odata=nometadata' }
-      });
+      var fieldsEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=";
+      var url = fieldsEndpoint
+        + 'InternalName,Title,Description,TypeAsString,Required,ReadOnlyField,Hidden,FromBaseType,Choices,MaxLength,DisplayFormat';
+      var response = await this.getFieldsResponse(url);
       if (!response.ok) {
-        throw new Error('SharePoint fields could not be loaded.');
+        url = fieldsEndpoint + 'InternalName,Title,Description,TypeAsString,Required,ReadOnlyField,Hidden,Choices,DisplayFormat';
+        response = await this.getFieldsResponse(url);
+      }
+      if (!response.ok) {
+        throw new Error('SharePoint fields could not be loaded. HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
       }
       var data = await response.json();
       var sourceFields = toArray(data && data.value).length > 0 ? toArray(data.value) : toArray(data && data.d && data.d.results);

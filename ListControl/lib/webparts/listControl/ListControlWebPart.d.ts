@@ -14,6 +14,7 @@ export interface IDynamicDataSourceMetadataCompat {
     instanceId?: string;
 }
 export interface IListControlWebPartProps {
+    forceFullWidth?: boolean;
     description: string;
     instanceName?: string;
     listName: string;
@@ -37,6 +38,8 @@ export interface IListControlWebPartProps {
     bodyFontStyle: string;
     bodyFontBold: boolean;
     bodyTextAlign: string;
+    dateDisplayFormat: string;
+    timeDisplayFormat: string;
     selectedTextColor: string;
     selectedBackgroundColor: string;
     selectedFontStyle: string;
@@ -73,7 +76,7 @@ export interface IListControlWebPartProps {
     filterDesignerField?: string;
     filterDesignerOperator?: 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'startswith' | 'endswith' | 'notcontains';
     filterDesignerLogical?: 'and' | 'or';
-    filterDesignerValueType?: 'static' | 'expression';
+    filterDesignerValueType?: 'static' | 'expression' | 'fieldValue';
     filterDesignerValue?: string;
     filterDesignerSelectedIndex?: string;
     filterDesignerLookupPick?: string;
@@ -119,6 +122,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private _isEditingConditionalStyle;
     private _conditionalStyleDesignerRevision;
     private _fieldTypeByInternalName;
+    private _fieldChoicesByInternalName;
     private _fieldLookupListByInternalName;
     private _filterLookupItemOptions;
     private _conditionalStyleLookupItemOptions;
@@ -135,6 +139,10 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void;
     private loadListFields(listName);
     private isLookupTypeField(internalName);
+    private supportsFilterFieldValue(internalName);
+    private isMultiFilterField(internalName);
+    private getSelectedFilterFieldValues();
+    private createFilterMultiValuePicker(options);
     private loadLookupListItems(listId);
     private handleLoadFilterLookupItems();
     private handleApplyFilterLookupPick();

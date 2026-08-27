@@ -1,0 +1,17 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "309d19bf-9c3c-420b-9b1c-dbc5aa8c5f84",
+  "alias": "FullWidthControlWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+    "group": { "default": "SPS" },
+    "title": { "default": "SPS Full Width Control" },
+    "description": { "default": "Makes the containing fixed-width SharePoint section span the available page width." },
+    "officeFabricIconFontName": "FullWidth",
+    "properties": {}
+  }]
+}

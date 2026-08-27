@@ -40,8 +40,17 @@ export default class SPListService implements ISPListService {
 
     const listTitle = slideList.replace(/'/g, "''");
     const base = `${this._spContexts.absUrl}/_api/web/Lists/GetByTitle('${listTitle}')/items`;
-    const baseSelect = '$top=999&$orderby=Id asc&$select=Id,Title,FileRef,FileLeafRef,FSObjType,File/ServerRelativeUrl,File/Name&$expand=File';
-    const optionalSelect = '$top=999&$orderby=Id asc&$select=Id,Title,SlideOrder,ClickLink,LinkTarget,FileRef,FileLeafRef,FSObjType,Display,Expiration,StartDate,File/ServerRelativeUrl,File/Name&$expand=File';
+    const configuredFields = [
+      this._configData.slideTitleField,
+      this._configData.slideDescriptionField,
+      this._configData.slideLinkField
+    ].filter((fieldName: string, index: number, fields: string[]): boolean => {
+      return !!fieldName && /^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName) && fields.indexOf(fieldName) === index;
+    });
+    const requiredFields = ['Id', 'FileRef', 'FileLeafRef', 'FSObjType', 'File/ServerRelativeUrl', 'File/Name'].concat(configuredFields);
+    const optionalFields = requiredFields.concat(['SlideOrder', 'Display', 'Expiration', 'StartDate']);
+    const baseSelect = '$top=999&$orderby=Id asc&$select=' + requiredFields.join(',') + '&$expand=File';
+    const optionalSelect = '$top=999&$orderby=Id asc&$select=' + optionalFields.join(',') + '&$expand=File';
 
     const fetchSlides = (query: string): Promise<carouselSlideRecord[]> => {
       const url = `${base}?${query}`;
@@ -70,7 +79,7 @@ export default class SPListService implements ISPListService {
     // if the library is missing the custom columns (SlideOrder/Display/etc.).
     let rawItems: carouselSlideRecord[] = await fetchSlides(optionalSelect);
     if (!rawItems) {
-      this.logDiagnostic('Optional slide columns unavailable, retrying with minimal schema.');
+      this.logDiagnostic('Optional control columns unavailable, retrying with selected caption columns only.');
       rawItems = await fetchSlides(baseSelect);
     }
 

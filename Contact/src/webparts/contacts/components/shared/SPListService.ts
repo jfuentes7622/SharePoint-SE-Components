@@ -49,7 +49,7 @@ export default class SPListService implements ISPListService {
                 }).forEach((rec:any)=>{
                   //map data
                   personalRec.push({Id: rec.Id,
-                    Title: rec.Title,
+                    Title: rec[config.titleField || 'Title'],
                     directorate: rec[config.directorateField],
                     division: rec[config.divisionField],
                     branch: rec[config.branchField],

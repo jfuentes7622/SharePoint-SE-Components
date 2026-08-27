@@ -147,11 +147,12 @@
 }
 
 .lc-filter-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
   width: 220px;
-  z-index: 40;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  z-index: 10000;
   border: 1px solid #d0d0d0;
   border-radius: 6px;
   background-color: #ffffff;
@@ -170,6 +171,66 @@
   width: 100%;
   box-sizing: border-box;
   margin-bottom: 8px;
+}
+
+.lc-date-input-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.lc-date-picker-button {
+  flex: 0 0 30px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid #a6a6a6;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.lc-date-picker {
+  margin: 0 0 8px;
+  border: 1px solid #d0d0d0;
+  padding: 6px;
+  background: #ffffff;
+}
+
+.lc-date-picker-header,
+.lc-date-picker-weekdays,
+.lc-date-picker-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: center;
+  text-align: center;
+}
+
+.lc-date-picker-header {
+  grid-template-columns: 28px 1fr 28px;
+  margin-bottom: 4px;
+}
+
+.lc-date-picker-header button,
+.lc-date-picker-day {
+  min-width: 0;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.lc-date-picker-weekdays {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.lc-date-picker-selected {
+  background: #0078d4;
+  color: #ffffff;
+}
+
+.lc-date-picker-day:disabled {
+  color: #a6a6a6;
+  cursor: default;
 }
 
 .lc-filter-actions {

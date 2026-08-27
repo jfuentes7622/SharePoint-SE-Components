@@ -10,9 +10,11 @@ import {
   PropertyPaneTextField,
   PropertyPaneDropdown,
   PropertyPaneCheckbox,
-  PropertyPaneLabel
+  PropertyPaneLabel,
+  PropertyPaneSlider
 } from '@microsoft/sp-webpart-base';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
+import { PropertyFieldPicturePicker } from 'sp-client-custom-fields/lib/PropertyFieldPicturePicker';
 import styles from './SpoLinkbuttonWebPart.module.scss';
 import * as strings from 'SpoLinkbuttonWebPartStrings';
 
@@ -21,21 +23,29 @@ const packageSolutionConfig: any = require('../../../config/package-solution.jso
 export interface ILinkButtonWebPartProps {
   description: string;
   Link: string;
+  linkTarget: string;
   Align: string;
   buttonShape: string;
-  fontSize: string;
+  buttonCornerRadius: number;
+  fontSize: number | string;
   buttonBackgroundColor: string;
   buttonFontColor: string;
   overrideCssUrl: string;
   fontFamily: string;
   fontStyle: string;
+  fontWeight: string;
   fontBold: boolean;
+  textDecoration: string;
+  textTransform: string;
   showIcon: boolean;
   iconImageUrl: string;
-  iconSize: string;
+  imageAsBackground: boolean;
+  imageDisplayMode: string;
+  imageOpacity: number;
+  iconSize: number | string;
   iconPosition: string;
-  buttonHeight: string;
-  buttonWidth: string;
+  buttonHeight: number | string;
+  buttonWidth: number | string;
   enableDiagnostics: boolean;
 }
 
@@ -44,6 +54,11 @@ require ('./button.css');
 export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButtonWebPartProps> {
 
   private _overrideStylesheetId: string;
+
+  public constructor() {
+    super();
+    this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
+  }
 
   protected onInit(): Promise<void> {
     this._overrideStylesheetId = 'linkbutton-override-css-' + this.instanceId;
@@ -131,6 +146,42 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
     return '';
   }
 
+  private toCssPixels(value: number | string, fallback: number): string {
+    if (typeof value === 'number' && isFinite(value)) {
+      return String(value) + 'px';
+    }
+    const savedValue = String(value || '').trim();
+    return savedValue || String(fallback) + 'px';
+  }
+
+  private toSliderNumber(value: number | string, fallback: number): number {
+    if (typeof value === 'number' && isFinite(value)) {
+      return value;
+    }
+    const savedValue = String(value || '').trim().toLowerCase();
+    const parsedValue = parseFloat(savedValue);
+    if (!isFinite(parsedValue)) {
+      return fallback;
+    }
+    if (savedValue.indexOf('rem') > -1 || savedValue.indexOf('em') > -1) {
+      return Math.round(parsedValue * 16);
+    }
+    if (savedValue.indexOf('vh') > -1) {
+      return Math.round(window.innerHeight * parsedValue / 100);
+    }
+    if (savedValue.indexOf('vw') > -1) {
+      return Math.round(window.innerWidth * parsedValue / 100);
+    }
+    return Math.round(parsedValue);
+  }
+
+  private getImageDisplayMode(): string {
+    if (this.properties.imageDisplayMode) {
+      return this.properties.imageDisplayMode;
+    }
+    return this.properties.imageAsBackground === true ? 'background-text' : 'side';
+  }
+
   private _applyOverrideStylesheet(): void {
     const cssUrl = (this.properties.overrideCssUrl || '').trim();
     const existing = document.getElementById(this._overrideStylesheetId) as HTMLLinkElement;
@@ -173,7 +224,7 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
-    if (propertyPath === 'showIcon') {
+    if (propertyPath === 'showIcon' || propertyPath === 'buttonShape' || propertyPath === 'imageDisplayMode') {
       this.context.propertyPane.refresh();
     }
   }
@@ -211,24 +262,33 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
     } else {
       this.logDiagnostic('Rendering button. description=' + this.properties.description + ', link=' + String(this.properties.Link));
       const shape = (this.properties.buttonShape || 'rounded').toLowerCase();
-      const borderRadius = shape === 'square' ? '0' : shape === 'round' ? '9999px' : '5px';
+      const roundedRadius = typeof this.properties.buttonCornerRadius === 'number' ? this.properties.buttonCornerRadius : 5;
+      const borderRadius = shape === 'square' ? '0' : shape === 'round' ? '9999px' : String(roundedRadius) + 'px';
 
       // Typed as `any`: TS 2.4.2 cannot narrow the fontWeight ternary to the CSSProperties literal union.
       const buttonStyle: any = {
         backgroundColor: this.properties.buttonBackgroundColor || '#8A1717',
         color: this.properties.buttonFontColor || '#ffffff',
-        height: this.properties.buttonHeight || '5vh',
-        width: this.properties.buttonWidth || '200px',
-        fontSize: this.properties.fontSize || '1.25rem',
+        height: this.toCssPixels(this.properties.buttonHeight, 50),
+        width: this.toCssPixels(this.properties.buttonWidth, 200),
+        fontSize: this.toCssPixels(this.properties.fontSize, 20),
         fontFamily: this.properties.fontFamily || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
         fontStyle: this.properties.fontStyle || 'normal',
-        fontWeight: this.properties.fontBold ? 'bold' : 'normal',
+        fontWeight: this.properties.fontWeight || (this.properties.fontBold ? '700' : '400'),
+        textDecoration: this.properties.textDecoration || 'none',
+        textTransform: this.properties.textTransform || 'none',
         borderRadius: borderRadius
       };
 
       const buttonText = (this.properties.description || '').replace(/[<>]/g, "");
       const iconImageUrl = this.properties.showIcon ? (this.properties.iconImageUrl || '').replace(/["'<>]/g, '') : '';
-      const iconSize = (this.properties.iconSize || '24px').trim();
+      const iconSize = this.toCssPixels(this.properties.iconSize, 24);
+      const imageDisplayMode = this.getImageDisplayMode();
+      const imageAsBackground = imageDisplayMode === 'background-text' || imageDisplayMode === 'background-only';
+      const showButtonText = imageDisplayMode !== 'background-only';
+      const imageOpacity = typeof this.properties.imageOpacity === 'number'
+        ? Math.max(0, Math.min(100, this.properties.imageOpacity)) / 100
+        : 1;
       const iconOnRight = this.properties.iconPosition === 'right';
       const marginStyle = this.properties.Align === '3' ? { marginLeft: 'auto' } :
                          this.properties.Align === '2' ? { margin: 'auto' } : {};
@@ -243,11 +303,11 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
         buttonText
       );
 
-      const iconElement = iconImageUrl ? React.createElement(
+      const sideImageElement = iconImageUrl && !imageAsBackground ? React.createElement(
         'div',
         {
           className: 'button-icon-container',
-          style: { width: iconSize, height: iconSize }
+          style: { width: iconSize, height: '100%', opacity: imageOpacity }
         },
         React.createElement('img', {
           className: 'button-icon',
@@ -258,9 +318,19 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
         })
       ) : undefined;
 
-      const buttonChildren = iconElement
-        ? (iconOnRight ? [textElement, iconElement] : [iconElement, textElement])
-        : [textElement];
+      const backgroundImageElement = iconImageUrl && imageAsBackground ? React.createElement('img', {
+        className: 'button-background-image',
+        src: iconImageUrl,
+        alt: '',
+        'aria-hidden': true,
+        style: { opacity: imageOpacity }
+      }) : undefined;
+
+      const buttonChildren = backgroundImageElement
+        ? (showButtonText ? [backgroundImageElement, textElement] : [backgroundImageElement])
+        : sideImageElement
+          ? (iconOnRight ? [textElement, sideImageElement] : [sideImageElement, textElement])
+          : [textElement];
 
       const mergedStyle: any = {};
       for (const key in buttonStyle) { if (buttonStyle.hasOwnProperty(key)) { mergedStyle[key] = (buttonStyle as any)[key]; } }
@@ -275,9 +345,12 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
           React.createElement(
             'a',
             {
-              className: 'button',
+              className: 'button' + (sideImageElement ? ' button-with-side-image' : '') + (backgroundImageElement ? ' button-with-background-image' : ''),
               style: mergedStyle,
-              href: this.properties.Link || '#'
+              href: this.properties.Link || '#',
+              target: this.properties.linkTarget || '_self',
+              rel: this.properties.linkTarget === '_blank' ? 'noopener noreferrer' : undefined,
+              'aria-label': buttonText
             },
             ...buttonChildren
           )
@@ -317,7 +390,7 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
             },
             {
               groupName: 'Button Settings',
-              groupFields: [
+              groupFields: ([
                 PropertyPaneTextField('description', {
                   label: "Button Title",
                   placeholder: "Go to...",
@@ -327,6 +400,16 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                   label: "Link",
                   placeholder: "https://",
                   onGetErrorMessage: this._validateUrl.bind(this)
+                }),
+                PropertyPaneDropdown('linkTarget', {
+                  label: 'Link Target',
+                  selectedKey: this.properties.linkTarget || '_self',
+                  options: [
+                    { key: '_self', text: 'Current window' },
+                    { key: '_blank', text: 'New tab' },
+                    { key: '_parent', text: 'Parent frame' },
+                    { key: '_top', text: 'Top frame' }
+                  ]
                 }),
                 PropertyPaneDropdown('Align', {
                   label: 'Align Button',
@@ -343,7 +426,17 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                     { key: 'square', text: 'Square' },
                     { key: 'round', text: 'Round' }
                   ]
-                }),
+                })
+              ] as any[]).concat((this.properties.buttonShape || 'rounded') === 'rounded' ? [
+                PropertyPaneSlider('buttonCornerRadius', {
+                  label: 'Corner Radius (px)',
+                  min: 0,
+                  max: 60,
+                  step: 1,
+                  value: typeof this.properties.buttonCornerRadius === 'number' ? this.properties.buttonCornerRadius : 5,
+                  showValue: true
+                })
+              ] : []).concat([
                 PropertyFieldColorPicker('buttonBackgroundColor', {
                   label: 'Button Background Color',
                   selectedColor: this.properties.buttonBackgroundColor,
@@ -378,7 +471,11 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                     { key: "'Trebuchet MS', Helvetica, sans-serif", text: 'Trebuchet MS' },
                     { key: "'Georgia', serif", text: 'Georgia' },
                     { key: "'Times New Roman', Times, serif", text: 'Times New Roman' },
-                    { key: "'Courier New', Courier, monospace", text: 'Courier New' }
+                    { key: "'Courier New', Courier, monospace", text: 'Courier New' },
+                    { key: 'Verdana, Geneva, sans-serif', text: 'Verdana' },
+                    { key: "'Arial Black', Gadget, sans-serif", text: 'Arial Black' },
+                    { key: "'Palatino Linotype', 'Book Antiqua', Palatino, serif", text: 'Palatino' },
+                    { key: 'Impact, Charcoal, sans-serif', text: 'Impact' }
                   ]
                 }),
                 PropertyPaneDropdown('fontStyle', {
@@ -387,24 +484,65 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                     { key: 'normal', text: 'Normal' },
                     { key: 'italic', text: 'Italic' },
                     { key: 'oblique', text: 'Oblique' }
-                  ]
+                  ],
+                  selectedKey: this.properties.fontStyle || 'normal'
                 }),
-                PropertyPaneTextField('fontSize', {
-                  label: 'Font Size',
-                  placeholder: '16px, 1rem, 120%, etc.'
+                PropertyPaneDropdown('fontWeight', {
+                  label: 'Font Weight',
+                  options: [
+                    { key: '300', text: 'Light' },
+                    { key: '400', text: 'Regular' },
+                    { key: '500', text: 'Medium' },
+                    { key: '600', text: 'Semi-bold' },
+                    { key: '700', text: 'Bold' },
+                    { key: '800', text: 'Extra bold' }
+                  ],
+                  selectedKey: this.properties.fontWeight || (this.properties.fontBold ? '700' : '400')
                 }),
-                PropertyPaneCheckbox('fontBold', {
-                  text: 'Bold Font'
+                PropertyPaneDropdown('textDecoration', {
+                  label: 'Text Decoration',
+                  options: [
+                    { key: 'none', text: 'None' },
+                    { key: 'underline', text: 'Underline' },
+                    { key: 'line-through', text: 'Strikethrough' }
+                  ],
+                  selectedKey: this.properties.textDecoration || 'none'
                 }),
-                PropertyPaneTextField('buttonHeight', {
-                  label: 'Button Height',
-                  placeholder: '5vh, 50px, 3rem, etc.'
+                PropertyPaneDropdown('textTransform', {
+                  label: 'Text Case',
+                  options: [
+                    { key: 'none', text: 'As entered' },
+                    { key: 'uppercase', text: 'Uppercase' },
+                    { key: 'lowercase', text: 'Lowercase' },
+                    { key: 'capitalize', text: 'Capitalize' }
+                  ],
+                  selectedKey: this.properties.textTransform || 'none'
                 }),
-                PropertyPaneTextField('buttonWidth', {
-                  label: 'Button Width',
-                  placeholder: '200px, 20vw, 10rem, etc.'
+                PropertyPaneSlider('fontSize', {
+                  label: 'Font Size (px)',
+                  min: 8,
+                  max: 72,
+                  step: 1,
+                  value: this.toSliderNumber(this.properties.fontSize, 20),
+                  showValue: true
+                }),
+                PropertyPaneSlider('buttonHeight', {
+                  label: 'Button Height (px)',
+                  min: 24,
+                  max: 200,
+                  step: 1,
+                  value: this.toSliderNumber(this.properties.buttonHeight, 50),
+                  showValue: true
+                }),
+                PropertyPaneSlider('buttonWidth', {
+                  label: 'Button Width (px)',
+                  min: 60,
+                  max: 600,
+                  step: 5,
+                  value: this.toSliderNumber(this.properties.buttonWidth, 200),
+                  showValue: true
                 })
-              ]
+              ]) as any[]
             },
             {
               groupName: 'Icon',
@@ -413,14 +551,44 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                   text: 'Set Icon'
                 })
               ].concat(this.properties.showIcon ? [
-                PropertyPaneTextField('iconImageUrl', {
-                  label: 'Icon Image URL',
-                  placeholder: 'https://example.com/icon.png',
-                  onGetErrorMessage: this._validateIconUrl.bind(this)
+                PropertyFieldPicturePicker('iconImageUrl', {
+                  label: 'Icon Image',
+                  initialValue: this.properties.iconImageUrl || '',
+                  context: this.context,
+                  previewImage: true,
+                  allowedFileExtensions: '.gif,.jpg,.jpeg,.bmp,.png,.svg,.webp',
+                  readOnly: false,
+                  properties: this.properties,
+                  onPropertyChange: this.onPropertyPaneFieldChanged.bind(this),
+                  onGetErrorMessage: this._validateIconUrl.bind(this),
+                  render: this.render.bind(this),
+                  key: 'iconImagePicker'
                 }),
-                PropertyPaneTextField('iconSize', {
-                  label: 'Icon Size',
-                  placeholder: '24px, 2rem, etc.'
+                PropertyPaneDropdown('imageDisplayMode', {
+                  label: 'Image Display',
+                  selectedKey: this.getImageDisplayMode(),
+                  options: [
+                    { key: 'side', text: 'Side image' },
+                    { key: 'background-text', text: 'Image as Background with Text' },
+                    { key: 'background-only', text: 'Image as Background without Text' }
+                  ]
+                }),
+                PropertyPaneSlider('imageOpacity', {
+                  label: 'Image Opacity (%)',
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  value: typeof this.properties.imageOpacity === 'number' ? this.properties.imageOpacity : 100,
+                  showValue: true
+                })
+              ].concat(this.getImageDisplayMode() === 'side' ? [
+                PropertyPaneSlider('iconSize', {
+                  label: 'Side Image Width (px)',
+                  min: 8,
+                  max: 128,
+                  step: 1,
+                  value: this.toSliderNumber(this.properties.iconSize, 24),
+                  showValue: true
                 }),
                 PropertyPaneDropdown('iconPosition', {
                   label: 'Icon Position',
@@ -429,7 +597,7 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                     { key: 'right', text: 'Right' }
                   ]
                 })
-              ] : [])
+              ] : []) : []) as any[]
             },
             {
               groupName: 'Diagnostics',

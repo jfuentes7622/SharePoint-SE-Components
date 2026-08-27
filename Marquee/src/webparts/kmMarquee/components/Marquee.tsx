@@ -25,18 +25,12 @@ function trimGuidBraces(value: string): string {
   return String(value || '').replace(/[{}]/g, '');
 }
 
-function buildViewRequestUrls(baseEndpoint: string, viewId: string): string[] {
+function buildViewIdCandidates(viewId: string): string[] {
   const normalized = trimGuidBraces(viewId);
   const candidates = [String(viewId || ''), normalized, '{' + normalized + '}'];
-  const urls: string[] = [];
-  candidates.forEach((candidate: string) => {
-    if (candidate) {
-      urls.push(baseEndpoint + '?View=' + encodeURIComponent(candidate));
-      urls.push(baseEndpoint + '?ViewId=' + encodeURIComponent(candidate));
-    }
+  return candidates.filter((candidate: string, index: number) => {
+    return !!candidate && candidates.indexOf(candidate) === index;
   });
-  urls.push(baseEndpoint);
-  return urls.filter((url: string, index: number) => { return urls.indexOf(url) === index; });
 }
 
 function toArray(value: any): any[] {
@@ -267,36 +261,22 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
       this.logDiagnostic('Loading messages from list "' + this.props.listName + '", selected view, field "' + this.props.messageField + '"');
       const webUrl = this.props.spfxContext.pageContext.web.absoluteUrl.replace(/\/$/, '');
       const endpoint = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
-      const urls = buildViewRequestUrls(endpoint, this.props.viewId);
-      let response: any;
-      let messages: string[] = [];
-      let selectedRows: any[] = [];
-      let selectedFieldCandidates: string[] = [this.props.messageField];
-      let hadSuccessfulResponse = false;
-      for (let requestIndex = 0; requestIndex < urls.length; requestIndex += 1) {
-        response = await this.postViewRequest(urls[requestIndex]);
-        if (!response.ok) {
-          continue;
-        }
-        hadSuccessfulResponse = true;
-        const data = await response.json();
-        const renderData = parseRenderViewData(data);
-        const fieldCandidates = getFieldCandidates(this.props.messageField, renderData.fields);
-        selectedRows = renderData.rows;
-        selectedFieldCandidates = fieldCandidates;
-        messages = renderData.rows
-          .map((item: any) => { return getMessageValue(item, fieldCandidates); })
-          .filter((message: string) => { return message.trim().length > 0; });
-        this.logDiagnostic('Selected view request variant ' + String(requestIndex + 1)
-          + ' returned rows=' + String(renderData.rows.length) + ', messages=' + String(messages.length)
-          + ', field candidates=' + fieldCandidates.join(',') + '.');
-        if (messages.length > 0 || requestIndex === urls.length - 1) {
-          break;
-        }
-      }
-      if (!hadSuccessfulResponse) {
+      const viewXml = await this.loadSelectedViewXml();
+      const response = await this.postViewRequest(endpoint, viewXml);
+      if (!response.ok) {
         throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
       }
+
+      const data = await response.json();
+      const renderData = parseRenderViewData(data);
+      const selectedRows = renderData.rows;
+      const selectedFieldCandidates = getFieldCandidates(this.props.messageField, renderData.fields);
+      let messages: string[] = [];
+      messages = renderData.rows
+        .map((item: any) => { return getMessageValue(item, selectedFieldCandidates); })
+        .filter((message: string) => { return message.trim().length > 0; });
+      this.logDiagnostic('Authoritative selected view returned rows=' + String(renderData.rows.length)
+        + ', messages=' + String(messages.length) + ', field candidates=' + selectedFieldCandidates.join(',') + '.');
       if (messages.length === 0) {
         messages = await this.loadMessagesDirectly(selectedRows, selectedFieldCandidates);
       }
@@ -321,6 +301,9 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
       .filter((itemId: string, index: number, values: string[]) => {
         return !!itemId && values.indexOf(itemId) === index;
       });
+    if (itemIds.length === 0) {
+      return [];
+    }
 
     for (let candidateIndex = 0; candidateIndex < fieldCandidates.length; candidateIndex += 1) {
       const fieldName = fieldCandidates[candidateIndex];
@@ -368,6 +351,9 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
       .filter((itemId: string, index: number, values: string[]) => {
         return !!itemId && values.indexOf(itemId) === index;
       });
+    if (itemIds.length === 0) {
+      return [];
+    }
     let endpoint = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items"
       + '?$select=ID,FieldValuesAsText&$expand=FieldValuesAsText&$top=500';
     if (itemIds.length > 0) {
@@ -421,8 +407,85 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
     return response;
   }
 
-  private async postViewRequest(url: string): Promise<any> {
-    const body = JSON.stringify({ parameters: { RenderOptions: 17 } });
+  private buildMinimalViewXml(viewQuery: string, rowLimit: number, scope: any): string {
+    const queryText = String(viewQuery || '').trim();
+    const queryDocument = new DOMParser().parseFromString(
+      /^<Query(?:\s|>)/i.test(queryText) ? queryText : '<Query>' + queryText + '</Query>',
+      'text/xml'
+    );
+    if (queryDocument.getElementsByTagName('parsererror').length > 0 || queryDocument.getElementsByTagName('Query').length === 0) {
+      throw new Error('The selected SharePoint view query is invalid.');
+    }
+
+    const xmlDocument = new DOMParser().parseFromString('<View><Query/><ViewFields/></View>', 'text/xml');
+    const viewElement = xmlDocument.getElementsByTagName('View')[0];
+    const existingQuery = xmlDocument.getElementsByTagName('Query')[0];
+    const queryElement = xmlDocument.importNode(queryDocument.getElementsByTagName('Query')[0], true);
+    viewElement.replaceChild(queryElement, existingQuery);
+
+    const viewFieldsElement = xmlDocument.getElementsByTagName('ViewFields')[0];
+    ['ID', this.props.messageField].forEach((fieldName: string) => {
+      if (fieldName) {
+        const fieldRef = xmlDocument.createElement('FieldRef');
+        fieldRef.setAttribute('Name', fieldName);
+        viewFieldsElement.appendChild(fieldRef);
+      }
+    });
+
+    const normalizedScope = String(scope === undefined || scope === null ? '' : scope).toLowerCase();
+    const scopeNames: { [key: string]: string } = {
+      '1': 'Recursive',
+      '2': 'RecursiveAll',
+      '3': 'FilesOnly',
+      'recursive': 'Recursive',
+      'recursiveall': 'RecursiveAll',
+      'filesonly': 'FilesOnly'
+    };
+    if (scopeNames[normalizedScope]) {
+      viewElement.setAttribute('Scope', scopeNames[normalizedScope]);
+    }
+
+    if (rowLimit > 0) {
+      const rowLimitElement = xmlDocument.createElement('RowLimit');
+      rowLimitElement.setAttribute('Paged', 'TRUE');
+      rowLimitElement.appendChild(xmlDocument.createTextNode(String(rowLimit)));
+      viewElement.appendChild(rowLimitElement);
+    }
+    return new XMLSerializer().serializeToString(xmlDocument);
+  }
+
+  private async loadSelectedViewXml(): Promise<string> {
+    const webUrl = this.props.spfxContext.pageContext.web.absoluteUrl.replace(/\/$/, '');
+    const listPath = "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')";
+    const viewIds = buildViewIdCandidates(this.props.viewId);
+    const urls: string[] = [];
+    viewIds.forEach((viewId: string) => {
+      const encoded = encodeURIComponent(viewId);
+      const normalized = encodeURIComponent(trimGuidBraces(viewId));
+      urls.push(webUrl + listPath + "/views/getById('" + encoded + "')?$select=ViewQuery,RowLimit,Scope");
+      urls.push(webUrl + listPath + "/views(guid'" + normalized + "')?$select=ViewQuery,RowLimit,Scope");
+    });
+
+    for (let urlIndex = 0; urlIndex < urls.length; urlIndex += 1) {
+      const response = await this.getJsonResponse(urls[urlIndex]);
+      if (!response.ok) {
+        continue;
+      }
+      const data = await response.json();
+      const viewData = data && data.d ? data.d : data;
+      if (viewData && viewData.ViewQuery !== undefined && viewData.ViewQuery !== null) {
+        const parsedRowLimit = parseInt(String(viewData.RowLimit || ''), 10);
+        const authoritativeViewXml = this.buildMinimalViewXml(String(viewData.ViewQuery), isNaN(parsedRowLimit) ? 0 : parsedRowLimit, viewData.Scope);
+        this.logDiagnostic('Loaded minimal selected view CAML. HasFilter=' + String(/<Where(?:\s|>)/i.test(authoritativeViewXml))
+          + ', hasSort=' + String(/<OrderBy(?:\s|>)/i.test(authoritativeViewXml)) + '.');
+        return authoritativeViewXml;
+      }
+    }
+    throw new Error('Failed to load the selected SharePoint view definition.');
+  }
+
+  private async postViewRequest(url: string, viewXml: string): Promise<any> {
+    const body = JSON.stringify({ parameters: { RenderOptions: 7, ViewXml: viewXml } });
     const formats = [
       { 'Content-Type': 'application/json; charset=utf-8' },
       { Accept: 'application/json;odata=verbose', 'Content-Type': 'application/json;odata=verbose' },

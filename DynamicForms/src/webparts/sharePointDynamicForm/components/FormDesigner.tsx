@@ -17,6 +17,17 @@ export interface FormDesignerProps {
 
 interface FormDesignerState {
   spFields: SPFieldInfo[];
+  reportListFields: Array<{ key: string; text: string }>;
+  gridControlSources: Array<{ key: string; text: string; listName?: string }>;
+  gridControlFields: Array<{ key: string; text: string }>;
+  gridControlFieldsListName: string;
+  gridControlFieldsLoading: boolean;
+  gridControlFieldsError: string | null;
+  imageLibraries: Array<{ key: string; text: string }>;
+  imageFiles: Array<{ key: string; text: string }>;
+  selectedImageLibrary: string;
+  imageFilesLoading: boolean;
+  imageBrowserError: string | null;
   loadingFields: boolean;
   fieldsError: string | null;
   selectedStepIndex: number;
@@ -213,6 +224,12 @@ function getFieldTypeLabel(type: FieldType): string {
       return strings.PropertyFieldTypeAttachment;
     case 'richtext':
       return strings.PropertyFieldTypeRichtext;
+    case 'customimage':
+      return 'Image';
+    case 'divider':
+      return 'Divider';
+    case 'gridcontrol':
+      return 'Grid Control';
     default:
       return type;
   }
@@ -223,6 +240,17 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     super(props);
     this.state = {
       spFields: [],
+      reportListFields: [],
+      gridControlSources: [],
+      gridControlFields: [],
+      gridControlFieldsListName: '',
+      gridControlFieldsLoading: false,
+      gridControlFieldsError: null,
+      imageLibraries: [],
+      imageFiles: [],
+      selectedImageLibrary: '',
+      imageFilesLoading: false,
+      imageBrowserError: null,
       loadingFields: false,
       fieldsError: null,
       selectedStepIndex: 0,
@@ -231,19 +259,28 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     };
 
     this.handleAddRichText = this.handleAddRichText.bind(this);
+    this.handleAddCustomImage = this.handleAddCustomImage.bind(this);
+    this.handleAddDivider = this.handleAddDivider.bind(this);
+    this.handleAddGridControl = this.handleAddGridControl.bind(this);
   }
 
   public componentDidMount(): void {
     this.loadFields();
+    this.loadImageLibraries();
+    this.loadGridControlSources();
   }
 
-  public componentDidUpdate(prevProps: FormDesignerProps): void {
+  public componentDidUpdate(prevProps: FormDesignerProps, prevState: FormDesignerState): void {
     if (prevProps.listName !== this.props.listName) {
       this.loadFields();
     }
 
     if (this.state.selectedStepIndex >= this.props.schema.steps.length) {
       this.setState({ selectedStepIndex: Math.max(0, this.props.schema.steps.length - 1), selectedFieldId: null });
+    }
+
+    if (prevState.selectedFieldId !== this.state.selectedFieldId) {
+      this.loadSelectedGridControlFields();
     }
   }
 
@@ -283,7 +320,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
   private async loadFields(): Promise<void> {
     if (!this.props.listName) {
-      this.setState({ spFields: [], loadingFields: false, fieldsError: strings.DesignerNoListSelected });
+      this.setState({ spFields: [], reportListFields: [], loadingFields: false, fieldsError: strings.DesignerNoListSelected });
       return;
     }
 
@@ -301,6 +338,11 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       if (!fields || fields.length === 0) {
         fields = data && data.d && data.d.results ? data.d.results as ISPFieldResponse[] : [];
       }
+      var reportListFields = fields
+        .filter(function(field) { return !!field.InternalName; })
+        .map(function(field) {
+          return { key: String(field.InternalName), text: String(field.Title || field.InternalName) + ' (' + String(field.InternalName) + ')' };
+        });
       var mapped = fields
         .filter(function(field) {
           var isAttachmentField = field.InternalName === 'Attachments';
@@ -333,13 +375,129 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
           } as SPFieldInfo;
         });
 
-      this.setState({ spFields: mapped, loadingFields: false, fieldsError: null });
+      this.setState({ spFields: mapped, reportListFields: reportListFields, loadingFields: false, fieldsError: null });
     } catch (error) {
       this.setState({
         spFields: [],
+        reportListFields: [],
         loadingFields: false,
         fieldsError: error && error.message ? error.message : strings.DesignerLoadFieldsFailed,
       });
+    }
+  }
+
+  private async loadImageLibraries(): Promise<void> {
+    try {
+      var response = await this.getWithAcceptFallback(this.getWebUrl() + '/_api/web/lists?$select=Title,BaseTemplate,Hidden&$filter=Hidden eq false');
+      if (!response.ok) {
+        throw new Error('Unable to load image libraries.');
+      }
+      var data = await response.json();
+      var lists: any[] = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+      var libraries = lists
+        .filter(function(list) { return list.BaseTemplate === 101 || list.BaseTemplate === 109; })
+        .map(function(list) { return { key: String(list.Title), text: String(list.Title) }; });
+      this.setState({ imageLibraries: libraries, imageBrowserError: null });
+    } catch (error) {
+      this.setState({ imageLibraries: [], imageBrowserError: error && error.message ? error.message : 'Unable to load image libraries.' });
+    }
+  }
+
+  private loadGridControlSources(): void {
+    var provider = this.props.context.dynamicDataProvider || this.props.context._dynamicDataProvider;
+    var options: Array<{ key: string; text: string; listName?: string }> = [];
+    if (provider && provider.getAvailableSources) {
+      var sources = provider.getAvailableSources() || [];
+      for (var i = 0; i < sources.length; i += 1) {
+        var source = sources[i];
+        var metadata = source && source.metadata;
+        var componentId = metadata && metadata.componentId ? String(metadata.componentId).toLowerCase() : '';
+        var alias = metadata && metadata.alias ? String(metadata.alias).toLowerCase() : '';
+        if (componentId !== 'de5f92e8-570c-4a7c-ba96-7ae89a098723' && alias !== 'gridcontrolwebpart') {
+          continue;
+        }
+        var instanceName = '';
+        var listName = '';
+        if (source.getPropertyValue) {
+          try { instanceName = String(source.getPropertyValue('instanceName') || '').trim(); } catch (_instanceNameError) { instanceName = ''; }
+          try { listName = String(source.getPropertyValue('listName') || '').trim(); } catch (_listNameError) { listName = ''; }
+        }
+        options.push({
+          key: String(source.id),
+          text: String(instanceName || metadata.title || metadata.alias || source.id) + ' (' + String(source.id) + ')',
+          listName: listName || undefined
+        });
+      }
+    }
+    this.setState({ gridControlSources: options }, () => this.loadSelectedGridControlFields());
+  }
+
+  private loadSelectedGridControlFields(): void {
+    var selectedField = this.getSelectedField();
+    var sourceId = selectedField && selectedField.type === 'gridcontrol' && selectedField.config
+      ? String(selectedField.config.gridControlSourceId || '') : '';
+    var listName = '';
+    for (var i = 0; i < this.state.gridControlSources.length; i += 1) {
+      if (this.state.gridControlSources[i].key === sourceId) {
+        listName = String(this.state.gridControlSources[i].listName || '');
+        break;
+      }
+    }
+    if (!listName) {
+      this.setState({ gridControlFields: [], gridControlFieldsListName: '', gridControlFieldsLoading: false, gridControlFieldsError: sourceId ? 'The selected Grid Control did not provide its configured list name.' : null });
+      return;
+    }
+    if (this.state.gridControlFieldsListName === listName && (this.state.gridControlFieldsLoading || this.state.gridControlFields.length > 0)) {
+      return;
+    }
+    this.loadGridControlFields(listName);
+  }
+
+  private async loadGridControlFields(listName: string): Promise<void> {
+    this.setState({ gridControlFields: [], gridControlFieldsListName: listName, gridControlFieldsLoading: true, gridControlFieldsError: null });
+    try {
+      var response = await this.getWithAcceptFallback(
+        this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,Hidden&$filter=Hidden eq false"
+      );
+      if (!response.ok) { throw new Error('Unable to load the selected Grid Control columns.'); }
+      var data = await response.json();
+      var fields: any[] = data && data.value ? data.value : [];
+      if (!fields || fields.length === 0) { fields = data && data.d && data.d.results ? data.d.results : []; }
+      var options = fields
+        .filter(function(item) { return !!item.InternalName && item.InternalName !== 'Attachments'; })
+        .map(function(item) { return { key: String(item.InternalName), text: String(item.Title || item.InternalName) + ' (' + String(item.InternalName) + ')' }; });
+      this.setState({ gridControlFields: options, gridControlFieldsLoading: false, gridControlFieldsError: null });
+    } catch (error) {
+      this.setState({
+        gridControlFields: [],
+        gridControlFieldsLoading: false,
+        gridControlFieldsError: error && error.message ? error.message : 'Unable to load the selected Grid Control columns.'
+      });
+    }
+  }
+
+  private async loadImageFiles(libraryName: string): Promise<void> {
+    if (!libraryName) {
+      this.setState({ selectedImageLibrary: '', imageFiles: [], imageFilesLoading: false, imageBrowserError: null });
+      return;
+    }
+    this.setState({ selectedImageLibrary: libraryName, imageFiles: [], imageFilesLoading: true, imageBrowserError: null });
+    try {
+      var response = await this.getWithAcceptFallback(
+        this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(libraryName) + "')/items?$select=FileLeafRef,FileRef,FSObjType&$filter=FSObjType eq 0&$top=5000"
+      );
+      if (!response.ok) {
+        throw new Error('Unable to load images from the selected library.');
+      }
+      var data = await response.json();
+      var items: any[] = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+      var imagePattern = /\.(apng|avif|bmp|gif|jpe?g|png|svg|webp)$/i;
+      var files = items
+        .filter(function(item) { return imagePattern.test(String(item.FileLeafRef || '')) && !!item.FileRef; })
+        .map(function(item) { return { key: String(item.FileRef), text: String(item.FileLeafRef) }; });
+      this.setState({ imageFiles: files, imageFilesLoading: false, imageBrowserError: null });
+    } catch (error) {
+      this.setState({ imageFiles: [], imageFilesLoading: false, imageBrowserError: error && error.message ? error.message : 'Unable to load images from the selected library.' });
     }
   }
 
@@ -528,6 +686,39 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     this.updateSchema(nextSchema, nextField.id);
   }
 
+  private handleAddCustomImage(): void {
+    var nextField: FormField = {
+      id: createId('field'), type: 'customimage', label: 'Image', fieldName: createId('customimage'),
+      required: false, readOnly: true, disabled: false, columnSpan: 1,
+      config: { imageUrl: '', imageAltText: '', imageFit: 'contain', imageAlignment: 'left' }
+    };
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex].fields.push(nextField);
+    this.updateSchema(nextSchema, nextField.id);
+  }
+
+  private handleAddDivider(): void {
+    var nextField: FormField = {
+      id: createId('field'), type: 'divider', label: 'Divider', fieldName: createId('divider'),
+      required: false, readOnly: true, disabled: false, columnSpan: 1,
+      config: { dividerColor: '#c8c6c4', dividerThickness: 1, dividerStyle: 'solid', dividerSpacing: 16, dividerOrientation: 'horizontal', dividerLength: 80 }
+    };
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex].fields.push(nextField);
+    this.updateSchema(nextSchema, nextField.id);
+  }
+
+  private handleAddGridControl(): void {
+    var nextField: FormField = {
+      id: createId('field'), type: 'gridcontrol', label: 'Grid Control', fieldName: createId('gridcontrol'),
+      required: false, readOnly: false, disabled: false, columnSpan: 1,
+      config: { gridControlFilterOperator: 'eq' }
+    };
+    var nextSchema = copySchema(this.props.schema);
+    nextSchema.steps[this.state.selectedStepIndex].fields.push(nextField);
+    this.updateSchema(nextSchema, nextField.id);
+  }
+
   private getChoiceDisplay(field: FormField): 'dropdown' | 'radio' | 'checkboxes' {
     var configured = String(field.config && field.config.choiceDisplay || '').trim().toLowerCase();
     if (field.type === 'multiselect') {
@@ -605,6 +796,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
     // Build description style with separate font settings
     var descriptionStyle: React.CSSProperties = { marginBottom: '16px' };
+    descriptionStyle.textAlign = schema.descriptionAlignment || 'left';
     if (schema.theme) {
       if (schema.theme.descriptionFontSize) { descriptionStyle.fontSize = schema.theme.descriptionFontSize; }
       if (schema.theme.descriptionFontFamily) { descriptionStyle.fontFamily = schema.theme.descriptionFontFamily; }
@@ -616,8 +808,13 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       <div className={styles.designerPreviewSection}>
         <div className={styles.designerPreviewTitle}>Preview</div>
         <div style={formWrapperStyle}>
-          {schema.showTitle !== false && schema.name && <h2 className={styles.designerPreviewFormName}>{schema.name}</h2>}
-          {schema.showTitle !== false && schema.description && <div style={descriptionStyle}>{schema.description}</div>}
+          {schema.showTitle !== false && (schema.name || schema.description || schema.logoUrl) && <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', width: '100%' }}>
+            <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+              {schema.name && <h2 className={styles.designerPreviewFormName} style={{ textAlign: schema.nameAlignment || 'left' }}>{schema.name}</h2>}
+              {schema.description && <div style={descriptionStyle}>{schema.description}</div>}
+            </div>
+            {schema.logoUrl && <img src={schema.logoUrl} alt={schema.logoAltText || ''} style={{ flex: '0 0 auto', maxWidth: '160px', maxHeight: '80px', objectFit: 'contain' }} />}
+          </div>}
           <div style={formLayoutStyle}>
             {visibleSteps.map((step) => {
               // Step container style
@@ -646,8 +843,8 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
               return (
                 <div key={step.id} style={{ marginBottom: formGridLayout ? '0' : '20px' }}>
-                  {step.showTitle !== false && step.title && <div className={styles.designerPreviewStepTitle}>{step.title}</div>}
-                  {step.showTitle !== false && step.description && <div className={styles.designerPreviewStepDescription}>{step.description}</div>}
+                  {step.showTitle !== false && step.title && <div className={styles.designerPreviewStepTitle} style={{ textAlign: step.titleAlignment || 'left' }}>{step.title}</div>}
+                  {step.showTitle !== false && step.description && <div className={styles.designerPreviewStepDescription} style={{ textAlign: step.descriptionAlignment || 'left' }}>{step.description}</div>}
                   <div style={stepContainerStyle}>
                     {step.fields.map((field) => {
                       if (!field || field.visible === false) {
@@ -687,6 +884,45 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                             <div style={richTextStyle} dangerouslySetInnerHTML={{ __html: richTextContent } as any} />
                           </div>
                         );
+                      }
+
+                      if (field.type === 'gridcontrol') {
+                        var gridControlCellStyle: React.CSSProperties = previewGrid
+                          ? (field.startNewRow === true ? { gridColumn: '1 / -1' } : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
+                          : { marginBottom: '8px' };
+                        var gridControlName = field.config && field.config.gridControlSourceName ? field.config.gridControlSourceName : 'No Grid Control selected';
+                        return (
+                          <div key={field.id} style={gridControlCellStyle}>
+                            <div style={{ border: '1px dashed #00796b', padding: '12px', background: '#f2f8f7' }}>
+                              <div style={{ fontWeight: 600 }}>{field.label}</div>
+                              <div style={{ marginTop: '4px', fontSize: '12px', color: '#605e5c' }}>Embedded Grid Control: {gridControlName}</div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (field.type === 'customimage' || field.type === 'divider') {
+                        var customCellStyle: React.CSSProperties = previewGrid
+                          ? (field.startNewRow === true ? { gridColumn: '1 / -1' } : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
+                          : { marginBottom: '8px' };
+                        var customConfig = field.config || {};
+                        if (field.type === 'customimage') {
+                          var previewImageUrl = String(customConfig.imageUrl || '').trim();
+                          return (
+                            <div key={field.id} style={Object.assign({}, customCellStyle, { textAlign: (customConfig.imageAlignment || 'left') as any })}>
+                              {previewImageUrl
+                                ? <img src={previewImageUrl} alt={String(customConfig.imageAltText || field.label || '')} style={{ maxWidth: '100%', width: customConfig.imageWidth ? String(customConfig.imageWidth) + 'px' : 'auto', height: customConfig.imageHeight ? String(customConfig.imageHeight) + 'px' : 'auto', objectFit: (customConfig.imageFit || 'contain') as any }} />
+                                : <div style={{ border: '1px dashed #c8c6c4', padding: '16px', color: '#605e5c', textAlign: 'center' }}>Select an image from a SharePoint library</div>}
+                            </div>
+                          );
+                        }
+                        var previewDividerSpacing = customConfig.dividerSpacing === undefined ? 16 : Math.max(0, customConfig.dividerSpacing);
+                        var previewDividerOrientation = customConfig.dividerOrientation || 'horizontal';
+                        var previewDividerBorder = String(Math.max(1, customConfig.dividerThickness || 1)) + 'px ' + String(customConfig.dividerStyle || 'solid') + ' ' + String(customConfig.dividerColor || '#c8c6c4');
+                        if (previewDividerOrientation === 'vertical') {
+                          return <div key={field.id} style={Object.assign({}, customCellStyle, { display: 'flex', justifyContent: 'center' })}><div role="separator" aria-orientation="vertical" style={{ borderLeft: previewDividerBorder, height: String(Math.max(1, customConfig.dividerLength || 80)) + 'px', margin: '0 ' + String(previewDividerSpacing) + 'px' }} /></div>;
+                        }
+                        return <div key={field.id} style={customCellStyle}><hr style={{ border: 0, borderTop: previewDividerBorder, margin: String(previewDividerSpacing) + 'px 0' }} /></div>;
                       }
 
                       var fieldCellStyle: React.CSSProperties = previewGrid
@@ -788,6 +1024,18 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
             <span>{strings.DesignerCustomRichTextTitle}</span>
             <span className={styles.designerPaletteMeta}>{strings.DesignerRichTextChip}</span>
           </button>
+          <button type="button" className={styles.designerPaletteButton} onClick={this.handleAddCustomImage}>
+            <span>Image</span>
+            <span className={styles.designerPaletteMeta}>From SharePoint library</span>
+          </button>
+          <button type="button" className={styles.designerPaletteButton} onClick={this.handleAddDivider}>
+            <span>Divider</span>
+            <span className={styles.designerPaletteMeta}>Layout</span>
+          </button>
+          <button type="button" className={styles.designerPaletteButton} onClick={this.handleAddGridControl}>
+            <span>Grid Control</span>
+            <span className={styles.designerPaletteMeta}>Editable child records</span>
+          </button>
         </div>
 
         <div className={styles.designerPanelSection}>
@@ -877,7 +1125,257 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     );
   }
 
+  private renderCustomPlacementEditor(field: FormField): JSX.Element {
+    return (
+      <div>
+        <label className={styles.designerFormLabel}>{strings.PropertyPanelColumnSpan}</label>
+        <input className={styles.designerInput} type="number" min={1} max={12} value={String(Math.max(1, field.columnSpan || 1))} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.columnSpan = isNaN(parsed) ? 1 : Math.max(1, parsed); return nextField; })} />
+        <label className={styles.designerCheckboxRow}><input type="checkbox" checked={field.startNewRow === true} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.startNewRow = ev.currentTarget.checked; return nextField; })} /><span>{strings.DesignerStartNewRow}</span></label>
+      </div>
+    );
+  }
+
   private renderFieldEditor(field: FormField): JSX.Element {
+    if (field.type === 'customimage') {
+      var imageConfig = field.config || {};
+      return (
+        <div className={styles.designerPanel}><div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Image</div>
+          <div className={styles.designerPanelHint}>Add an image from a SharePoint library. This is a visual element and is not saved to a list field.</div>
+          <label className={styles.designerFormLabel}>Image library</label>
+          <select className={styles.designerInput} value={this.state.selectedImageLibrary} onChange={(ev) => this.loadImageFiles(ev.currentTarget.value)}><option value="">Select a library</option>{this.state.imageLibraries.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}</select>
+          <label className={styles.designerFormLabel}>Image file</label>
+          <select className={styles.designerInput} value={imageConfig.imageUrl || ''} disabled={!this.state.selectedImageLibrary || this.state.imageFilesLoading} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageUrl: ev.currentTarget.value || undefined }); return nextField; })}><option value="">{this.state.imageFilesLoading ? 'Loading images...' : 'Select an image'}</option>{this.state.imageFiles.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}</select>
+          {this.state.imageBrowserError && <div className={styles.designerPanelHint}>{this.state.imageBrowserError}</div>}
+          <label className={styles.designerFormLabel}>Image URL</label>
+          <input className={styles.designerInput} type="text" value={imageConfig.imageUrl || ''} placeholder="/sites/site/Library/logo.png" onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageUrl: ev.currentTarget.value || undefined }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Alternative text</label>
+          <input className={styles.designerInput} type="text" value={imageConfig.imageAltText || ''} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageAltText: ev.currentTarget.value || undefined }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Width (px, blank for natural size)</label>
+          <input className={styles.designerInput} type="number" min={1} value={imageConfig.imageWidth === undefined ? '' : String(imageConfig.imageWidth)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { imageWidth: isNaN(parsed) ? undefined : Math.max(1, parsed) }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Height (px, blank for natural size)</label>
+          <input className={styles.designerInput} type="number" min={1} value={imageConfig.imageHeight === undefined ? '' : String(imageConfig.imageHeight)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { imageHeight: isNaN(parsed) ? undefined : Math.max(1, parsed) }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Fit</label>
+          <select className={styles.designerInput} value={imageConfig.imageFit || 'contain'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageFit: ev.currentTarget.value as 'contain' | 'cover' }); return nextField; })}><option value="contain">Contain</option><option value="cover">Cover</option></select>
+          <label className={styles.designerFormLabel}>Alignment</label>
+          <select className={styles.designerInput} value={imageConfig.imageAlignment || 'left'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { imageAlignment: ev.currentTarget.value as 'left' | 'center' | 'right' }); return nextField; })}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+          {this.renderCustomPlacementEditor(field)}
+        </div></div>
+      );
+    }
+
+    if (field.type === 'divider') {
+      var dividerConfig = field.config || {};
+      return (
+        <div className={styles.designerPanel}><div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Divider</div>
+          <div className={styles.designerPanelHint}>Separate fields within this container. This is a visual element and is not saved to a list field.</div>
+          <label className={styles.designerFormLabel}>Orientation</label><select className={styles.designerInput} value={dividerConfig.dividerOrientation || 'horizontal'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { dividerOrientation: ev.currentTarget.value as 'horizontal' | 'vertical' }); return nextField; })}><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select>
+          <label className={styles.designerFormLabel}>Color</label><input type="color" value={dividerConfig.dividerColor || '#c8c6c4'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { dividerColor: ev.currentTarget.value }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Thickness (px)</label><input className={styles.designerInput} type="number" min={1} max={20} value={String(dividerConfig.dividerThickness || 1)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { dividerThickness: isNaN(parsed) ? 1 : Math.max(1, parsed) }); return nextField; })} />
+          <label className={styles.designerFormLabel}>Line style</label><select className={styles.designerInput} value={dividerConfig.dividerStyle || 'solid'} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.config = Object.assign({}, nextField.config || {}, { dividerStyle: ev.currentTarget.value as 'solid' | 'dashed' | 'dotted' }); return nextField; })}><option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option></select>
+          {dividerConfig.dividerOrientation === 'vertical' && <div><label className={styles.designerFormLabel}>Length (px)</label><input className={styles.designerInput} type="number" min={1} max={1000} value={String(dividerConfig.dividerLength || 80)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { dividerLength: isNaN(parsed) ? 80 : Math.max(1, parsed) }); return nextField; })} /></div>}
+          <label className={styles.designerFormLabel}>{dividerConfig.dividerOrientation === 'vertical' ? 'Horizontal spacing (px)' : 'Vertical spacing (px)'}</label><input className={styles.designerInput} type="number" min={0} max={100} value={String(dividerConfig.dividerSpacing === undefined ? 16 : dividerConfig.dividerSpacing)} onChange={(ev) => this.updateSelectedField(function(nextField) { var parsed = parseInt(ev.currentTarget.value, 10); nextField.config = Object.assign({}, nextField.config || {}, { dividerSpacing: isNaN(parsed) ? 16 : Math.max(0, parsed) }); return nextField; })} />
+          {this.renderCustomPlacementEditor(field)}
+        </div></div>
+      );
+    }
+
+    if (field.type === 'gridcontrol') {
+      var gridConfig = field.config || {};
+      var selectedGridSourceId = gridConfig.gridControlSourceId || '';
+      var selectedGridSourceAvailable = this.state.gridControlSources.some(function(option) { return option.key === selectedGridSourceId; });
+      var gridSourceOptions = this.state.gridControlSources.slice(0);
+      if (selectedGridSourceId && !selectedGridSourceAvailable) {
+        gridSourceOptions.push({ key: selectedGridSourceId, text: (gridConfig.gridControlSourceName || selectedGridSourceId) + ' (unavailable)' });
+      }
+      var parentFieldOptions = this.state.reportListFields.slice(0);
+      var selectedParentField = gridConfig.gridControlFilterSourceField || '';
+      var selectedGridTarget = gridConfig.gridControlFilterTargetField || '';
+      var selectedGridOperator = gridConfig.gridControlFilterOperator || 'eq';
+      return (
+        <div className={styles.designerPanel}>
+          <div className={styles.designerPanelSection}>
+            <div className={styles.designerPanelTitle}>Grid Control</div>
+            <div className={styles.designerPanelHint}>Embed a Grid Control for child records. The parent list value filters existing rows and becomes the default for the mapped column on new rows.</div>
+
+            <label className={styles.designerFormLabel}>{strings.PropertyPanelFieldName}</label>
+            <input className={styles.designerInput} type="text" value={field.label} onChange={(ev) => this.updateSelectedField(function(nextField) { nextField.label = ev.currentTarget.value; return nextField; })} />
+
+            <label className={styles.designerFormLabel}>Grid Control source</label>
+            <select
+              className={styles.designerInput}
+              value={selectedGridSourceId}
+              onChange={(ev) => {
+                var sourceId = ev.currentTarget.value;
+                var selectedSource = gridSourceOptions.filter(function(option) { return option.key === sourceId; })[0];
+                this.updateSelectedField(function(nextField) {
+                  nextField.config = Object.assign({}, nextField.config || {}, {
+                    gridControlSourceId: sourceId || undefined,
+                    gridControlSourceName: selectedSource ? selectedSource.text : undefined,
+                    gridControlSourceListName: selectedSource && selectedSource.listName ? selectedSource.listName : undefined,
+                    gridControlFilterTargetField: undefined
+                  });
+                  return nextField;
+                });
+                if (selectedSource && selectedSource.listName) {
+                  this.loadGridControlFields(selectedSource.listName);
+                } else {
+                  this.setState({ gridControlFields: [], gridControlFieldsListName: '', gridControlFieldsLoading: false, gridControlFieldsError: sourceId ? 'The selected Grid Control did not provide its configured list name.' : null });
+                }
+              }}
+            >
+              <option value="">Select a Grid Control</option>
+              {gridSourceOptions.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+            </select>
+            <button type="button" className={styles.designerInlineButton} onClick={() => this.loadGridControlSources()}>Refresh Grid Controls</button>
+
+            <label className={styles.designerFormLabel}>Parent list field</label>
+            <select className={styles.designerInput} value={selectedParentField} onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.config = Object.assign({}, nextField.config || {}, { gridControlFilterSourceField: ev.currentTarget.value || undefined });
+              return nextField;
+            })}>
+              <option value="">No parent-child mapping</option>
+              {parentFieldOptions.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+            </select>
+
+            <label className={styles.designerFormLabel}>Grid Control child column</label>
+            <select className={styles.designerInput} value={selectedGridTarget} disabled={!selectedGridSourceId || this.state.gridControlFieldsLoading} onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.config = Object.assign({}, nextField.config || {}, { gridControlFilterTargetField: ev.currentTarget.value || undefined });
+              return nextField;
+            })}>
+              <option value="">{this.state.gridControlFieldsLoading ? 'Loading columns...' : 'Select a child column'}</option>
+              {this.state.gridControlFields.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+            </select>
+            {this.state.gridControlFieldsError && <div className={styles.designerPanelHint}>{this.state.gridControlFieldsError}</div>}
+
+            <label className={styles.designerFormLabel}>Filter operator</label>
+            <select className={styles.designerInput} value={selectedGridOperator} onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.config = Object.assign({}, nextField.config || {}, { gridControlFilterOperator: ev.currentTarget.value || 'eq' });
+              return nextField;
+            })}>
+              <option value="eq">Equals</option>
+              <option value="ne">Does not equal</option>
+              <option value="contains">Contains</option>
+              <option value="notcontains">Does not contain</option>
+              <option value="startswith">Starts with</option>
+              <option value="endswith">Ends with</option>
+              <option value="gt">Greater than</option>
+              <option value="ge">Greater than or equal</option>
+              <option value="lt">Less than</option>
+              <option value="le">Less than or equal</option>
+            </select>
+
+            {this.renderCustomPlacementEditor(field)}
+          </div>
+
+          <div className={styles.designerPanelSection}>
+            <div className={styles.designerPanelTitle}>Title Font Settings</div>
+
+            <label className={styles.designerFormLabel}>Font Size (px)</label>
+            <input className={styles.designerInput} type="number" min={8} max={72} value={String(field.labelFontSize || 14)} onChange={(ev) => this.updateSelectedField(function(nextField) {
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextField.labelFontSize = isNaN(parsed) ? undefined : parsed;
+              return nextField;
+            })} />
+
+            <label className={styles.designerFormLabel}>Font Family</label>
+            <select className={styles.designerInput} value={field.labelFontFamily || 'inherit'} onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.labelFontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+              return nextField;
+            })}>
+              <option value="inherit">Inherit</option>
+              <option value="Arial">Arial</option>
+              <option value="'Segoe UI'">Segoe UI</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Courier New">Courier New</option>
+              <option value="Times New Roman">Times New Roman</option>
+            </select>
+
+            <label className={styles.designerFormLabel}>Font Weight</label>
+            <select className={styles.designerInput} value={field.labelFontWeight || 'normal'} onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.labelFontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+              return nextField;
+            })}>
+              <option value="normal">Normal</option>
+              <option value="500">Medium (500)</option>
+              <option value="600">Semi-Bold (600)</option>
+              <option value="bold">Bold</option>
+              <option value="700">Bold (700)</option>
+            </select>
+
+            <label className={styles.designerFormLabel}>Title Color</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="color" value={field.labelColor || '#000000'} onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.labelColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })} style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }} />
+              <input className={styles.designerInput} type="text" value={field.labelColor || ''} placeholder="#000000" onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.labelColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })} style={{ flex: 1 }} />
+            </div>
+          </div>
+
+          <div className={styles.designerPanelSection}>
+            <div className={styles.designerPanelTitle}>Field Background &amp; Border</div>
+
+            <label className={styles.designerFormLabel}>Background Color</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="color" value={field.fieldBackgroundColor || '#ffffff'} onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBackgroundColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })} style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }} />
+              <input className={styles.designerInput} type="text" value={field.fieldBackgroundColor || ''} placeholder="#ffffff" onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBackgroundColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })} style={{ flex: 1 }} />
+            </div>
+
+            <label className={styles.designerFormLabel}>Border Style</label>
+            <select className={styles.designerInput} value={field.fieldBorderStyle || 'square'} onChange={(ev) => this.updateSelectedField(function(nextField) {
+              nextField.fieldBorderStyle = ev.currentTarget.value as 'square' | 'rounded' || undefined;
+              return nextField;
+            })}>
+              <option value="square">Square Corners</option>
+              <option value="rounded">Rounded Corners</option>
+            </select>
+
+            {(field.fieldBorderStyle || 'square') === 'rounded' && (
+              <div>
+                <label className={styles.designerFormLabel}>Corner Radius (px)</label>
+                <input className={styles.designerInput} type="number" min={0} max={40} value={String(field.fieldBorderRadius || 8)} onChange={(ev) => this.updateSelectedField(function(nextField) {
+                  var parsedRadius = parseInt(ev.currentTarget.value, 10);
+                  nextField.fieldBorderRadius = isNaN(parsedRadius) ? 8 : parsedRadius;
+                  return nextField;
+                })} />
+              </div>
+            )}
+
+            <label className={styles.designerFormLabel}>Border Color</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="color" value={field.fieldBorderColor || '#cccccc'} onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBorderColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })} style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }} />
+              <input className={styles.designerInput} type="text" value={field.fieldBorderColor || ''} placeholder="#cccccc" onChange={(ev) => this.updateSelectedField(function(nextField) {
+                nextField.fieldBorderColor = ev.currentTarget.value || undefined;
+                return nextField;
+              })} style={{ flex: 1 }} />
+            </div>
+
+            <label className={styles.designerFormLabel}>Border Width (px)</label>
+            <input className={styles.designerInput} type="number" min={0} max={10} value={String(field.fieldBorderWidth || 1)} onChange={(ev) => this.updateSelectedField(function(nextField) {
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextField.fieldBorderWidth = isNaN(parsed) ? 1 : parsed;
+              return nextField;
+            })} />
+          </div>
+        </div>
+      );
+    }
+
     // Custom richtext fields have a different editor UI - no field properties
     if (field.type === 'richtext' && field.fieldName.startsWith('richtext')) {
       var contentValue = field.defaultValue || '';
@@ -2242,6 +2740,11 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
             })}
           />
 
+          <label className={styles.designerFormLabel}>Form name alignment</label>
+          <select className={styles.designerInput} value={this.props.schema.nameAlignment || 'left'} onChange={(ev) => this.updateForm(function(schema) { schema.nameAlignment = ev.currentTarget.value as 'left' | 'center' | 'right'; return schema; })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          </select>
+
           <label className={styles.designerCheckboxRow}>
             <input
               type="checkbox"
@@ -2265,6 +2768,25 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
               return schema;
             })}
           />
+
+          <label className={styles.designerFormLabel}>Form description alignment</label>
+          <select className={styles.designerInput} value={this.props.schema.descriptionAlignment || 'left'} onChange={(ev) => this.updateForm(function(schema) { schema.descriptionAlignment = ev.currentTarget.value as 'left' | 'center' | 'right'; return schema; })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Logo image library</label>
+          <select className={styles.designerInput} value={this.state.selectedImageLibrary} onChange={(ev) => this.loadImageFiles(ev.currentTarget.value)}>
+            <option value="">Select a library</option>{this.state.imageLibraries.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+          </select>
+          <label className={styles.designerFormLabel}>Logo image</label>
+          <select className={styles.designerInput} value={this.props.schema.logoUrl || ''} disabled={!this.state.selectedImageLibrary || this.state.imageFilesLoading} onChange={(ev) => this.updateForm(function(schema) { schema.logoUrl = ev.currentTarget.value || undefined; return schema; })}>
+            <option value="">{this.state.imageFilesLoading ? 'Loading images...' : 'Select an image'}</option>{this.state.imageFiles.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}
+          </select>
+          {this.state.imageBrowserError && <div className={styles.designerPanelHint}>{this.state.imageBrowserError}</div>}
+          <label className={styles.designerFormLabel}>Logo URL</label>
+          <input className={styles.designerInput} type="text" value={this.props.schema.logoUrl || ''} placeholder="/sites/site/Library/logo.png" onChange={(ev) => this.updateForm(function(schema) { schema.logoUrl = ev.currentTarget.value || undefined; return schema; })} />
+          <label className={styles.designerFormLabel}>Logo alternative text</label>
+          <input className={styles.designerInput} type="text" value={this.props.schema.logoAltText || ''} onChange={(ev) => this.updateForm(function(schema) { schema.logoAltText = ev.currentTarget.value || undefined; return schema; })} />
         </div>
 
         <div className={styles.designerPanelSection}>
@@ -2336,6 +2858,11 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
             })}
           />
 
+          <label className={styles.designerFormLabel}>Container name alignment</label>
+          <select className={styles.designerInput} value={currentStep.titleAlignment || 'left'} onChange={(ev) => this.updateCurrentStep(function(step) { step.titleAlignment = ev.currentTarget.value as 'left' | 'center' | 'right'; return step; })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          </select>
+
           <label className={styles.designerCheckboxRow}>
             <input
               type="checkbox"
@@ -2359,6 +2886,11 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
               return step;
             })}
           />
+
+          <label className={styles.designerFormLabel}>Container description alignment</label>
+          <select className={styles.designerInput} value={currentStep.descriptionAlignment || 'left'} onChange={(ev) => this.updateCurrentStep(function(step) { step.descriptionAlignment = ev.currentTarget.value as 'left' | 'center' | 'right'; return step; })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          </select>
 
           <label className={styles.designerCheckboxRow}>
             <input

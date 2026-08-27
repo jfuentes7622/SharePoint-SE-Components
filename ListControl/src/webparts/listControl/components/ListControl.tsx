@@ -40,6 +40,8 @@ export interface IListControlProps {
   bodyFontStyle: string;
   bodyFontBold: boolean;
   bodyTextAlign: string;
+  dateDisplayFormat: string;
+  timeDisplayFormat: string;
   selectedTextColor: string;
   selectedBackgroundColor: string;
   selectedFontStyle: string;
@@ -81,6 +83,8 @@ export interface IListFieldDefinition {
   Name: string;
   RealFieldName?: string;
   DisplayName?: string;
+  TypeAsString?: string;
+  DisplayFormat?: number;
   Hidden?: string | boolean;
   ConfiguredWidth?: string;
 }
@@ -97,20 +101,29 @@ export interface IListControlState {
   sortFieldName: string;
   sortDirection: 'asc' | 'desc' | '';
   activeFilterFieldName: string;
+  filterPopoverStyle: any;
+  activeFilterIsDate: boolean;
   draftFilterOperator: FilterOperator;
   draftFilterValue: string;
+  draftFilterEndValue: string;
+  datePickerTarget: 'start' | 'end' | '';
+  datePickerMonth: string;
   columnFilters: { [fieldName: string]: IColumnFilter };
   currentPage: number;
   displayFormUrl: string;
   displayFormLoading: boolean;
   displayFormError: string;
+  embeddedByReportForms: boolean;
+  runtimeFilterJson: string;
+  runtimeConfigOwner: string;
 }
 
 export type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
 
 export interface IColumnFilter {
   operator: FilterOperator;
-  value: string;
+  value: any;
+  endValue?: string;
   compareDateOnly?: boolean;
 }
 
@@ -159,6 +172,7 @@ interface IResolvedConditionalStyle {
 }
 
 var LIST_CONTROL_REFRESH_EVENT = 'spse:listcontrol-refresh';
+var LIST_CONTROL_RUNTIME_CONFIG_EVENT = 'spse:listcontrol-runtime-config';
 
 function escapeODataText(value: string): string {
   return value.replace(/'/g, "''");
@@ -205,10 +219,6 @@ function toArray(value: any): any[] {
 
 function trimGuidBraces(value: string): string {
   return String(value || '').replace(/^[{]/, '').replace(/[}]$/, '');
-}
-
-function appendQuery(url: string, query: string): string {
-  return url + (url.indexOf('?') >= 0 ? '&' : '?') + query;
 }
 
 function appendQueryParam(url: string, key: string, value: string): string {
@@ -290,40 +300,16 @@ function isSharePointWrapperUrl(url: string): boolean {
   return /\/_layouts\/15\/(sharepoint|onedrive|doc)\.aspx/i.test(String(url || ''));
 }
 
-function buildViewRequestUrls(baseEndpoint: string, selectedViewId: string): string[] {
-  var urls: string[] = [];
-  var normalized = trimGuidBraces(selectedViewId);
-  var candidates = [String(selectedViewId || ''), normalized, '{' + normalized + '}'];
-
-  for (var i = 0; i < candidates.length; i += 1) {
-    var candidate = String(candidates[i] || '');
-    if (!candidate) {
-      continue;
-    }
-
-    urls.push(appendQuery(baseEndpoint, 'View=' + encodeURIComponent(candidate)));
-    urls.push(appendQuery(baseEndpoint, 'ViewId=' + encodeURIComponent(candidate)));
-  }
-
-  urls.push(baseEndpoint);
-
-  var unique: string[] = [];
-  for (var j = 0; j < urls.length; j += 1) {
-    if (unique.indexOf(urls[j]) < 0) {
-      unique.push(urls[j]);
-    }
-  }
-
-  return unique;
-}
-
 function extractRenderRowsAndFields(data: any): { rows: any[]; fields: IListFieldDefinition[] } {
-  var schema = tryParseObject(data.ListSchema) || tryParseObject(data.Schema) || {};
-  var listData = tryParseObject(data.ListData) || {};
-  var rows = toArray(data.Row);
+  var directData = data && data.d && data.d.RenderListDataAsStream
+    ? data.d.RenderListDataAsStream : data;
+  var responseData = tryParseObject(directData) || {};
+  var schema = tryParseObject(responseData.ListSchema) || tryParseObject(responseData.Schema) || {};
+  var listData = tryParseObject(responseData.ListData) || responseData;
+  var rows = toArray(responseData.Row);
 
   if (rows.length === 0) {
-    rows = toArray(data.Rows);
+    rows = toArray(responseData.Rows);
   }
 
   if (rows.length === 0) {
@@ -340,7 +326,7 @@ function extractRenderRowsAndFields(data: any): { rows: any[]; fields: IListFiel
 
   var fields = toArray(schema.Field);
   if (fields.length === 0) {
-    fields = toArray(data.Field);
+    fields = toArray(responseData.Field);
   }
 
   return {
@@ -439,6 +425,9 @@ function toPriorityNumber(value: any, fallback: number): number {
 
 export class ListControl extends React.Component<IListControlProps, IListControlState> {
   private _refreshEventHandler: any;
+  private _runtimeConfigEventHandler: any;
+  private _fieldDisplayFormatMap: { [internalName: string]: number } = {};
+  private _loadRowsRequestId: number = 0;
 
   public constructor(props: IListControlProps) {
     super(props);
@@ -455,29 +444,41 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       sortFieldName: '',
       sortDirection: '',
       activeFilterFieldName: '',
+      filterPopoverStyle: {},
+      activeFilterIsDate: false,
       draftFilterOperator: 'contains',
       draftFilterValue: '',
+      draftFilterEndValue: '',
+      datePickerTarget: '',
+      datePickerMonth: '',
       columnFilters: {},
       currentPage: 0,
       displayFormUrl: '',
       displayFormLoading: false,
       displayFormError: '',
+      embeddedByReportForms: false,
+      runtimeFilterJson: '',
+      runtimeConfigOwner: '',
     };
 
     this._refreshEventHandler = this.handleExternalRefresh.bind(this);
+    this._runtimeConfigEventHandler = this.handleRuntimeConfig.bind(this);
   }
 
   public componentDidMount(): void {
     this.logDiagnostic('Component mounted. listName=' + String(this.props.listName || '(none)') + ', defaultViewId=' + String(this.props.defaultViewId || '(none)'));
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
+      window.addEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
     }
     this.loadRows();
   }
 
   public componentWillUnmount(): void {
+    this._loadRowsRequestId += 1;
     if (typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
+      window.removeEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
     }
   }
 
@@ -528,8 +529,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   public componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void {
     if (prevProps.listName !== this.props.listName || prevProps.defaultViewId !== this.props.defaultViewId) {
       this.logDiagnostic('Props changed; resetting selection and reloading rows. listName=' + String(this.props.listName || '(none)') + ', viewId=' + String(this.props.defaultViewId || '(none)'));
+      var nextSelectedViewId = this.props.defaultViewId || this.getInitialViewId(this.props.views);
+      var selectedViewWillChange = nextSelectedViewId !== this.state.selectedViewId;
       this.setState({
-        selectedViewId: this.props.defaultViewId || this.getInitialViewId(this.props.views),
+        selectedViewId: nextSelectedViewId,
         selectedItemId: 0,
         selectedMode: 'view',
         sortFieldName: '',
@@ -541,7 +544,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         currentPage: 0,
       }, () => {
         this.props.onSelectionChange(0, 'view');
-        this.loadRows();
+        if (!selectedViewWillChange) {
+          this.loadRows();
+        }
       });
       return;
     }
@@ -581,6 +586,30 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
     this.logDiagnostic('Received external refresh event for list: ' + sourceListName);
     this.loadRows();
+  }
+
+  private handleRuntimeConfig(event: any): void {
+    var detail = event && event.detail ? event.detail : {};
+    var targetInstanceId = String(detail.instanceId || '').toLowerCase();
+    var currentInstanceId = String(this.props.context && this.props.context.instanceId || '').toLowerCase();
+    if (!targetInstanceId || targetInstanceId !== currentInstanceId) {
+      return;
+    }
+
+    var owner = String(detail.owner || '');
+    if (detail.active === false) {
+      if (this.state.runtimeConfigOwner && owner && this.state.runtimeConfigOwner !== owner) {
+        return;
+      }
+      this.setState({ embeddedByReportForms: false, runtimeFilterJson: '', runtimeConfigOwner: '' });
+      return;
+    }
+
+    this.setState({
+      embeddedByReportForms: true,
+      runtimeFilterJson: String(detail.filterJson || ''),
+      runtimeConfigOwner: owner
+    });
   }
 
   private getWebUrl(): string {
@@ -672,6 +701,95 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
 
     return unique;
+  }
+
+  private buildMinimalViewXml(viewQuery: string, viewFieldNames: string[], rowLimit: number, scope: any): string {
+    var queryText = String(viewQuery || '').trim();
+    var queryDocument = new DOMParser().parseFromString(
+      /^<Query(?:\s|>)/i.test(queryText) ? queryText : '<Query>' + queryText + '</Query>',
+      'text/xml'
+    );
+    if (queryDocument.getElementsByTagName('parsererror').length > 0 || queryDocument.getElementsByTagName('Query').length === 0) {
+      throw new Error('The selected SharePoint view query is invalid.');
+    }
+
+    var xmlDocument = new DOMParser().parseFromString('<View><Query/><ViewFields/></View>', 'text/xml');
+    var viewElement = xmlDocument.getElementsByTagName('View')[0];
+    var existingQuery = xmlDocument.getElementsByTagName('Query')[0];
+    var queryElement = xmlDocument.importNode(queryDocument.getElementsByTagName('Query')[0], true);
+    viewElement.replaceChild(queryElement, existingQuery);
+
+    var viewFieldsElement = xmlDocument.getElementsByTagName('ViewFields')[0];
+    for (var fieldIndex = 0; fieldIndex < viewFieldNames.length; fieldIndex += 1) {
+      var fieldName = String(viewFieldNames[fieldIndex] || '');
+      if (fieldName) {
+        var fieldRef = xmlDocument.createElement('FieldRef');
+        fieldRef.setAttribute('Name', fieldName);
+        viewFieldsElement.appendChild(fieldRef);
+      }
+    }
+
+    var normalizedScope = String(scope === undefined || scope === null ? '' : scope).toLowerCase();
+    var scopeNames: { [key: string]: string } = {
+      '1': 'Recursive',
+      '2': 'RecursiveAll',
+      '3': 'FilesOnly',
+      'recursive': 'Recursive',
+      'recursiveall': 'RecursiveAll',
+      'filesonly': 'FilesOnly'
+    };
+    if (scopeNames[normalizedScope]) {
+      viewElement.setAttribute('Scope', scopeNames[normalizedScope]);
+    }
+
+    if (rowLimit > 0) {
+      var rowLimitElement = xmlDocument.createElement('RowLimit');
+      rowLimitElement.setAttribute('Paged', 'TRUE');
+      rowLimitElement.appendChild(xmlDocument.createTextNode(String(rowLimit)));
+      viewElement.appendChild(rowLimitElement);
+    }
+
+    return new XMLSerializer().serializeToString(xmlDocument);
+  }
+
+  private async loadSelectedViewXml(selectedViewId: string, viewFieldNames: string[]): Promise<string> {
+    if (!selectedViewId) {
+      return '';
+    }
+
+    var webUrl = this.getWebUrl();
+    var listPath = "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')";
+    var viewIds = this.buildViewIdCandidates(selectedViewId);
+    var urls: string[] = [];
+
+    for (var i = 0; i < viewIds.length; i += 1) {
+      var encoded = encodeURIComponent(viewIds[i]);
+      var normalized = encodeURIComponent(trimGuidBraces(viewIds[i]));
+      urls.push(webUrl + listPath + "/views/getById('" + encoded + "')?$select=ViewQuery,RowLimit,Scope");
+      urls.push(webUrl + listPath + "/views(guid'" + normalized + "')?$select=ViewQuery,RowLimit,Scope");
+    }
+
+    for (var j = 0; j < urls.length; j += 1) {
+      try {
+        var response = await this.getJsonWithFallback(urls[j]);
+        if (!response.ok) {
+          continue;
+        }
+
+        var data = await response.json();
+        var viewData = data && data.d ? data.d : data;
+        if (viewData && viewData.ViewQuery !== undefined && viewData.ViewQuery !== null) {
+          var rowLimit = parseInt(String(viewData.RowLimit || ''), 10);
+          var viewXml = this.buildMinimalViewXml(String(viewData.ViewQuery), viewFieldNames, isNaN(rowLimit) ? 0 : rowLimit, viewData.Scope);
+          this.logDiagnostic('Loaded minimal selected view CAML. HasFilter=' + String(/<Where(?:\s|>)/i.test(viewXml)) + ', hasSort=' + String(/<OrderBy(?:\s|>)/i.test(viewXml)) + ', fields=' + String(viewFieldNames.length) + '.');
+          return viewXml;
+        }
+      } catch (viewXmlError) {
+        this.logDiagnostic('loadSelectedViewXml: Attempt failed for url=' + urls[j] + ': ' + (viewXmlError && viewXmlError.message ? viewXmlError.message : String(viewXmlError)));
+      }
+    }
+
+    throw new Error('Failed to load the selected SharePoint view definition.');
   }
 
   private async loadSelectedViewFieldNames(selectedViewId: string): Promise<string[]> {
@@ -799,7 +917,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
 
     try {
-      var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=InternalName,TypeAsString";
+      var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=InternalName,TypeAsString,DisplayFormat";
       var response = await this.getJsonWithFallback(endpoint);
       if (!response.ok) {
         return {};
@@ -824,6 +942,11 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           continue;
         }
         map[internalName] = String(field.TypeAsString || '');
+        map[internalName.toLowerCase()] = String(field.TypeAsString || '');
+        if (String(field.TypeAsString || '').toLowerCase() === 'datetime') {
+          var displayFormat = parseInt(String(field.DisplayFormat), 10);
+          this._fieldDisplayFormatMap[internalName.toLowerCase()] = isNaN(displayFormat) ? 1 : displayFormat;
+        }
       }
 
       return map;
@@ -875,6 +998,17 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     });
   }
 
+  private applyFieldTypes(fields: IListFieldDefinition[], typeMap: { [internalName: string]: string }): IListFieldDefinition[] {
+    return fields.map(function(field: IListFieldDefinition) {
+      var internalName = String(field.RealFieldName || field.Name || '');
+      return {
+        ...field,
+        TypeAsString: typeMap[internalName] || typeMap[internalName.toLowerCase()] || field.TypeAsString || '',
+        DisplayFormat: this._fieldDisplayFormatMap[internalName.toLowerCase()]
+      };
+    }.bind(this));
+  }
+
   private getRowFieldValue(row: any, field: IListFieldDefinition): any {
     var fieldName = field.Name || field.RealFieldName || '';
     var value = row[fieldName];
@@ -882,6 +1016,40 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       value = row[field.RealFieldName];
     }
     return value;
+  }
+
+  private getUrlCellValue(row: any, field: IListFieldDefinition): { href: string; text: string } | null {
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    if (fieldType !== 'url' && fieldType !== 'hyperlink') { return null; }
+
+    var rawValue = this.getRowFieldValue(row, field);
+    if (rawValue === undefined || rawValue === null || rawValue === '') { return null; }
+
+    var href = '';
+    var text = '';
+    if (typeof rawValue === 'object') {
+      href = String((rawValue as any).Url || (rawValue as any).url || '').trim();
+      text = String((rawValue as any).Description || (rawValue as any).description || '').trim();
+    } else {
+      var rawText = String(rawValue).trim();
+      if (rawText.indexOf('<') >= 0 && rawText.indexOf('>') >= 0) {
+        var container = document.createElement('div');
+        container.innerHTML = rawText;
+        var anchor = container.querySelector('a');
+        if (anchor) {
+          href = String(anchor.getAttribute('href') || '').trim();
+          text = String(anchor.textContent || '').trim();
+        }
+      }
+      if (!href) {
+        var descriptionSeparator = rawText.indexOf(', ');
+        href = descriptionSeparator > 0 ? rawText.substring(0, descriptionSeparator).trim() : rawText;
+        text = descriptionSeparator > 0 ? rawText.substring(descriptionSeparator + 2).trim() : '';
+      }
+    }
+
+    if (!href || /^\s*(?:javascript|data|vbscript):/i.test(href)) { return null; }
+    return { href: href, text: text || href };
   }
 
   private stringifyCellValue(value: any): string {
@@ -932,6 +1100,47 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return String(value);
   }
 
+  private formatDateCellValue(value: any, field: IListFieldDefinition): string {
+    var rawValue = this.stringifyCellValue(value);
+    if (String(field.TypeAsString || '').toLowerCase() !== 'datetime') {
+      return rawValue;
+    }
+
+    var dateOnlyMatch = field.DisplayFormat === 0 ? /^(\d{4})-(\d{2})-(\d{2})/.exec(rawValue) : null;
+    var dateValue = new Date(rawValue);
+    if (isNaN(dateValue.getTime())) {
+      return rawValue;
+    }
+
+    var month = dateOnlyMatch ? dateOnlyMatch[2] : String(dateValue.getMonth() + 1);
+    var day = dateOnlyMatch ? dateOnlyMatch[3] : String(dateValue.getDate());
+    var year = dateOnlyMatch ? dateOnlyMatch[1] : String(dateValue.getFullYear());
+    month = month.length < 2 ? '0' + month : month;
+    day = day.length < 2 ? '0' + day : day;
+
+    var dateText = month + '/' + day + '/' + year;
+    if (this.props.dateDisplayFormat === 'dmy') {
+      dateText = day + '/' + month + '/' + year;
+    } else if (this.props.dateDisplayFormat === 'ymd') {
+      dateText = year + '-' + month + '-' + day;
+    }
+
+    if (field.DisplayFormat === 0) {
+      return dateText;
+    }
+
+    var hours = dateValue.getHours();
+    var minutes = String(dateValue.getMinutes());
+    minutes = minutes.length < 2 ? '0' + minutes : minutes;
+    if (this.props.timeDisplayFormat === '12hour') {
+      var period = hours >= 12 ? 'PM' : 'AM';
+      var twelveHour = hours % 12 || 12;
+      return dateText + ' ' + (twelveHour < 10 ? '0' : '') + String(twelveHour) + ':' + minutes + ' ' + period;
+    }
+
+    return dateText + ' ' + (hours < 10 ? '0' : '') + String(hours) + ':' + minutes;
+  }
+
   private isMeaningfulCellValue(value: any): boolean {
     if (value === undefined || value === null) {
       return false;
@@ -946,6 +1155,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
     for (var i = 0; i < rows.length; i += 1) {
       var row = rows[i] || {};
+      if (this.getRowItemId(row) > 0) {
+        filtered.push(row);
+        continue;
+      }
       var hasVisibleValue = false;
       for (var j = 0; j < visibleFields.length; j += 1) {
         var field = visibleFields[j];
@@ -963,7 +1176,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         }
       }
 
-      // Keep rows only when at least one visible field has meaningful content.
+      // Rows without a standard item ID still require visible content.
       if (hasVisibleValue) {
         filtered.push(row);
       }
@@ -1048,24 +1261,30 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return;
     }
 
-    this.logDiagnostic('Starting loadRows. listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
+    var requestId = ++this._loadRowsRequestId;
+    this.logDiagnostic('Starting loadRows. requestId=' + String(requestId) + ', listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
     this.setState({ loading: true, error: null });
 
     try {
       var baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
       var selectedViewId = this.state.selectedViewId;
+      var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
+      var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, viewFieldNames);
 
       var body: any = {
         parameters: {
-          RenderOptions: 17
+          RenderOptions: 7
         }
       };
+      if (selectedViewXml) {
+        body.parameters.ViewXml = selectedViewXml;
+      }
 
-      var requestUrls = selectedViewId ? buildViewRequestUrls(baseEndpoint, selectedViewId) : [baseEndpoint];
       var selectedRows: any[] = [];
       var selectedFields: IListFieldDefinition[] = [];
       var lastError: string = '';
       var hadSuccessfulResponse = false;
+      var requestUrls = [baseEndpoint];
 
       for (var requestIndex = 0; requestIndex < requestUrls.length; requestIndex += 1) {
         var requestUrl = requestUrls[requestIndex];
@@ -1086,6 +1305,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
         var data = await response.json();
         var extracted = extractRenderRowsAndFields(data);
+        this.logDiagnostic('RenderListDataAsStream parsed. rows=' + String(extracted.rows.length) + ', fields=' + String(extracted.fields.length));
 
         if (selectedFields.length === 0 && extracted.fields.length > 0) {
           selectedFields = extracted.fields;
@@ -1106,9 +1326,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
       var rows = selectedRows;
       var fields = selectedFields;
-      var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
-
-      if (rows.length === 0) {
+      if (rows.length === 0 && !selectedViewId) {
         var itemsFallback = await this.loadRowsFromItemsEndpoint(viewFieldNames);
         rows = itemsFallback.rows;
 
@@ -1119,8 +1337,16 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
       var visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
       var fieldTitleMap = await this.loadListFieldTitleMap();
+      var visibleFieldNames = visibleFields.map((field: IListFieldDefinition) => this.getFieldKey(field));
+      var fieldTypeMap = await this.loadListFieldTypeMap(visibleFieldNames);
       visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
+      visibleFields = this.applyFieldTypes(visibleFields, fieldTypeMap);
       var renderableRows = this.filterRenderableRows(rows, visibleFields);
+
+      if (requestId !== this._loadRowsRequestId) {
+        this.logDiagnostic('Ignoring stale loadRows result. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
+        return;
+      }
 
       this.setState({
         fields: visibleFields,
@@ -1131,6 +1357,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
     } catch (error) {
       var loadError: any = error as any;
+      if (requestId !== this._loadRowsRequestId) {
+        this.logDiagnostic('Ignoring stale loadRows failure. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
+        return;
+      }
       this.setState({
         loading: false,
         error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
@@ -1210,7 +1440,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return null;
     }
 
-    var text = this.stringifyCellValue(value);
+    var text = this.formatDateCellValue(value, field);
     if (text.indexOf('<') >= 0 && text.indexOf('>') >= 0) {
       return { __html: text };
     }
@@ -1346,22 +1576,124 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     });
   }
 
-  private openFilter(field: IListFieldDefinition): void {
+  private openFilter(field: IListFieldDefinition, anchorElement: HTMLElement): void {
     var fieldKey = this.getFieldKey(field);
     if (!fieldKey) {
       return;
     }
 
+    var anchorRect = anchorElement.getBoundingClientRect();
+    var viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    var viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+    var popoverWidth = 220;
+    var estimatedPopoverHeight = 190;
+    var viewportMargin = 8;
+    var popoverGap = 6;
+    var left = anchorRect.right - popoverWidth;
+    left = Math.max(viewportMargin, Math.min(left, viewportWidth - popoverWidth - viewportMargin));
+    var availableBelow = viewportHeight - anchorRect.bottom - popoverGap - viewportMargin;
+    var availableAbove = anchorRect.top - popoverGap - viewportMargin;
+    var popoverStyle: any = {
+      left: left,
+      right: 'auto'
+    };
+
+    if (availableBelow < estimatedPopoverHeight && availableAbove > availableBelow) {
+      popoverStyle.top = 'auto';
+      popoverStyle.bottom = viewportHeight - anchorRect.top + popoverGap;
+      popoverStyle.maxHeight = Math.max(120, availableAbove);
+    } else {
+      popoverStyle.top = anchorRect.bottom + popoverGap;
+      popoverStyle.bottom = 'auto';
+      popoverStyle.maxHeight = Math.max(120, availableBelow);
+    }
+
     var existing = this.state.columnFilters[fieldKey];
+    var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
     this.setState({
       activeFilterFieldName: fieldKey,
-      draftFilterOperator: existing ? existing.operator : 'contains',
-      draftFilterValue: existing ? existing.value : ''
+      filterPopoverStyle: popoverStyle,
+      activeFilterIsDate: isDateField,
+      draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
+      draftFilterValue: existing ? existing.value : '',
+      draftFilterEndValue: existing ? String(existing.endValue || '') : '',
+      datePickerTarget: '',
+      datePickerMonth: ''
     });
   }
 
   private closeFilter(): void {
-    this.setState({ activeFilterFieldName: '' });
+    this.setState({ activeFilterFieldName: '', datePickerTarget: '' });
+  }
+
+  private getIsoDate(date: Date): string {
+    var month = String(date.getMonth() + 1);
+    var day = String(date.getDate());
+    return String(date.getFullYear()) + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
+  }
+
+  private toggleDatePicker(target: 'start' | 'end'): void {
+    if (this.state.datePickerTarget === target) {
+      this.setState({ datePickerTarget: '' });
+      return;
+    }
+
+    var value = target === 'start' ? this.state.draftFilterValue : this.state.draftFilterEndValue;
+    var month = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.substr(0, 7) : this.getIsoDate(new Date()).substr(0, 7);
+    this.setState({ datePickerTarget: target, datePickerMonth: month });
+  }
+
+  private changeDatePickerMonth(offset: number): void {
+    var parts = this.state.datePickerMonth.split('-');
+    var monthDate = new Date(Number(parts[0]), Number(parts[1]) - 1 + offset, 1);
+    this.setState({ datePickerMonth: this.getIsoDate(monthDate).substr(0, 7) });
+  }
+
+  private selectFilterDate(value: string): void {
+    if (this.state.datePickerTarget === 'end') {
+      this.setState({ draftFilterEndValue: value, datePickerTarget: '' });
+    } else {
+      this.setState({ draftFilterValue: value, datePickerTarget: '' });
+    }
+  }
+
+  private renderDatePicker(): React.ReactNode {
+    if (!this.state.datePickerTarget || !/^\d{4}-\d{2}$/.test(this.state.datePickerMonth)) {
+      return null;
+    }
+
+    var parts = this.state.datePickerMonth.split('-');
+    var year = Number(parts[0]);
+    var monthIndex = Number(parts[1]) - 1;
+    var firstWeekday = new Date(year, monthIndex, 1).getDay();
+    var dayCount = new Date(year, monthIndex + 1, 0).getDate();
+    var selectedValue = this.state.datePickerTarget === 'start' ? this.state.draftFilterValue : this.state.draftFilterEndValue;
+    var cells: React.ReactNode[] = [];
+    var index: number;
+    for (index = 0; index < firstWeekday; index += 1) {
+      cells.push(<span key={'blank-' + index} className="lc-date-picker-blank" />);
+    }
+    for (index = 1; index <= dayCount; index += 1) {
+      let dateValue = this.getIsoDate(new Date(year, monthIndex, index));
+      let disabled = this.state.datePickerTarget === 'end' && !!this.state.draftFilterValue && dateValue < this.state.draftFilterValue;
+      cells.push(
+        <button key={dateValue} type="button" className={dateValue === selectedValue ? 'lc-date-picker-day lc-date-picker-selected' : 'lc-date-picker-day'} disabled={disabled} onClick={() => this.selectFilterDate(dateValue)}>
+          {index}
+        </button>
+      );
+    }
+
+    return (
+      <div className="lc-date-picker" role="dialog" aria-label="Choose date">
+        <div className="lc-date-picker-header">
+          <button type="button" title="Previous month" aria-label="Previous month" onClick={() => this.changeDatePickerMonth(-1)}>&#8249;</button>
+          <strong>{new Date(year, monthIndex, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })}</strong>
+          <button type="button" title="Next month" aria-label="Next month" onClick={() => this.changeDatePickerMonth(1)}>&#8250;</button>
+        </div>
+        <div className="lc-date-picker-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+        <div className="lc-date-picker-days">{cells}</div>
+      </div>
+    );
   }
 
   private applyActiveFilter(): void {
@@ -1379,8 +1711,21 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
 
     var value = String(this.state.draftFilterValue || '').trim();
+    var endValue = String(this.state.draftFilterEndValue || '').trim();
     if (!value) {
       delete nextFilters[fieldKey];
+    } else if (this.state.activeFilterIsDate) {
+      if (endValue && endValue < value) {
+        var originalValue = value;
+        value = endValue;
+        endValue = originalValue;
+      }
+      nextFilters[fieldKey] = {
+        operator: 'eq',
+        value: value,
+        endValue: endValue,
+        compareDateOnly: true
+      };
     } else {
       nextFilters[fieldKey] = {
         operator: this.state.draftFilterOperator,
@@ -1413,6 +1758,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       columnFilters: nextFilters,
       draftFilterOperator: 'contains',
       draftFilterValue: '',
+      draftFilterEndValue: '',
       activeFilterFieldName: '',
       currentPage: 0
     });
@@ -1455,7 +1801,15 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   private rowMatchesFilter(row: any, field: IListFieldDefinition, filter: IColumnFilter): boolean {
-    var valueText = this.getCellPlainText(row, field);
+    if (Array.isArray(filter.value)) {
+      var values = filter.value.filter(function(value: any) { return value !== undefined && value !== null && String(value).trim() !== ''; });
+      if (values.length === 0) { return true; }
+      var isNegative = filter.operator === 'ne' || filter.operator === 'notcontains';
+      var scalarOperator: FilterOperator = filter.operator === 'ne' ? 'eq' : (filter.operator === 'notcontains' ? 'contains' : filter.operator);
+      var scalarMatches = values.map((value: any) => this.rowMatchesFilter(row, field, { operator: scalarOperator, value: value, compareDateOnly: filter.compareDateOnly }));
+      return isNegative ? scalarMatches.every(function(matches: boolean) { return !matches; }) : scalarMatches.some(function(matches: boolean) { return matches; });
+    }
+    var valueText = this.getFilterCellText(row, field);
     var candidate = String(valueText || '').trim();
     var query = String(filter.value || '').trim();
 
@@ -1466,20 +1820,28 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var normalizedCandidate = candidate.toLowerCase();
     var normalizedQuery = query.toLowerCase();
     var compareResult = this.compareComparableValues(candidate, query);
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    var lookupCandidates = fieldType.indexOf('lookup') >= 0
+      ? normalizedCandidate.split(';').map(function(value) { return value.trim(); }).filter(function(value) { return !!value; })
+      : [];
 
     if (filter.compareDateOnly) {
       var candidateDate = new Date(candidate);
-      if (!isNaN(candidateDate.getTime())) {
-        normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
-        compareResult = this.compareComparableValues(normalizedCandidate, query);
+      if (isNaN(candidateDate.getTime())) {
+        return false;
+      }
+      normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
+      compareResult = this.compareComparableValues(normalizedCandidate, query);
+      if (filter.endValue) {
+        return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
       }
     }
 
     switch (filter.operator) {
       case 'eq':
-        return normalizedCandidate === normalizedQuery;
+        return lookupCandidates.length > 0 ? lookupCandidates.indexOf(normalizedQuery) >= 0 : normalizedCandidate === normalizedQuery;
       case 'ne':
-        return normalizedCandidate !== normalizedQuery;
+        return lookupCandidates.length > 0 ? lookupCandidates.indexOf(normalizedQuery) < 0 : normalizedCandidate !== normalizedQuery;
       case 'contains':
         return normalizedCandidate.indexOf(normalizedQuery) >= 0;
       case 'notcontains':
@@ -1501,19 +1863,72 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
   }
 
-  private parsePresetFilterConditions(): IPresetFilterCondition[] {
-    var source = String(this.props.filterJson || '').trim();
-    if (!source) {
-      return [];
+  private getFilterCellText(row: any, field: IListFieldDefinition): string {
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    if (fieldType.indexOf('lookup') < 0) {
+      return this.getCellPlainText(row, field);
     }
 
-    try {
-      var parsed = JSON.parse(source);
-      if (!Array.isArray(parsed)) {
-        return [];
+    var rawValue = this.getRowFieldValue(row, field);
+    var lookupIds: string[] = [];
+    var collectLookupIds = function(value: any): void {
+      if (value === undefined || value === null || value === '') {
+        return;
       }
+      if (Array.isArray(value)) {
+        for (var valueIndex = 0; valueIndex < value.length; valueIndex += 1) {
+          collectLookupIds(value[valueIndex]);
+        }
+        return;
+      }
+      if (typeof value === 'object') {
+        var lookupId = value.LookupId !== undefined ? value.LookupId
+          : value.lookupId !== undefined ? value.lookupId
+            : value.Id !== undefined ? value.Id
+              : value.ID;
+        if (lookupId !== undefined && lookupId !== null && String(lookupId).trim()) {
+          lookupIds.push(String(lookupId).trim());
+        }
+      }
+    };
+    collectLookupIds(rawValue);
 
-      var conditions: IPresetFilterCondition[] = [];
+    if (lookupIds.length === 0) {
+      var lookupFieldNames = [String(field.RealFieldName || ''), String(field.Name || '')];
+      for (var fieldIndex = 0; fieldIndex < lookupFieldNames.length; fieldIndex += 1) {
+        var fieldName = lookupFieldNames[fieldIndex];
+        if (!fieldName) {
+          continue;
+        }
+        var companionValues = [row[fieldName + 'Id'], row[fieldName + '.lookupId']];
+        for (var companionIndex = 0; companionIndex < companionValues.length; companionIndex += 1) {
+          var companionValue = companionValues[companionIndex];
+          if (Array.isArray(companionValue)) {
+            for (var lookupIndex = 0; lookupIndex < companionValue.length; lookupIndex += 1) {
+              lookupIds.push(String(companionValue[lookupIndex]).trim());
+            }
+          } else if (companionValue !== undefined && companionValue !== null && String(companionValue).trim()) {
+            lookupIds.push(String(companionValue).trim());
+          }
+        }
+      }
+    }
+    return lookupIds.length > 0 ? lookupIds.join('; ') : this.getCellPlainText(row, field);
+  }
+
+  private parsePresetFilterConditions(): IPresetFilterCondition[] {
+    var sources = [String(this.props.filterJson || '').trim(), String(this.state.runtimeFilterJson || '').trim()];
+    var conditions: IPresetFilterCondition[] = [];
+    for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+      var source = sources[sourceIndex];
+      if (!source) {
+        continue;
+      }
+      try {
+        var parsed = JSON.parse(source);
+        if (!Array.isArray(parsed)) {
+          continue;
+        }
       for (var i = 0; i < parsed.length; i += 1) {
         var item = parsed[i] || {};
         var field = String(item.field || '').trim();
@@ -1525,16 +1940,15 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           field: field,
           operator: normalizeFilterOperator(item.operator),
           logical: normalizeFilterLogical(item.logical),
-          valueType: String(item.valueType || '').toLowerCase() === 'expression' ? 'expression' : 'static',
+          valueType: String(item.valueType || '').toLowerCase() === 'expression' ? 'expression' : (String(item.valueType || '').toLowerCase() === 'fieldvalue' ? 'fieldValue' : 'static'),
           value: item.value
         });
       }
-
-      return conditions;
-    } catch (_parseError) {
-      this.logDiagnostic('Preset filter JSON is invalid; skipping preset filters.');
-      return [];
+      } catch (_parseError) {
+        this.logDiagnostic('Preset filter JSON is invalid; skipping that preset filter source.');
+      }
     }
+    return conditions;
   }
 
   private resolveFieldByReference(fieldsByKey: { [key: string]: IListFieldDefinition }, fieldRef: string): IListFieldDefinition | undefined {
@@ -1604,8 +2018,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return aggregate === null ? true : aggregate;
   }
 
-  private resolvePresetFilterValue(condition: { value: any; valueType?: string }): { value: string; compareDateOnly: boolean } {
-    var rawValue = condition.value === undefined || condition.value === null ? '' : String(condition.value).trim();
+  private resolvePresetFilterValue(condition: { value: any; valueType?: string }): { value: any; compareDateOnly: boolean } {
+    var rawValue: any = Array.isArray(condition.value) ? condition.value : (condition.value === undefined || condition.value === null ? '' : String(condition.value).trim());
     if (String(condition.valueType || '').toLowerCase() !== 'expression') {
       return { value: rawValue, compareDateOnly: false };
     }
@@ -2009,7 +2423,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
             </section>
           </div>}
         <div className="lc-toolbar">
-          {this.props.showViewSelector && (
+          {this.props.showViewSelector && !this.state.embeddedByReportForms && (
             <label>
               <span style={{ marginRight: '6px' }}>{strings.RuntimeViewLabel}</span>
               <select
@@ -2022,8 +2436,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
               </select>
             </label>
           )}
-          {this.props.showRefresh && <button type="button" onClick={() => this.loadRows()}>{strings.RuntimeRefresh}</button>}
-          {this.props.showAdd && (
+          {this.props.showRefresh && !this.state.embeddedByReportForms && <button type="button" onClick={() => this.loadRows()}>{strings.RuntimeRefresh}</button>}
+          {this.props.showAdd && !this.state.embeddedByReportForms && (
             <button
               type="button"
               onClick={() => {
@@ -2034,7 +2448,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
               {strings.RuntimeNew}
             </button>
           )}
-          {this.props.showEdit && (
+          {this.props.showEdit && !this.state.embeddedByReportForms && (
             <button
               type="button"
               disabled={!canOperateOnSelection}
@@ -2046,7 +2460,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
               {strings.RuntimeEdit}
             </button>
           )}
-          {this.props.showView && (
+          {this.props.showView && !this.state.embeddedByReportForms && (
             <button
               type="button"
               disabled={!canOperateOnSelection}
@@ -2058,7 +2472,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
               {strings.RuntimeView}
             </button>
           )}
-          {this.props.showDelete && (
+          {this.props.showDelete && !this.state.embeddedByReportForms && (
             <button
               type="button"
               disabled={!canOperateOnSelection || this.state.deleting}
@@ -2125,7 +2539,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                                 if (this.state.activeFilterFieldName === fieldKey) {
                                   this.closeFilter();
                                 } else {
-                                  this.openFilter(field);
+                                  this.openFilter(field, ev.currentTarget);
                                 }
                               }}
                             >
@@ -2135,34 +2549,42 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                           {this.state.activeFilterFieldName === fieldKey && (
                             <div
                               className="lc-filter-popover"
+                              style={this.state.filterPopoverStyle}
                               onClick={(ev) => {
                                 ev.preventDefault();
                                 ev.stopPropagation();
                               }}
                             >
-                              <label className="lc-filter-label">{strings.RuntimeFilterOperatorLabel}</label>
-                              <select
-                                className="lc-filter-select"
-                                value={this.state.draftFilterOperator}
-                                onChange={(ev) => this.setState({ draftFilterOperator: ev.currentTarget.value as FilterOperator })}
-                              >
-                                {this.getFilterOperatorOptions().map((option) => {
-                                  return <option key={option.key} value={option.key}>{option.label}</option>;
-                                })}
-                              </select>
-                              <label className="lc-filter-label">{strings.RuntimeFilterValueLabel}</label>
-                              <input
-                                className="lc-filter-input"
-                                type="text"
-                                value={this.state.draftFilterValue}
-                                placeholder={strings.RuntimeFilterValuePlaceholder}
-                                onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })}
-                                onKeyDown={(ev) => {
-                                  if (ev.key === 'Enter') {
-                                    this.applyActiveFilter();
-                                  }
-                                }}
-                              />
+                              {this.state.activeFilterIsDate ? (
+                                <div>
+                                  <label className="lc-filter-label">{strings.RuntimeFilterDateLabel}</label>
+                                  <div className="lc-date-input-row">
+                                    <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterValue} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} />
+                                    <button type="button" className="lc-date-picker-button" title="Choose from date" aria-label="Choose from date" onClick={() => this.toggleDatePicker('start')}><span aria-hidden="true">&#128197;</span></button>
+                                  </div>
+                                  <label className="lc-filter-label">{strings.RuntimeFilterEndDateLabel}</label>
+                                  <div className="lc-date-input-row">
+                                    <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterEndValue} onChange={(ev) => this.setState({ draftFilterEndValue: ev.currentTarget.value })} />
+                                    <button type="button" className="lc-date-picker-button" title="Choose to date" aria-label="Choose to date" onClick={() => this.toggleDatePicker('end')}><span aria-hidden="true">&#128197;</span></button>
+                                  </div>
+                                  {this.renderDatePicker()}
+                                </div>
+                              ) : (
+                                <div>
+                                  <label className="lc-filter-label">{strings.RuntimeFilterOperatorLabel}</label>
+                                  <select className="lc-filter-select" value={this.state.draftFilterOperator} onChange={(ev) => this.setState({ draftFilterOperator: ev.currentTarget.value as FilterOperator })}>
+                                    {this.getFilterOperatorOptions().map((option) => {
+                                      return <option key={option.key} value={option.key}>{option.label}</option>;
+                                    })}
+                                  </select>
+                                  <label className="lc-filter-label">{strings.RuntimeFilterValueLabel}</label>
+                                  <input className="lc-filter-input" type="text" value={this.state.draftFilterValue} placeholder={strings.RuntimeFilterValuePlaceholder} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} onKeyDown={(ev) => {
+                                    if (ev.key === 'Enter') {
+                                      this.applyActiveFilter();
+                                    }
+                                  }} />
+                                </div>
+                              )}
                               <div className="lc-filter-actions">
                                 <button type="button" onClick={() => this.applyActiveFilter()}>{strings.RuntimeFilterApply}</button>
                                 <button type="button" onClick={() => this.clearActiveFilter()}>{strings.RuntimeFilterClear}</button>
@@ -2189,6 +2611,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                     >
                       {displayFields.map((field) => {
                         var markup = this.getCellMarkup(row, field);
+                        var urlCell = this.getUrlCellValue(row, field);
                         var showItemLink = this.props.showLinkToItem && this.isTitleField(field);
                         var itemLinkUrl = showItemLink ? this.getItemLinkUrl(row) : '';
                         var itemLinkText = showItemLink ? this.getCellPlainText(row, field) : '';
@@ -2200,7 +2623,17 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                         );
                         return (
                           <td key={field.Name} style={mergedCellStyle}>
-                            {showItemLink && itemLinkUrl ? (
+                            {urlCell ? (
+                              <a
+                                className="lc-item-link"
+                                href={urlCell.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(ev) => ev.stopPropagation()}
+                              >
+                                {urlCell.text}
+                              </a>
+                            ) : showItemLink && itemLinkUrl ? (
                               <a
                                 className="lc-item-link"
                                 href={itemLinkUrl}

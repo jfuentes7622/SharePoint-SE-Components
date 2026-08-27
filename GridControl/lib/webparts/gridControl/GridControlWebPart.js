@@ -55,6 +55,7 @@ var PropertyFieldColorPicker_1 = require("@pnp/spfx-property-controls/lib/Proper
 var strings = require("GridControlWebPartStrings");
 var GridControl_1 = require("./components/GridControl");
 var GridDesigner_1 = require("./components/GridDesigner");
+var deterministicFullWidth_1 = require("../shared/deterministicFullWidth");
 var packageSolutionConfig = require('../../../config/package-solution.json');
 function escapeODataText(value) {
     return value.replace(/'/g, "''");
@@ -100,6 +101,7 @@ var GridControlWebPart = (function (_super) {
         _this._isEditingConditionalStyle = false;
         _this._conditionalStyleDesignerRevision = 0;
         _this._fieldTypeByInternalName = {};
+        _this._fieldChoicesByInternalName = {};
         _this._fieldLookupListByInternalName = {};
         _this._filterLookupItemOptions = [];
         _this._conditionalStyleLookupItemOptions = [];
@@ -138,6 +140,11 @@ var GridControlWebPart = (function (_super) {
                 description: strings.PropInstanceNameDescription,
             },
             {
+                id: 'listName',
+                title: 'Configured list name',
+                description: 'The SharePoint list configured for this Grid Control.',
+            },
+            {
                 id: 'selectedItemId',
                 title: strings.DynamicPropertySelectedItemIdTitle,
                 description: strings.DynamicPropertySelectedItemIdDescription,
@@ -153,6 +160,9 @@ var GridControlWebPart = (function (_super) {
         if (propertyId === 'instanceName') {
             return String(this.properties.instanceName || '').trim();
         }
+        if (propertyId === 'listName') {
+            return String(this.properties.listName || '').trim();
+        }
         if (propertyId === 'selectedItemId') {
             return this._selectedItemId;
         }
@@ -163,6 +173,7 @@ var GridControlWebPart = (function (_super) {
     };
     GridControlWebPart.prototype.render = function () {
         var _this = this;
+        deterministicFullWidth_1.updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
         if (this._isGridDesignerOpen) {
             var designerElement = React.createElement(GridDesigner_1.GridDesigner, {
                 context: this.context,
@@ -199,6 +210,8 @@ var GridControlWebPart = (function (_super) {
             bodyFontStyle: this.properties.bodyFontStyle || 'normal',
             bodyFontBold: this.properties.bodyFontBold === true,
             bodyTextAlign: this.properties.bodyTextAlign || 'left',
+            dateDisplayFormat: this.properties.dateDisplayFormat || 'mdy',
+            timeDisplayFormat: this.properties.timeDisplayFormat || '24hour',
             selectedTextColor: this.properties.selectedTextColor || '',
             selectedBackgroundColor: this.properties.selectedBackgroundColor || '',
             selectedFontStyle: this.properties.selectedFontStyle || 'normal',
@@ -295,6 +308,8 @@ var GridControlWebPart = (function (_super) {
                 this.loadViews(String(newValue));
                 this.loadListFields(String(newValue));
             }
+            this.notifyDynamicData('listName');
+            this.notifyDynamicSourceChanged();
             return;
         }
         if (propertyPath === 'viewId' && oldValue !== newValue) {
@@ -320,12 +335,17 @@ var GridControlWebPart = (function (_super) {
             || propertyPath === 'conditionalStyleSelectedIndex'
             || propertyPath === 'conditionalStyleLookupPick') {
             if (propertyPath === 'filterDesignerField') {
+                this.properties.filterDesignerValue = '';
                 this._filterLookupItemOptions = [];
                 this.properties.filterDesignerLookupPick = '';
                 this._filterLookupMessage = '';
                 if (this.isLookupTypeField(String(newValue || ''))) {
                     this.handleLoadFilterLookupItems();
                 }
+            }
+            if (propertyPath === 'filterDesignerValueType') {
+                this.properties.filterDesignerValue = '';
+                this.properties.filterDesignerLookupPick = '';
             }
             if (propertyPath === 'conditionalStyleConditionField') {
                 this._conditionalStyleLookupItemOptions = [];
@@ -336,6 +356,10 @@ var GridControlWebPart = (function (_super) {
                 }
             }
             _super.prototype.onPropertyPaneFieldChanged.call(this, propertyPath, oldValue, newValue);
+            if (propertyPath === 'filterDesignerLookupPick' && this.properties.filterDesignerValueType === 'fieldValue') {
+                this.properties.filterDesignerValue = String(newValue || '');
+                this._filterLookupMessage = newValue ? 'Selected item ID ' + String(newValue) + '.' : '';
+            }
             this.context.propertyPane.refresh();
             return;
         }
@@ -351,6 +375,7 @@ var GridControlWebPart = (function (_super) {
                         if (!listName) {
                             this._listFields = [];
                             this._fieldTypeByInternalName = {};
+                            this._fieldChoicesByInternalName = {};
                             this._fieldLookupListByInternalName = {};
                             this.context.propertyPane.refresh();
                             return [2 /*return*/];
@@ -359,7 +384,7 @@ var GridControlWebPart = (function (_super) {
                     case 1:
                         _a.trys.push([1, 3, , 4]);
                         endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,LookupList,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
                         return [4 /*yield*/, this.getJsonWithAcceptFallback(endpoint)];
                     case 2:
                         data = _a.sent();
@@ -368,6 +393,7 @@ var GridControlWebPart = (function (_super) {
                             fields = data && data.d && data.d.results ? data.d.results : [];
                         }
                         this._fieldTypeByInternalName = {};
+                        this._fieldChoicesByInternalName = {};
                         this._fieldLookupListByInternalName = {};
                         fields.forEach(function (field) {
                             var fieldInternalName = String(field.InternalName || '');
@@ -375,6 +401,10 @@ var GridControlWebPart = (function (_super) {
                                 return;
                             }
                             _this._fieldTypeByInternalName[fieldInternalName] = String(field.TypeAsString || '').toLowerCase();
+                            var rawChoices = field.Choices;
+                            _this._fieldChoicesByInternalName[fieldInternalName] = Array.isArray(rawChoices)
+                                ? rawChoices.map(function (choice) { return String(choice); })
+                                : (rawChoices && Array.isArray(rawChoices.results) ? rawChoices.results.map(function (choice) { return String(choice); }) : []);
                             var lookupListId = field.LookupList ? String(field.LookupList).replace(/[{}]/g, '') : '';
                             if (lookupListId) {
                                 _this._fieldLookupListByInternalName[fieldInternalName] = lookupListId;
@@ -396,6 +426,7 @@ var GridControlWebPart = (function (_super) {
                         error_1 = _a.sent();
                         this._listFields = [];
                         this._fieldTypeByInternalName = {};
+                        this._fieldChoicesByInternalName = {};
                         this._fieldLookupListByInternalName = {};
                         this.context.propertyPane.refresh();
                         this.logDiagnostic('Failed to load fields for list "' + listName + '": ' + (error_1 && error_1.message ? error_1.message : String(error_1)));
@@ -408,6 +439,63 @@ var GridControlWebPart = (function (_super) {
     GridControlWebPart.prototype.isLookupTypeField = function (internalName) {
         var typeName = this._fieldTypeByInternalName[internalName || ''];
         return typeName === 'lookup' || typeName === 'lookupmulti';
+    };
+    GridControlWebPart.prototype.supportsFilterFieldValue = function (internalName) {
+        var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
+        return typeName === 'choice' || typeName === 'multichoice' || typeName === 'lookup' || typeName === 'lookupmulti';
+    };
+    GridControlWebPart.prototype.isMultiFilterField = function (internalName) {
+        var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
+        return typeName === 'multichoice' || typeName === 'lookupmulti';
+    };
+    GridControlWebPart.prototype.getSelectedFilterFieldValues = function () {
+        var rawValue = String(this.properties.filterDesignerValue || '').trim();
+        if (!rawValue) {
+            return [];
+        }
+        try {
+            var parsed = JSON.parse(rawValue);
+            return Array.isArray(parsed) ? parsed.map(function (value) { return String(value); }) : [String(parsed)];
+        }
+        catch (_parseError) {
+            return [rawValue];
+        }
+    };
+    GridControlWebPart.prototype.createFilterMultiValuePicker = function (options) {
+        var _this = this;
+        return PropertyPaneCustomField_1.PropertyPaneCustomField({
+            key: 'filterDesignerFieldValueMultiPicker',
+            onRender: function (domElement) {
+                while (domElement.firstChild) {
+                    domElement.removeChild(domElement.firstChild);
+                }
+                var selected = _this.getSelectedFilterFieldValues();
+                options.forEach(function (option) {
+                    var value = String(option.key);
+                    var label = document.createElement('label');
+                    label.style.display = 'block';
+                    label.style.marginBottom = '6px';
+                    var checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = selected.indexOf(value) >= 0;
+                    checkbox.style.marginRight = '6px';
+                    checkbox.addEventListener('change', function () {
+                        var nextValues = _this.getSelectedFilterFieldValues();
+                        var index = nextValues.indexOf(value);
+                        if (checkbox.checked && index < 0) {
+                            nextValues.push(value);
+                        }
+                        if (!checkbox.checked && index >= 0) {
+                            nextValues.splice(index, 1);
+                        }
+                        _this.properties.filterDesignerValue = JSON.stringify(nextValues);
+                    });
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(option.text));
+                    domElement.appendChild(label);
+                });
+            }
+        });
     };
     GridControlWebPart.prototype.loadLookupListItems = function (listId) {
         return __awaiter(this, void 0, void 0, function () {
@@ -424,7 +512,7 @@ var GridControlWebPart = (function (_super) {
                         items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
                         return [2 /*return*/, items.map(function (item) {
                                 var title = item.Title ? String(item.Title) : '(no title)';
-                                return { key: title, text: title + ' (ID: ' + item.Id + ')' };
+                                return { key: String(item.Id), text: title + ' (ID: ' + item.Id + ')' };
                             })];
                     case 2:
                         error_2 = _a.sent();
@@ -603,6 +691,7 @@ var GridControlWebPart = (function (_super) {
         this.render();
     };
     GridControlWebPart.prototype.onDispose = function () {
+        deterministicFullWidth_1.releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
         ReactDom.unmountComponentAtNode(this.domElement);
     };
     Object.defineProperty(GridControlWebPart.prototype, "dataVersion", {
@@ -742,6 +831,7 @@ var GridControlWebPart = (function (_super) {
                                     placeholder: strings.DynamicSourceTitle,
                                     value: this.properties.instanceName || ''
                                 }),
+                                sp_webpart_base_1.PropertyPaneCheckbox('forceFullWidth', { text: 'Force Full Width' }),
                                 sp_webpart_base_1.PropertyPaneDropdown('listName', {
                                     label: strings.PropListLabel,
                                     options: this._lists,
@@ -848,6 +938,28 @@ var GridControlWebPart = (function (_super) {
                                 sp_webpart_base_1.PropertyPaneCheckbox('bodyFontBold', {
                                     text: strings.PropBodyBoldLabel,
                                     checked: this.properties.bodyFontBold === true
+                                })
+                            ]
+                        },
+                        {
+                            groupName: strings.PropertyGroupDateDisplay,
+                            groupFields: [
+                                sp_webpart_base_1.PropertyPaneDropdown('dateDisplayFormat', {
+                                    label: strings.PropDateDisplayFormatLabel,
+                                    options: [
+                                        { key: 'mdy', text: 'MM/DD/YYYY' },
+                                        { key: 'dmy', text: 'DD/MM/YYYY' },
+                                        { key: 'ymd', text: 'YYYY-MM-DD' }
+                                    ],
+                                    selectedKey: this.properties.dateDisplayFormat || 'mdy'
+                                }),
+                                sp_webpart_base_1.PropertyPaneDropdown('timeDisplayFormat', {
+                                    label: strings.PropTimeDisplayFormatLabel,
+                                    options: [
+                                        { key: '24hour', text: '24-hour (HH:mm)' },
+                                        { key: '12hour', text: '12-hour (hh:mm AM/PM)' }
+                                    ],
+                                    selectedKey: this.properties.timeDisplayFormat || '24hour'
                                 })
                             ]
                         },
@@ -1172,17 +1284,24 @@ var GridControlWebPart = (function (_super) {
                                     options: [
                                         { key: 'static', text: strings.PropFilterDesignerValueTypeStatic },
                                         { key: 'expression', text: strings.PropFilterDesignerValueTypeExpression }
-                                    ],
+                                    ].concat((this.supportsFilterFieldValue(this.properties.filterDesignerField || '') ? [{ key: 'fieldValue', text: 'Field value' }] : [])),
                                     selectedKey: this.properties.filterDesignerValueType || 'static'
-                                }),
-                                sp_webpart_base_1.PropertyPaneTextField('filterDesignerValue', {
+                                })
+                            ].concat((this.properties.filterDesignerValueType !== 'fieldValue' ? [sp_webpart_base_1.PropertyPaneTextField('filterDesignerValue', {
                                     label: this.properties.filterDesignerValueType === 'expression' ? strings.PropFilterDesignerExpressionLabel : strings.PropFilterDesignerValueLabel,
                                     placeholder: this.properties.filterDesignerValueType === 'expression' ? strings.PropFilterDesignerExpressionPlaceholder : strings.PropFilterDesignerValuePlaceholder,
                                     value: this.properties.filterDesignerValue || ''
-                                })
-                            ].concat((this.properties.filterDesignerValueType === 'expression' ? [
+                                })] : []), (this.properties.filterDesignerValueType === 'expression' ? [
                                 this.createFilterExpressionHelpField()
-                            ] : []), (this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField || '') ? [
+                            ] : []), (this.properties.filterDesignerValueType === 'fieldValue' && !this.isMultiFilterField(this.properties.filterDesignerField || '') && (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).length > 0 ? [
+                                sp_webpart_base_1.PropertyPaneDropdown('filterDesignerValue', {
+                                    label: 'Select field value',
+                                    options: (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).map(function (choice) { return { key: choice, text: choice }; }),
+                                    selectedKey: this.properties.filterDesignerValue || ''
+                                })
+                            ] : []), (this.properties.filterDesignerValueType === 'fieldValue' && this.isMultiFilterField(this.properties.filterDesignerField || '') ? [
+                                this.createFilterMultiValuePicker(this.isLookupTypeField(this.properties.filterDesignerField || '') ? this._filterLookupItemOptions : (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).map(function (choice) { return { key: choice, text: choice }; }))
+                            ] : []), (this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField || '') && !this.isMultiFilterField(this.properties.filterDesignerField || '') ? [
                                 sp_webpart_base_1.PropertyPaneLabel('filterLookupHelperTitle', {
                                     text: 'Lookup item picker: choose an item from the target list to fill in its value.'
                                 }),
@@ -1665,7 +1784,7 @@ var GridControlWebPart = (function (_super) {
             }
             var operator = String(this.properties.filterDesignerOperator || 'contains').trim().toLowerCase();
             var logical = String(this.properties.filterDesignerLogical || 'and').trim().toLowerCase();
-            var valueType = this.properties.filterDesignerValueType === 'expression' ? 'expression' : 'static';
+            var valueType = this.properties.filterDesignerValueType === 'expression' ? 'expression' : (this.properties.filterDesignerValueType === 'fieldValue' ? 'fieldValue' : 'static');
             var value = String(this.properties.filterDesignerValue || '').trim();
             if (!value) {
                 this._filterDesignerMessage = strings.PropFilterDesignerValueRequired;
@@ -1677,13 +1796,14 @@ var GridControlWebPart = (function (_super) {
                 this.context.propertyPane.refresh();
                 return;
             }
+            var persistedValue = valueType === 'fieldValue' && this.isMultiFilterField(field) ? this.getSelectedFilterFieldValues() : value;
             var existing = this.parseFilterJsonArray(this.properties.filterJson);
             existing.push({
                 field: field,
                 operator: operator,
                 logical: logical,
                 valueType: valueType,
-                value: value
+                value: persistedValue
             });
             this.properties.filterJson = JSON.stringify(existing, null, 2);
             this._filterDesignerMessage = strings.PropFilterDesignerAddSuccess;
@@ -1693,6 +1813,7 @@ var GridControlWebPart = (function (_super) {
             this._filterDesignerMessage = error && error.message ? error.message : strings.PropFilterDesignerActionFailed;
         }
         this.context.propertyPane.refresh();
+        this.render();
     };
     GridControlWebPart.prototype.handleLoadSelectedFilterCondition = function () {
         try {
@@ -1707,8 +1828,9 @@ var GridControlWebPart = (function (_super) {
             this.properties.filterDesignerField = String(selected.field || '');
             this.properties.filterDesignerOperator = String(selected.operator || 'contains').toLowerCase();
             this.properties.filterDesignerLogical = String(selected.logical || 'and').toLowerCase();
-            this.properties.filterDesignerValueType = String(selected.valueType || '').toLowerCase() === 'expression' ? 'expression' : 'static';
-            this.properties.filterDesignerValue = String(selected.value === undefined || selected.value === null ? '' : selected.value);
+            var storedValueType = String(selected.valueType || '').toLowerCase();
+            this.properties.filterDesignerValueType = storedValueType === 'expression' ? 'expression' : (storedValueType === 'fieldvalue' ? 'fieldValue' : 'static');
+            this.properties.filterDesignerValue = Array.isArray(selected.value) ? JSON.stringify(selected.value) : String(selected.value === undefined || selected.value === null ? '' : selected.value);
             this._filterDesignerMessage = strings.PropFilterDesignerLoadSuccess;
         }
         catch (error) {
@@ -1737,18 +1859,19 @@ var GridControlWebPart = (function (_super) {
                 this.context.propertyPane.refresh();
                 return;
             }
-            var valueType = this.properties.filterDesignerValueType === 'expression' ? 'expression' : 'static';
+            var valueType = this.properties.filterDesignerValueType === 'expression' ? 'expression' : (this.properties.filterDesignerValueType === 'fieldValue' ? 'fieldValue' : 'static');
             if (valueType === 'expression' && !this.isSupportedFilterExpression(value)) {
                 this._filterDesignerMessage = strings.PropFilterDesignerExpressionInvalid;
                 this.context.propertyPane.refresh();
                 return;
             }
+            var persistedValue = valueType === 'fieldValue' && this.isMultiFilterField(field) ? this.getSelectedFilterFieldValues() : value;
             existing[index] = {
                 field: field,
                 operator: String(this.properties.filterDesignerOperator || 'contains').trim().toLowerCase(),
                 logical: String(this.properties.filterDesignerLogical || 'and').trim().toLowerCase(),
                 valueType: valueType,
-                value: value
+                value: persistedValue
             };
             this.properties.filterJson = JSON.stringify(existing, null, 2);
             this._filterDesignerMessage = strings.PropFilterDesignerUpdateSuccess;
@@ -1758,6 +1881,7 @@ var GridControlWebPart = (function (_super) {
             this._filterDesignerMessage = error && error.message ? error.message : strings.PropFilterDesignerActionFailed;
         }
         this.context.propertyPane.refresh();
+        this.render();
     };
     GridControlWebPart.prototype.handleRemoveSelectedFilterCondition = function () {
         try {
@@ -1778,6 +1902,7 @@ var GridControlWebPart = (function (_super) {
             this._filterDesignerMessage = error && error.message ? error.message : strings.PropFilterDesignerActionFailed;
         }
         this.context.propertyPane.refresh();
+        this.render();
     };
     GridControlWebPart.prototype.handleResetFilterJson = function () {
         this.properties.filterJson = '';
@@ -1785,6 +1910,7 @@ var GridControlWebPart = (function (_super) {
         this._filterJsonValidationMessage = strings.JsonValidationEmpty;
         this._filterDesignerMessage = strings.PropFilterDesignerResetSuccess;
         this.context.propertyPane.refresh();
+        this.render();
     };
     GridControlWebPart.prototype.isSupportedFilterExpression = function (value) {
         var normalized = String(value || '').trim().toLowerCase();

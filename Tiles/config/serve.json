@@ -2,5 +2,12 @@
   "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/spfx-serve.schema.json",
   "port": 4321,
   "https": true,
-  "initialPage": "https://sharepoint.lab.navintechnologies.com/_layouts/workbench.aspx"
+  "serveConfigurations": {
+    "default": {
+      "pageUrl": "https://sharepoint.lab.navintechnologies.com/_layouts/workbench.aspx"
+    },
+    "navinLab": {
+      "pageUrl": "https://sharepoint.lab.navintechnologies.com/_layouts/workbench.aspx"
+    }
+  }
 }

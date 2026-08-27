@@ -9,6 +9,7 @@ import {
   PropertyPaneDropdown,
   PropertyPaneCheckbox,
   PropertyPaneLabel,
+  PropertyPaneSlider,
   WebPartContext
 } from '@microsoft/sp-webpart-base';
 
@@ -38,9 +39,20 @@ export interface IAccordionWebPartProps {
   headerBackgroundColor: string;
   headerTextColor: string;
   headerFontBold: boolean;
+  headerFontSize: number;
   contentBackgroundColor: string;
   contentTextColor: string;
   contentFontBold: boolean;
+  contentFontSize: number;
+  cornerStyle: string;
+  cornerRadius: number;
+  showCloseBar: boolean;
+  closeBarText: string;
+  closeBarBackgroundColor: string;
+  closeBarTextColor: string;
+  closeBarFontSize: number;
+  closeBarFontBold: boolean;
+  closeBarAlignment: string;
   fontFamily: string;
   fontStyle: string;
   overrideCssUrl: string;
@@ -59,6 +71,11 @@ private contentsDropDownDisabled: boolean=true;
 private options: IPropertyPaneDropdownOption[];
 private optionsDropDownDisabled: boolean=true;
 
+  public constructor() {
+    super();
+    this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
+  }
+
   public render(): void { 
 
     this.logDiagnostic('render() called. optionChoice=' + String(this.properties.optionChoice) + ', listName=' + String(this.properties.listName || '(none)'));
@@ -76,9 +93,20 @@ private optionsDropDownDisabled: boolean=true;
         headerBackgroundColor: this.properties.headerBackgroundColor || '#f0f0f0',
         headerTextColor: this.properties.headerTextColor || '#000000',
         headerFontBold: this.properties.headerFontBold || false,
+        headerFontSize: Math.max(10, Number(this.properties.headerFontSize) || 16),
         contentBackgroundColor: this.properties.contentBackgroundColor || '#ffffff',
         contentTextColor: this.properties.contentTextColor || '#000000',
         contentFontBold: this.properties.contentFontBold || false,
+        contentFontSize: Math.max(10, Number(this.properties.contentFontSize) || 16),
+        cornerStyle: this.properties.cornerStyle || 'square',
+        cornerRadius: Math.max(0, Number(this.properties.cornerRadius) || 0),
+        showCloseBar: this.properties.showCloseBar !== false,
+        closeBarText: this.properties.closeBarText || 'Close others \u00d7',
+        closeBarBackgroundColor: this.properties.closeBarBackgroundColor || '#333333',
+        closeBarTextColor: this.properties.closeBarTextColor || '#ffffff',
+        closeBarFontSize: Math.max(10, Number(this.properties.closeBarFontSize) || 12),
+        closeBarFontBold: this.properties.closeBarFontBold === true,
+        closeBarAlignment: this.properties.closeBarAlignment || 'right',
         fontFamily: this.properties.fontFamily || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
         fontStyle: this.properties.fontStyle || 'normal',
         overrideCssUrl: this.properties.overrideCssUrl || '',
@@ -149,6 +177,7 @@ private optionsDropDownDisabled: boolean=true;
 
   protected onPropertyPaneFieldChanged(propertyPath:string, oldValue: any, newValue:any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    (this.properties as any)[propertyPath] = newValue;
     if(propertyPath==='listName' && newValue) {
       //push new list value
       super.onPropertyPaneFieldChanged(propertyPath,oldValue,newValue);
@@ -363,7 +392,7 @@ public serialize(): any {
               ]
             },
             {
-              groupName: "Configuration:",
+              groupName: "Configuration",
               groupFields: [
                 PropertyPaneDropdown('listName', {
                   label: strings.ListNameFieldLabel,
@@ -388,11 +417,11 @@ public serialize(): any {
               ]
             },
             {
-              groupName: "Header Styling:",
+              groupName: "Header Styling",
               groupFields: [
                 PropertyFieldColorPicker('headerBackgroundColor', {
                   label: 'Header Background Color',
-                  selectedColor: this.properties.headerBackgroundColor,
+                  selectedColor: this.properties.headerBackgroundColor || '#f0f0f0',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
                   disabled: false,
@@ -403,7 +432,7 @@ public serialize(): any {
                 }),
                 PropertyFieldColorPicker('headerTextColor', {
                   label: 'Header Text Color',
-                  selectedColor: this.properties.headerTextColor,
+                  selectedColor: this.properties.headerTextColor || '#000000',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
                   disabled: false,
@@ -418,15 +447,23 @@ public serialize(): any {
                   checked: !!this.properties.headerFontBold,
                   onText: 'On',
                   offText: 'Off'
+                }),
+                PropertyPaneSlider('headerFontSize', {
+                  label: 'Header Font Size',
+                  min: 10,
+                  max: 72,
+                  step: 1,
+                  value: Number(this.properties.headerFontSize) || 16,
+                  showValue: true
                 })
               ]
             },
             {
-              groupName: "Content Styling:",
+              groupName: "Content Styling",
               groupFields: [
                 PropertyFieldColorPicker('contentBackgroundColor', {
                   label: 'Content Background Color',
-                  selectedColor: this.properties.contentBackgroundColor,
+                  selectedColor: this.properties.contentBackgroundColor || '#ffffff',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
                   disabled: false,
@@ -437,7 +474,7 @@ public serialize(): any {
                 }),
                 PropertyFieldColorPicker('contentTextColor', {
                   label: 'Content Text Color',
-                  selectedColor: this.properties.contentTextColor,
+                  selectedColor: this.properties.contentTextColor || '#000000',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
                   disabled: false,
@@ -452,11 +489,97 @@ public serialize(): any {
                   checked: !!this.properties.contentFontBold,
                   onText: 'On',
                   offText: 'Off'
+                }),
+                PropertyPaneSlider('contentFontSize', {
+                  label: 'Content Font Size',
+                  min: 10,
+                  max: 72,
+                  step: 1,
+                  value: Number(this.properties.contentFontSize) || 16,
+                  showValue: true
                 })
               ]
             },
             {
-              groupName: "Font Settings:",
+              groupName: 'Corners',
+              groupFields: [
+                PropertyPaneDropdown('cornerStyle', {
+                  label: 'Corner Style',
+                  selectedKey: this.properties.cornerStyle || 'square',
+                  options: [
+                    { key: 'square', text: 'Square' },
+                    { key: 'rounded', text: 'Rounded' }
+                  ]
+                }),
+                PropertyPaneSlider('cornerRadius', {
+                  label: 'Rounded Corner Radius',
+                  min: 0,
+                  max: 40,
+                  step: 1,
+                  value: Number(this.properties.cornerRadius) || 8,
+                  showValue: true,
+                  disabled: (this.properties.cornerStyle || 'square') !== 'rounded'
+                })
+              ]
+            },
+            {
+              groupName: 'Close Bar',
+              groupFields: [
+                PropertyPaneCheckbox('showCloseBar', {
+                  text: 'Show close bar in Single mode',
+                  checked: this.properties.showCloseBar !== false
+                }),
+                PropertyPaneTextField('closeBarText', {
+                  label: 'Close Bar Text',
+                  value: this.properties.closeBarText || 'Close others \u00d7'
+                }),
+                PropertyFieldColorPicker('closeBarBackgroundColor', {
+                  label: 'Close Bar Background Color',
+                  selectedColor: this.properties.closeBarBackgroundColor || '#333333',
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  isHidden: false,
+                  alphaSliderHidden: true,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'closeBarBackgroundColor'
+                }),
+                PropertyFieldColorPicker('closeBarTextColor', {
+                  label: 'Close Bar Text Color',
+                  selectedColor: this.properties.closeBarTextColor || '#ffffff',
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  isHidden: false,
+                  alphaSliderHidden: true,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'closeBarTextColor'
+                }),
+                PropertyPaneSlider('closeBarFontSize', {
+                  label: 'Close Bar Font Size',
+                  min: 10,
+                  max: 72,
+                  step: 1,
+                  value: Number(this.properties.closeBarFontSize) || 12,
+                  showValue: true
+                }),
+                PropertyPaneCheckbox('closeBarFontBold', {
+                  text: 'Bold close bar text',
+                  checked: this.properties.closeBarFontBold === true
+                }),
+                PropertyPaneDropdown('closeBarAlignment', {
+                  label: 'Close Bar Alignment',
+                  selectedKey: this.properties.closeBarAlignment || 'right',
+                  options: [
+                    { key: 'left', text: 'Left' },
+                    { key: 'center', text: 'Center' },
+                    { key: 'right', text: 'Right' }
+                  ]
+                })
+              ]
+            },
+            {
+              groupName: "Font Settings",
               groupFields: [
                 PropertyFieldDropdownWithCallout('fontFamily', {
                   key: 'fontFamily',

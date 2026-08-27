@@ -21,6 +21,7 @@ import { PropertyFieldCollectionData, CustomCollectionFieldType } from '@pnp/spf
 import * as strings from 'CalendarWebPartStrings';
 import Calendar from './components/Calendar';
 import { ICalendarDataSource, ICalendarProps } from './components/ICalendarProps';
+import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -44,12 +45,15 @@ export interface IDynamicDataSourceMetadataCompat {
 }
 
 export interface ICalendarWebPartProps {
+  forceFullWidth?: boolean;
   title: string;
   description: string;
   listName: string;
   dataSources: ICalendarDataSource[];
   defaultView: string;
   showWeekends: boolean;
+  showMonthEventStartTime: boolean;
+  showMonthEventDuration: boolean;
   calendarHeight: number;
   enableSwimlanes: boolean;
   swimlaneFieldName: string;
@@ -252,6 +256,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   }
 
   public render(): void {
+    updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
     var primaryListName = this.getPrimaryListName();
     this.logDiagnostic('render() called. primaryListName=' + String(primaryListName || '(none)'));
     const element: React.ReactElement<ICalendarProps> = React.createElement(
@@ -282,6 +287,8 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         }),
         defaultView: this.properties.defaultView || 'dayGridMonth',
         showWeekends: this.properties.showWeekends !== false,
+        showMonthEventStartTime: this.properties.showMonthEventStartTime === true,
+        showMonthEventDuration: this.properties.showMonthEventDuration === true,
         calendarHeight: typeof this.properties.calendarHeight === 'number' ? this.properties.calendarHeight : 600,
         enableSwimlanes: this.properties.enableSwimlanes === true,
         swimlaneFieldName: this.properties.swimlaneFieldName || '',
@@ -417,6 +424,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
 
   protected onDispose(): void {
     this.logDiagnostic('onDispose called.');
+    releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
@@ -499,6 +507,10 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
       }
     }
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+    if (propertyPath === 'showMonthEventStartTime' || propertyPath === 'showMonthEventDuration') {
+      (this.properties as any)[propertyPath] = newValue;
+      this.render();
+    }
   }
 
   private validateJson(value: string): string {
@@ -1496,6 +1508,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
                 PropertyPaneTextField('title', {
                   label: strings.TitleFieldLabel
                 }),
+                PropertyPaneCheckbox('forceFullWidth', { text: 'Force Full Width' }),
                 PropertyPaneTextField('description', {
                   label: strings.DescriptionFieldLabel,
                   multiline: true,
@@ -1556,6 +1569,14 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
                 PropertyPaneToggle('showWeekends', {
                   label: strings.ShowWeekendsFieldLabel,
                   checked: this.properties.showWeekends !== false
+                }),
+                PropertyPaneCheckbox('showMonthEventStartTime', {
+                  text: strings.ShowMonthEventStartTimeLabel,
+                  checked: this.properties.showMonthEventStartTime === true
+                }),
+                PropertyPaneCheckbox('showMonthEventDuration', {
+                  text: strings.ShowMonthEventDurationLabel,
+                  checked: this.properties.showMonthEventDuration === true
                 }),
                 PropertyPaneSlider('calendarHeight', {
                   label: strings.CalendarHeightFieldLabel,

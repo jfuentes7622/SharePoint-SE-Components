@@ -2577,9 +2577,10 @@ function getManifests() {
     "id": "de5f92e8-570c-4a7c-ba96-7ae89a098723",
     "alias": "GridControlWebPart",
     "componentType": "WebPart",
-    "version": "0.0.1",
+    "version": "0.0.12",
     "manifestVersion": 2,
     "requiresCustomScript": false,
+    "supportsFullBleed": true,
     "preconfiguredEntries": [
       {
         "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
@@ -2642,6 +2643,8 @@ function getManifests() {
           "bodyFontStyle": "normal",
           "bodyTextAlign": "left",
           "bodyFontBold": false,
+          "dateDisplayFormat": "mdy",
+          "timeDisplayFormat": "24hour",
           "selectedTextColor": "",
           "selectedBackgroundColor": "#eef6ff",
           "selectedFontStyle": "normal",

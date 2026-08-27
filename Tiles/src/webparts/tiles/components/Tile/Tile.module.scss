@@ -5,9 +5,8 @@ $fallback-bg:    #8A1717;
 $fallback-text:  #FAFAFA;
 
 .tile {
-  @include ms-Grid-col;
   display: flex;
-  margin: 8px;
+  margin: 0;
   flex-basis: var(--tile-width, 140px);
 
   .tileLink {
@@ -212,6 +211,23 @@ $fallback-text:  #FAFAFA;
   position: relative;
   overflow: hidden;
   z-index: 2;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+.tileBackgroundImage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  z-index: 1;
 
   img {
     width: 100%;

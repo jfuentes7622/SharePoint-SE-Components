@@ -31,6 +31,8 @@ define([], function() {
     "ViewDayLabel": "Day",
     "ViewListLabel": "List",
     "ShowWeekendsFieldLabel": "Show weekends",
+    "ShowMonthEventStartTimeLabel": "Show start time in Month view",
+    "ShowMonthEventDurationLabel": "Show total time in Month view",
     "CalendarHeightFieldLabel": "Calendar height (px)",
     "EnableSwimlanesLabel": "Use swim lanes",
     "SwimlaneFieldLabel": "Group lanes by field",

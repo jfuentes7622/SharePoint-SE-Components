@@ -24,9 +24,18 @@ export class Tile extends React.Component<ITileProps, {}> {
     return 'top';
   }
 
+  private normalizeImageOpacity(value?: number): number {
+    const opacity = Number(value);
+    if (!isFinite(opacity)) {
+      return 1;
+    }
+    return Math.max(0, Math.min(100, opacity)) / 100;
+  }
+
   public render(): React.ReactElement<ITileProps> {
     const p = this.props;
     const item = p.item;
+    const imageOpacity = this.normalizeImageOpacity(item.imageOpacity);
 
     // --- Effective values (tile override wins over global default) ---
     const tileBg     = item.color || p.backgroundColor || '#8A1717';
@@ -106,6 +115,17 @@ export class Tile extends React.Component<ITileProps, {}> {
           <img src={item.hoverImageUrl} alt={item.title} />
         </div>
       );
+    } else if (item.hoverImageAsBackground && item.hoverImageUrl) {
+      hoverContent = (
+        <div className={styles.tileInner}>
+          <div className={styles.tileBackgroundImage}>
+            <img src={item.hoverImageUrl} alt="" role="presentation" />
+          </div>
+          <div className={styles.tileContent}>
+            <div className={styles.tileOverText}>{item.description}</div>
+          </div>
+        </div>
+      );
     } else if (hasHoverImage && item.hoverImageUrl) {
       hoverContent = (
         <div className={hoverInnerClasses.join(' ')}>
@@ -129,7 +149,7 @@ export class Tile extends React.Component<ITileProps, {}> {
             data-interception="off"
             title={item.title}>
             <div className={styles.imageOnlyContainer}>
-              <img src={item.imageUrl} alt={item.title} />
+              <img src={item.imageUrl} alt={item.title} style={{ opacity: imageOpacity }} />
             </div>
             <div className={hoverOverlayClasses.join(' ')}>{hoverContent}</div>
           </a>
@@ -139,8 +159,9 @@ export class Tile extends React.Component<ITileProps, {}> {
 
     // ── Normal tile (optional inline image at a given position) ────
     const position = this.normalizePosition(item.imagePosition);
+    const hasPositionedImage = !!item.imageUrl && !item.imageAsBackground;
     const innerClasses: string[] = [styles.tileInner];
-    if (item.imageUrl) {
+    if (hasPositionedImage) {
       if (position === 'top' || position === 'bottom') {
         innerClasses.push(styles.tileInnerVertical);
       } else {
@@ -149,7 +170,7 @@ export class Tile extends React.Component<ITileProps, {}> {
     }
 
     const contentClasses: string[] = [styles.tileContent];
-    if (item.imageUrl) {
+    if (hasPositionedImage) {
       contentClasses.push(styles.tileContentWithImage);
       if (position === 'top') {
         contentClasses.push(styles.tileContentTop);
@@ -169,10 +190,15 @@ export class Tile extends React.Component<ITileProps, {}> {
           target={item.target}
           data-interception="off"
           title={item.title}>
+          {item.imageUrl && item.imageAsBackground && (
+            <div className={styles.tileBackgroundImage}>
+              <img src={item.imageUrl} alt="" role="presentation" style={{ opacity: imageOpacity }} />
+            </div>
+          )}
           <div className={innerClasses.join(' ')}>
-            {item.imageUrl && (
+            {hasPositionedImage && (
               <div className={`${styles.tileImage} ${styles[position]}`}>
-                <img src={item.imageUrl} alt={item.title} />
+                <img src={item.imageUrl} alt={item.title} style={{ opacity: imageOpacity }} />
               </div>
             )}
             <div className={contentClasses.join(' ')}>

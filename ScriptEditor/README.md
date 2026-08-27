@@ -1,6 +1,8 @@
-## script-editor-web-part
+# SPS Script Editor
 
-This is where you include your WebPart documentation.
+SPFx 1.5.1 web part for rendering custom HTML and JavaScript on a SharePoint page.
+
+HTML code can be entered directly in the property pane or loaded from a local `.html`, `.htm`, `.txt`, or `.js` file. Selecting a file replaces the current HTML Code value.
 
 ### Building the code
 

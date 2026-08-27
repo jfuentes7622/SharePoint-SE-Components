@@ -57,6 +57,7 @@ export declare class GridDesigner extends React.Component<IGridDesignerProps, IG
     constructor(props: IGridDesignerProps);
     componentDidMount(): void;
     private getWebUrl();
+    private getFieldsResponse(url);
     private loadFields();
     private getAvailableFields();
     private addField(source);

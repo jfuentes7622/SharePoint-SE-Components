@@ -20,6 +20,8 @@
   
   /* Accordion styles */
   .tabs {
+    box-sizing: border-box;
+    width: 100%;
     overflow: hidden;
     box-shadow: 0 4px 4px -2px rgba(0, 0, 0, 0.5);
   }
@@ -31,6 +33,9 @@
     border-bottom-width: 0.1px;
     border-bottom-color:  #ecf0f1;
     border-bottom-style: solid;
+  }
+  .tabs > .tab:last-child {
+    border-bottom: 0;
   }
   .tab-label {
     display: -webkit-box !important;

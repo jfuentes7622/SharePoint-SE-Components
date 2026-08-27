@@ -19,6 +19,7 @@ import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/sp
 import * as strings from 'GridControlWebPartStrings';
 import { GridControl, IGridControlColumnConfiguration, IGridControlViewOption } from './components/GridControl';
 import { GridDesigner } from './components/GridDesigner';
+import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -37,6 +38,7 @@ export interface IDynamicDataSourceMetadataCompat {
 }
 
 export interface IGridControlWebPartProps {
+  forceFullWidth?: boolean;
   description: string;
   instanceName?: string;
   listName: string;
@@ -59,6 +61,8 @@ export interface IGridControlWebPartProps {
   bodyFontStyle: string;
   bodyFontBold: boolean;
   bodyTextAlign: string;
+  dateDisplayFormat: string;
+  timeDisplayFormat: string;
   selectedTextColor: string;
   selectedBackgroundColor: string;
   selectedFontStyle: string;
@@ -95,7 +99,7 @@ export interface IGridControlWebPartProps {
   filterDesignerField?: string;
   filterDesignerOperator?: 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'startswith' | 'endswith' | 'notcontains';
   filterDesignerLogical?: 'and' | 'or';
-  filterDesignerValueType?: 'static' | 'expression';
+  filterDesignerValueType?: 'static' | 'expression' | 'fieldValue';
   filterDesignerValue?: string;
   filterDesignerSelectedIndex?: string;
   filterDesignerLookupPick?: string;
@@ -174,6 +178,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
   private _isEditingConditionalStyle: boolean = false;
   private _conditionalStyleDesignerRevision: number = 0;
   private _fieldTypeByInternalName: { [internalName: string]: string } = {};
+  private _fieldChoicesByInternalName: { [internalName: string]: string[] } = {};
   private _fieldLookupListByInternalName: { [internalName: string]: string } = {};
   private _filterLookupItemOptions: IDropdownOption[] = [];
   private _conditionalStyleLookupItemOptions: IDropdownOption[] = [];
@@ -209,6 +214,11 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         description: strings.PropInstanceNameDescription,
       },
       {
+        id: 'listName',
+        title: 'Configured list name',
+        description: 'The SharePoint list configured for this Grid Control.',
+      },
+      {
         id: 'selectedItemId',
         title: strings.DynamicPropertySelectedItemIdTitle,
         description: strings.DynamicPropertySelectedItemIdDescription,
@@ -226,6 +236,10 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       return String(this.properties.instanceName || '').trim();
     }
 
+    if (propertyId === 'listName') {
+      return String(this.properties.listName || '').trim();
+    }
+
     if (propertyId === 'selectedItemId') {
       return this._selectedItemId;
     }
@@ -238,6 +252,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
   }
 
   public render(): void {
+    updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
     if (this._isGridDesignerOpen) {
       const designerElement: React.ReactElement<any> = React.createElement(GridDesigner, {
         context: this.context,
@@ -275,6 +290,8 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       bodyFontStyle: this.properties.bodyFontStyle || 'normal',
       bodyFontBold: this.properties.bodyFontBold === true,
       bodyTextAlign: this.properties.bodyTextAlign || 'left',
+      dateDisplayFormat: this.properties.dateDisplayFormat || 'mdy',
+      timeDisplayFormat: this.properties.timeDisplayFormat || '24hour',
       selectedTextColor: this.properties.selectedTextColor || '',
       selectedBackgroundColor: this.properties.selectedBackgroundColor || '',
       selectedFontStyle: this.properties.selectedFontStyle || 'normal',
@@ -376,6 +393,8 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         this.loadViews(String(newValue));
         this.loadListFields(String(newValue));
       }
+      this.notifyDynamicData('listName');
+      this.notifyDynamicSourceChanged();
       return;
     }
 
@@ -405,12 +424,17 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       || propertyPath === 'conditionalStyleLookupPick'
     ) {
       if (propertyPath === 'filterDesignerField') {
+        this.properties.filterDesignerValue = '';
         this._filterLookupItemOptions = [];
         this.properties.filterDesignerLookupPick = '';
         this._filterLookupMessage = '';
         if (this.isLookupTypeField(String(newValue || ''))) {
           this.handleLoadFilterLookupItems();
         }
+      }
+      if (propertyPath === 'filterDesignerValueType') {
+        this.properties.filterDesignerValue = '';
+        this.properties.filterDesignerLookupPick = '';
       }
       if (propertyPath === 'conditionalStyleConditionField') {
         this._conditionalStyleLookupItemOptions = [];
@@ -421,6 +445,10 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         }
       }
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      if (propertyPath === 'filterDesignerLookupPick' && this.properties.filterDesignerValueType === 'fieldValue') {
+        this.properties.filterDesignerValue = String(newValue || '');
+        this._filterLookupMessage = newValue ? 'Selected item ID ' + String(newValue) + '.' : '';
+      }
       this.context.propertyPane.refresh();
       return;
     }
@@ -432,6 +460,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     if (!listName) {
       this._listFields = [];
       this._fieldTypeByInternalName = {};
+      this._fieldChoicesByInternalName = {};
       this._fieldLookupListByInternalName = {};
       this.context.propertyPane.refresh();
       return;
@@ -439,7 +468,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
 
     try {
       var endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-        + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,LookupList,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+        + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
       var data = await this.getJsonWithAcceptFallback(endpoint);
       var fields = data && data.value ? data.value : [];
       if (!fields || fields.length === 0) {
@@ -447,11 +476,16 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       }
 
       this._fieldTypeByInternalName = {};
+      this._fieldChoicesByInternalName = {};
       this._fieldLookupListByInternalName = {};
       fields.forEach((field: any) => {
         var fieldInternalName = String(field.InternalName || '');
         if (!fieldInternalName) { return; }
         this._fieldTypeByInternalName[fieldInternalName] = String(field.TypeAsString || '').toLowerCase();
+        var rawChoices = field.Choices;
+        this._fieldChoicesByInternalName[fieldInternalName] = Array.isArray(rawChoices)
+          ? rawChoices.map(function(choice: any) { return String(choice); })
+          : (rawChoices && Array.isArray(rawChoices.results) ? rawChoices.results.map(function(choice: any) { return String(choice); }) : []);
         var lookupListId = field.LookupList ? String(field.LookupList).replace(/[{}]/g, '') : '';
         if (lookupListId) {
           this._fieldLookupListByInternalName[fieldInternalName] = lookupListId;
@@ -473,6 +507,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     } catch (error) {
       this._listFields = [];
       this._fieldTypeByInternalName = {};
+      this._fieldChoicesByInternalName = {};
       this._fieldLookupListByInternalName = {};
       this.context.propertyPane.refresh();
       this.logDiagnostic('Failed to load fields for list "' + listName + '": ' + (error && error.message ? error.message : String(error)));
@@ -484,6 +519,55 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     return typeName === 'lookup' || typeName === 'lookupmulti';
   }
 
+  private supportsFilterFieldValue(internalName: string): boolean {
+    var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
+    return typeName === 'choice' || typeName === 'multichoice' || typeName === 'lookup' || typeName === 'lookupmulti';
+  }
+
+  private isMultiFilterField(internalName: string): boolean {
+    var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
+    return typeName === 'multichoice' || typeName === 'lookupmulti';
+  }
+
+  private getSelectedFilterFieldValues(): string[] {
+    var rawValue = String(this.properties.filterDesignerValue || '').trim();
+    if (!rawValue) { return []; }
+    try {
+      var parsed = JSON.parse(rawValue);
+      return Array.isArray(parsed) ? parsed.map(function(value: any) { return String(value); }) : [String(parsed)];
+    } catch (_parseError) { return [rawValue]; }
+  }
+
+  private createFilterMultiValuePicker(options: IDropdownOption[]): any {
+    return PropertyPaneCustomField({
+      key: 'filterDesignerFieldValueMultiPicker',
+      onRender: (domElement: HTMLElement): void => {
+        while (domElement.firstChild) { domElement.removeChild(domElement.firstChild); }
+        var selected = this.getSelectedFilterFieldValues();
+        options.forEach((option: IDropdownOption) => {
+          var value = String(option.key);
+          var label = document.createElement('label');
+          label.style.display = 'block';
+          label.style.marginBottom = '6px';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = selected.indexOf(value) >= 0;
+          checkbox.style.marginRight = '6px';
+          checkbox.addEventListener('change', () => {
+            var nextValues = this.getSelectedFilterFieldValues();
+            var index = nextValues.indexOf(value);
+            if (checkbox.checked && index < 0) { nextValues.push(value); }
+            if (!checkbox.checked && index >= 0) { nextValues.splice(index, 1); }
+            this.properties.filterDesignerValue = JSON.stringify(nextValues);
+          });
+          label.appendChild(checkbox);
+          label.appendChild(document.createTextNode(option.text));
+          domElement.appendChild(label);
+        });
+      }
+    });
+  }
+
   private async loadLookupListItems(listId: string): Promise<IDropdownOption[]> {
     try {
       var webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
@@ -492,7 +576,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       var items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
       return items.map(function(item: any) {
         var title = item.Title ? String(item.Title) : '(no title)';
-        return { key: title, text: title + ' (ID: ' + item.Id + ')' };
+        return { key: String(item.Id), text: title + ' (ID: ' + item.Id + ')' };
       });
     } catch (error) {
       this.logDiagnostic('Failed to load lookup list items for listId=' + listId + ': ' + (error && error.message ? error.message : String(error)));
@@ -657,6 +741,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
   }
 
   protected onDispose(): void {
+    releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
@@ -800,6 +885,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
                   placeholder: strings.DynamicSourceTitle,
                   value: this.properties.instanceName || ''
                 }),
+                PropertyPaneCheckbox('forceFullWidth', { text: 'Force Full Width' }),
                 PropertyPaneDropdown('listName', {
                   label: strings.PropListLabel,
                   options: this._lists,
@@ -907,6 +993,28 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
                 PropertyPaneCheckbox('bodyFontBold', {
                   text: strings.PropBodyBoldLabel,
                   checked: this.properties.bodyFontBold === true
+                })
+              ]
+            },
+            {
+              groupName: strings.PropertyGroupDateDisplay,
+              groupFields: [
+                PropertyPaneDropdown('dateDisplayFormat', {
+                  label: strings.PropDateDisplayFormatLabel,
+                  options: [
+                    { key: 'mdy', text: 'MM/DD/YYYY' },
+                    { key: 'dmy', text: 'DD/MM/YYYY' },
+                    { key: 'ymd', text: 'YYYY-MM-DD' }
+                  ],
+                  selectedKey: this.properties.dateDisplayFormat || 'mdy'
+                }),
+                PropertyPaneDropdown('timeDisplayFormat', {
+                  label: strings.PropTimeDisplayFormatLabel,
+                  options: [
+                    { key: '24hour', text: '24-hour (HH:mm)' },
+                    { key: '12hour', text: '12-hour (hh:mm AM/PM)' }
+                  ],
+                  selectedKey: this.properties.timeDisplayFormat || '24hour'
                 })
               ]
             },
@@ -1232,19 +1340,30 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
                   label: strings.PropFilterDesignerValueTypeLabel,
                   options: [
                     { key: 'static', text: strings.PropFilterDesignerValueTypeStatic },
-                    { key: 'expression', text: strings.PropFilterDesignerValueTypeExpression }
+                    { key: 'expression', text: strings.PropFilterDesignerValueTypeExpression },
+                    ...(this.supportsFilterFieldValue(this.properties.filterDesignerField || '') ? [{ key: 'fieldValue', text: 'Field value' }] : [])
                   ],
                   selectedKey: this.properties.filterDesignerValueType || 'static'
                 }),
-                PropertyPaneTextField('filterDesignerValue', {
+                ...(this.properties.filterDesignerValueType !== 'fieldValue' ? [PropertyPaneTextField('filterDesignerValue', {
                   label: this.properties.filterDesignerValueType === 'expression' ? strings.PropFilterDesignerExpressionLabel : strings.PropFilterDesignerValueLabel,
                   placeholder: this.properties.filterDesignerValueType === 'expression' ? strings.PropFilterDesignerExpressionPlaceholder : strings.PropFilterDesignerValuePlaceholder,
                   value: this.properties.filterDesignerValue || ''
-                }),
+                })] : []),
                 ...(this.properties.filterDesignerValueType === 'expression' ? [
                   this.createFilterExpressionHelpField()
                 ] : []),
-                ...(this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField || '') ? [
+                ...(this.properties.filterDesignerValueType === 'fieldValue' && !this.isMultiFilterField(this.properties.filterDesignerField || '') && (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).length > 0 ? [
+                  PropertyPaneDropdown('filterDesignerValue', {
+                    label: 'Select field value',
+                    options: (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).map(function(choice: string) { return { key: choice, text: choice }; }),
+                    selectedKey: this.properties.filterDesignerValue || ''
+                  })
+                ] : []),
+                ...(this.properties.filterDesignerValueType === 'fieldValue' && this.isMultiFilterField(this.properties.filterDesignerField || '') ? [
+                  this.createFilterMultiValuePicker(this.isLookupTypeField(this.properties.filterDesignerField || '') ? this._filterLookupItemOptions : (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).map(function(choice: string) { return { key: choice, text: choice }; }))
+                ] : []),
+                ...(this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField || '') && !this.isMultiFilterField(this.properties.filterDesignerField || '') ? [
                   PropertyPaneLabel('filterLookupHelperTitle', {
                     text: 'Lookup item picker: choose an item from the target list to fill in its value.'
                   }),
@@ -1746,7 +1865,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
 
       var operator = String(this.properties.filterDesignerOperator || 'contains').trim().toLowerCase();
       var logical = String(this.properties.filterDesignerLogical || 'and').trim().toLowerCase();
-      var valueType = this.properties.filterDesignerValueType === 'expression' ? 'expression' : 'static';
+      var valueType = this.properties.filterDesignerValueType === 'expression' ? 'expression' : (this.properties.filterDesignerValueType === 'fieldValue' ? 'fieldValue' : 'static');
       var value = String(this.properties.filterDesignerValue || '').trim();
       if (!value) {
         this._filterDesignerMessage = strings.PropFilterDesignerValueRequired;
@@ -1758,6 +1877,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         this.context.propertyPane.refresh();
         return;
       }
+      var persistedValue: any = valueType === 'fieldValue' && this.isMultiFilterField(field) ? this.getSelectedFilterFieldValues() : value;
 
       var existing = this.parseFilterJsonArray(this.properties.filterJson);
       existing.push({
@@ -1765,7 +1885,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         operator: operator,
         logical: logical,
         valueType: valueType,
-        value: value
+        value: persistedValue
       });
 
       this.properties.filterJson = JSON.stringify(existing, null, 2);
@@ -1776,6 +1896,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     }
 
     this.context.propertyPane.refresh();
+    this.render();
   }
 
   private handleLoadSelectedFilterCondition(): void {
@@ -1792,8 +1913,9 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       this.properties.filterDesignerField = String(selected.field || '');
       this.properties.filterDesignerOperator = (String(selected.operator || 'contains').toLowerCase() as any);
       this.properties.filterDesignerLogical = (String(selected.logical || 'and').toLowerCase() as any);
-      this.properties.filterDesignerValueType = String(selected.valueType || '').toLowerCase() === 'expression' ? 'expression' : 'static';
-      this.properties.filterDesignerValue = String(selected.value === undefined || selected.value === null ? '' : selected.value);
+      var storedValueType = String(selected.valueType || '').toLowerCase();
+      this.properties.filterDesignerValueType = storedValueType === 'expression' ? 'expression' : (storedValueType === 'fieldvalue' ? 'fieldValue' : 'static');
+      this.properties.filterDesignerValue = Array.isArray(selected.value) ? JSON.stringify(selected.value) : String(selected.value === undefined || selected.value === null ? '' : selected.value);
       this._filterDesignerMessage = strings.PropFilterDesignerLoadSuccess;
     } catch (error) {
       this._filterDesignerMessage = error && error.message ? error.message : strings.PropFilterDesignerActionFailed;
@@ -1825,19 +1947,20 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         this.context.propertyPane.refresh();
         return;
       }
-      var valueType = this.properties.filterDesignerValueType === 'expression' ? 'expression' : 'static';
+      var valueType = this.properties.filterDesignerValueType === 'expression' ? 'expression' : (this.properties.filterDesignerValueType === 'fieldValue' ? 'fieldValue' : 'static');
       if (valueType === 'expression' && !this.isSupportedFilterExpression(value)) {
         this._filterDesignerMessage = strings.PropFilterDesignerExpressionInvalid;
         this.context.propertyPane.refresh();
         return;
       }
+      var persistedValue: any = valueType === 'fieldValue' && this.isMultiFilterField(field) ? this.getSelectedFilterFieldValues() : value;
 
       existing[index] = {
         field: field,
         operator: String(this.properties.filterDesignerOperator || 'contains').trim().toLowerCase(),
         logical: String(this.properties.filterDesignerLogical || 'and').trim().toLowerCase(),
         valueType: valueType,
-        value: value
+        value: persistedValue
       };
 
       this.properties.filterJson = JSON.stringify(existing, null, 2);
@@ -1848,6 +1971,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     }
 
     this.context.propertyPane.refresh();
+    this.render();
   }
 
   private handleRemoveSelectedFilterCondition(): void {
@@ -1870,6 +1994,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     }
 
     this.context.propertyPane.refresh();
+    this.render();
   }
 
   private handleResetFilterJson(): void {
@@ -1878,6 +2003,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     this._filterJsonValidationMessage = strings.JsonValidationEmpty;
     this._filterDesignerMessage = strings.PropFilterDesignerResetSuccess;
     this.context.propertyPane.refresh();
+    this.render();
   }
 
   private isSupportedFilterExpression(value: string): boolean {

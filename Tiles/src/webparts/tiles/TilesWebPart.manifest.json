@@ -26,6 +26,23 @@
       "fontSize": 14,
       "tileWidth": 140,
       "tileHeight": 140,
+      "tileLayout": "columns",
+      "columnCount": 3,
+      "tileGap": 16,
+      "webPartBackgroundColor": "#ffffff",
+      "webPartBorderColor": "#d2d0ce",
+      "webPartBorderWidth": 0,
+      "webPartBorderStyle": "solid",
+      "webPartCornerRadius": 0,
+      "webPartPadding": 0,
+      "showTitle": false,
+      "titleTextColor": "#323130",
+      "titleFontFamily": "inherit",
+      "titleFontSize": 20,
+      "titleFontStyle": "normal",
+      "titleFontBold": true,
+      "titleAlignment": "center",
+      "titleBottomSpacing": 0,
       "enableDiagnostics": false
     }
   }]

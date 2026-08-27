@@ -5,12 +5,8 @@ import {
   BaseClientSideWebPart,
 } from '@microsoft/sp-webpart-base';
 
-import {
-  PropertyFieldCustomList,
-  CustomListFieldType
-} from 'sp-client-custom-fields/lib/PropertyFieldCustomList';
-
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
+import { PropertyFieldCollectionData, CustomCollectionFieldType } from '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData';
 
 import {
   IPropertyPaneConfiguration,
@@ -28,10 +24,13 @@ import { ITileInfo } from './ITileInfo';
 import { Tiles } from './components/Tiles';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
+const picturePickerModule: any = require('sp-client-custom-fields/lib/PropertyFieldPicturePickerHost');
+const PropertyFieldPicturePickerHost: any = picturePickerModule.default || picturePickerModule;
 
 export type TileShape = 'round' | 'rounded' | 'squared';
 export type TileFontStyle = 'normal' | 'italic' | 'oblique';
 export type TileHoverTransition = 'solid' | 'fade' | 'slide-top' | 'slide-bottom' | 'slide-left' | 'slide-right';
+export type TileLayout = 'stacked' | 'columns' | 'flow';
 
 export interface ITilesWebPartProps {
   collectionData: ITileInfo[];
@@ -54,6 +53,27 @@ export interface ITilesWebPartProps {
   // --- Size ---
   tileWidth: number;
   tileHeight: number;
+  tileLayout: TileLayout;
+  columnCount: number;
+  tileGap: number;
+
+  // --- Web part surface ---
+  webPartBackgroundColor: string;
+  webPartBorderColor: string;
+  webPartBorderWidth: number;
+  webPartBorderStyle: string;
+  webPartCornerRadius: number;
+  webPartPadding: number;
+
+  // --- Web part title ---
+  showTitle: boolean;
+  titleTextColor: string;
+  titleFontFamily: string;
+  titleFontSize: number;
+  titleFontStyle: string;
+  titleFontBold: boolean;
+  titleAlignment: string;
+  titleBottomSpacing: number;
 
   // legacy
   tileEffect: string;
@@ -62,6 +82,11 @@ export interface ITilesWebPartProps {
 }
 
 export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartProps> {
+
+  public constructor() {
+    super();
+    this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
+  }
 
   public render(): void {
     this.logDiagnostic('render() called. tile count=' + String(this.properties.collectionData ? this.properties.collectionData.length : 0));
@@ -86,6 +111,23 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
         // size
         tileWidth: this.properties.tileWidth || 140,
         tileHeight: this.properties.tileHeight || 140,
+        tileLayout: this.properties.tileLayout || 'columns',
+        columnCount: this.properties.columnCount || 3,
+        tileGap: typeof this.properties.tileGap === 'number' ? this.properties.tileGap : 16,
+        webPartBackgroundColor: this.properties.webPartBackgroundColor || '#ffffff',
+        webPartBorderColor: this.properties.webPartBorderColor || '#d2d0ce',
+        webPartBorderWidth: typeof this.properties.webPartBorderWidth === 'number' ? this.properties.webPartBorderWidth : 0,
+        webPartBorderStyle: this.properties.webPartBorderStyle || 'solid',
+        webPartCornerRadius: typeof this.properties.webPartCornerRadius === 'number' ? this.properties.webPartCornerRadius : 0,
+        webPartPadding: typeof this.properties.webPartPadding === 'number' ? this.properties.webPartPadding : 0,
+        showTitle: this.properties.showTitle === true,
+        titleTextColor: this.properties.titleTextColor || '#323130',
+        titleFontFamily: this.properties.titleFontFamily || 'inherit',
+        titleFontSize: typeof this.properties.titleFontSize === 'number' ? this.properties.titleFontSize : 20,
+        titleFontStyle: this.properties.titleFontStyle || 'normal',
+        titleFontBold: this.properties.titleFontBold !== false,
+        titleAlignment: this.properties.titleAlignment || 'center',
+        titleBottomSpacing: typeof this.properties.titleBottomSpacing === 'number' ? this.properties.titleBottomSpacing : 0,
         // legacy
         tileEffect: this.properties.tileEffect,
         enableDiagnostics: this.properties.enableDiagnostics !== false,
@@ -112,7 +154,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
-    if (propertyPath === 'hoverSameAsBackground') {
+    if (propertyPath === 'hoverSameAsBackground' || propertyPath === 'tileLayout') {
       this.context.propertyPane.refresh();
     }
   }
@@ -139,6 +181,77 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
     }
 
     return 'Unknown';
+  }
+
+  private renderTileImagePicker(field: any, value: any,
+    onUpdate: (fieldId: string, fieldValue: any) => void): React.ReactElement<any> {
+    const properties: any = {};
+    properties[field.id] = String(value || '');
+    return React.createElement(PropertyFieldPicturePickerHost, {
+      key: 'tileImagePicker-' + field.id + '-' + String(value || ''),
+      targetProperty: field.id,
+      label: '',
+      initialValue: String(value || ''),
+      context: this.context,
+      previewImage: true,
+      allowedFileExtensions: '.gif,.jpg,.jpeg,.bmp,.png,.svg,.webp',
+      readOnly: false,
+      disabled: false,
+      properties: properties,
+      disableReactivePropertyChanges: true,
+      deferredValidationTime: 0,
+      onGetErrorMessage: undefined,
+      onPropertyChange: (propertyPath: string, oldValue: any, newValue: any): void => {
+        onUpdate(field.id, String(newValue || ''));
+      },
+      render: (): void => undefined,
+      onRender: undefined,
+      onDispose: undefined
+    });
+  }
+
+  private renderTileColorPicker(field: any, value: any,
+    onUpdate: (fieldId: string, fieldValue: any) => void): React.ReactElement<any> {
+    const colorValue = /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value) : '#8A1717';
+    return React.createElement('div', { style: { display: 'flex', alignItems: 'center' } },
+      React.createElement('input', {
+        type: 'color',
+        value: colorValue,
+        title: strings.tileColorOverrideField,
+        style: { width: '40px', height: '32px', padding: '0', marginRight: '8px' },
+        onChange: (event: React.FormEvent<HTMLInputElement>): void => {
+          onUpdate(field.id, event.currentTarget.value);
+        }
+      }),
+      React.createElement('input', {
+        type: 'text',
+        value: String(value || ''),
+        placeholder: '#8A1717',
+        style: { width: '90px' },
+        onChange: (event: React.FormEvent<HTMLInputElement>): void => {
+          onUpdate(field.id, event.currentTarget.value);
+        }
+      })
+    );
+  }
+
+  private renderImageOpacity(field: any, value: any,
+    onUpdate: (fieldId: string, fieldValue: any) => void): React.ReactElement<any> {
+    const numericValue = Number(value);
+    const opacity = isFinite(numericValue) ? Math.max(0, Math.min(100, numericValue)) : 100;
+    return React.createElement('input', {
+      type: 'number',
+      min: 0,
+      max: 100,
+      step: 1,
+      value: opacity,
+      title: strings.imageOpacityField,
+      style: { width: '80px' },
+      onChange: (event: React.FormEvent<HTMLInputElement>): void => {
+        const nextValue = Number(event.currentTarget.value);
+        onUpdate(field.id, isFinite(nextValue) ? Math.max(0, Math.min(100, nextValue)) : 100);
+      }
+    });
   }
 
 
@@ -195,78 +308,234 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
             },
             // ── Tile Data ────────────────────────────────────────────
             {
+              groupName: strings.webPartAppearanceGroup,
+              groupFields: [
+                PropertyFieldColorPicker('webPartBackgroundColor', {
+                  label: strings.webPartBackgroundColorLabel,
+                  selectedColor: this.properties.webPartBackgroundColor || '#ffffff',
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  alphaSliderHidden: false,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  iconName: 'Precipitation',
+                  key: 'webPartBackgroundColorPicker'
+                }),
+                PropertyFieldColorPicker('webPartBorderColor', {
+                  label: strings.webPartBorderColorLabel,
+                  selectedColor: this.properties.webPartBorderColor || '#d2d0ce',
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  alphaSliderHidden: false,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  iconName: 'Precipitation',
+                  key: 'webPartBorderColorPicker'
+                }),
+                PropertyPaneSlider('webPartBorderWidth', {
+                  label: strings.webPartBorderWidthLabel,
+                  min: 0,
+                  max: 20,
+                  step: 1,
+                  value: typeof this.properties.webPartBorderWidth === 'number' ? this.properties.webPartBorderWidth : 0
+                }),
+                PropertyPaneDropdown('webPartBorderStyle', {
+                  label: strings.webPartBorderStyleLabel,
+                  options: [
+                    { key: 'none', text: 'None' },
+                    { key: 'solid', text: 'Solid' },
+                    { key: 'dashed', text: 'Dashed' },
+                    { key: 'dotted', text: 'Dotted' },
+                    { key: 'double', text: 'Double' }
+                  ],
+                  selectedKey: this.properties.webPartBorderStyle || 'solid'
+                }),
+                PropertyPaneSlider('webPartCornerRadius', {
+                  label: strings.webPartCornerRadiusLabel,
+                  min: 0,
+                  max: 40,
+                  step: 1,
+                  value: typeof this.properties.webPartCornerRadius === 'number' ? this.properties.webPartCornerRadius : 0
+                }),
+                PropertyPaneSlider('webPartPadding', {
+                  label: strings.webPartPaddingLabel,
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  value: typeof this.properties.webPartPadding === 'number' ? this.properties.webPartPadding : 0
+                })
+              ]
+            },
+            {
+              groupName: strings.titleAppearanceGroup,
+              groupFields: [
+                PropertyPaneCheckbox('showTitle', {
+                  text: strings.showTitleLabel,
+                  checked: this.properties.showTitle === true
+                }),
+                PropertyFieldColorPicker('titleTextColor', {
+                  label: strings.titleTextColorLabel,
+                  selectedColor: this.properties.titleTextColor || '#323130',
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: false,
+                  alphaSliderHidden: false,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  iconName: 'Precipitation',
+                  key: 'titleTextColorPicker'
+                }),
+                PropertyPaneDropdown('titleFontFamily', {
+                  label: strings.titleFontFamilyLabel,
+                  options: fontFamilyOptions,
+                  selectedKey: this.properties.titleFontFamily || 'inherit'
+                }),
+                PropertyPaneSlider('titleFontSize', {
+                  label: strings.titleFontSizeLabel,
+                  min: 10,
+                  max: 72,
+                  step: 1,
+                  value: typeof this.properties.titleFontSize === 'number' ? this.properties.titleFontSize : 20
+                }),
+                PropertyPaneDropdown('titleFontStyle', {
+                  label: strings.titleFontStyleLabel,
+                  options: fontStyleOptions,
+                  selectedKey: this.properties.titleFontStyle || 'normal'
+                }),
+                PropertyPaneCheckbox('titleFontBold', {
+                  text: strings.titleFontBoldLabel,
+                  checked: this.properties.titleFontBold !== false
+                }),
+                PropertyPaneDropdown('titleAlignment', {
+                  label: strings.titleAlignmentLabel,
+                  options: [
+                    { key: 'left', text: strings.alignmentLeft },
+                    { key: 'center', text: strings.alignmentCenter },
+                    { key: 'right', text: strings.alignmentRight }
+                  ],
+                  selectedKey: this.properties.titleAlignment || 'center'
+                }),
+                PropertyPaneSlider('titleBottomSpacing', {
+                  label: strings.titleBottomSpacingLabel,
+                  min: 0,
+                  max: 50,
+                  step: 1,
+                  value: typeof this.properties.titleBottomSpacing === 'number'
+                    ? this.properties.titleBottomSpacing : 0
+                })
+              ]
+            },
+            {
               groupName: strings.tileDataGroup,
               groupFields: [
-                PropertyFieldCustomList('collectionData', {
-                  key: 'collectionData',
+                PropertyFieldCollectionData('collectionData', {
+                  key: 'collectionDataField',
                   label: strings.tilesDataLabel,
-                  headerText: strings.tilesPanelHeader,
+                  panelHeader: strings.tilesPanelHeader,
+                  manageBtnLabel: strings.tilesManageBtn,
                   value: this.properties.collectionData || [],
-                  context: this.context,
-                  onPropertyChange: this.onPropertyPaneFieldChanged,
-                  render: this.render.bind(this),
-                  properties: this.properties,
+                  enableSorting: true,
                   fields: [
                     {
                       id: 'title',
                       title: strings.titleField,
-                      type: CustomListFieldType.string,
+                      type: CustomCollectionFieldType.string,
                       required: true
                     },
                     {
                       id: 'description',
                       title: strings.descriptionField,
-                      type: CustomListFieldType.string
+                      type: CustomCollectionFieldType.string
                     },
                     {
                       id: 'url',
                       title: strings.urlField,
-                      type: CustomListFieldType.string,
+                      type: CustomCollectionFieldType.string,
                       required: true
                     },
                     {
                       id: 'imageUrl',
                       title: strings.imageUrlField,
-                      type: CustomListFieldType.string
+                      type: CustomCollectionFieldType.custom,
+                      onCustomRender: this.renderTileImagePicker.bind(this)
+                    },
+                    {
+                      id: 'imageOpacity',
+                      title: strings.imageOpacityField,
+                      type: CustomCollectionFieldType.custom,
+                      defaultValue: 100,
+                      onCustomRender: this.renderImageOpacity.bind(this)
+                    },
+                    {
+                      id: 'imageAsBackground',
+                      title: strings.imageAsBackgroundField,
+                      type: CustomCollectionFieldType.boolean,
+                      defaultValue: false
                     },
                     {
                       id: 'imageOnly',
                       title: strings.imageOnlyField,
-                      type: CustomListFieldType.boolean
+                      type: CustomCollectionFieldType.boolean,
+                      defaultValue: false
                     },
                     {
                       id: 'imagePosition',
                       title: strings.imagePositionField,
-                      type: CustomListFieldType.string
+                      type: CustomCollectionFieldType.dropdown,
+                      defaultValue: 'top',
+                      options: [
+                        { key: 'top', text: 'Top' },
+                        { key: 'bottom', text: 'Bottom' },
+                        { key: 'left', text: 'Left' },
+                        { key: 'right', text: 'Right' }
+                      ]
                     },
                     {
                       id: 'hoverImageUrl',
                       title: strings.hoverImageUrlField,
-                      type: CustomListFieldType.string
+                      type: CustomCollectionFieldType.custom,
+                      onCustomRender: this.renderTileImagePicker.bind(this)
+                    },
+                    {
+                      id: 'hoverImageAsBackground',
+                      title: strings.hoverImageAsBackgroundField,
+                      type: CustomCollectionFieldType.boolean,
+                      defaultValue: false
                     },
                     {
                       id: 'hoverImageOnly',
                       title: strings.hoverImageOnlyField,
-                      type: CustomListFieldType.boolean
+                      type: CustomCollectionFieldType.boolean,
+                      defaultValue: false
                     },
                     {
                       id: 'hoverImagePosition',
                       title: strings.hoverImagePositionField,
-                      type: CustomListFieldType.string
+                      type: CustomCollectionFieldType.dropdown,
+                      defaultValue: 'top',
+                      options: [
+                        { key: 'top', text: 'Top' },
+                        { key: 'bottom', text: 'Bottom' },
+                        { key: 'left', text: 'Left' },
+                        { key: 'right', text: 'Right' }
+                      ]
                     },
                     {
                       id: 'target',
                       title: strings.targetField,
-                      type: CustomListFieldType.string,
-                      required: true
+                      type: CustomCollectionFieldType.dropdown,
+                      defaultValue: '',
+                      options: [
+                        { key: '', text: strings.targetCurrent },
+                        { key: '_blank', text: strings.targetNew }
+                      ]
                     },
                     {
                       id: 'color',
                       title: strings.tileColorOverrideField,
-                      type: CustomListFieldType.color
+                      type: CustomCollectionFieldType.custom,
+                      onCustomRender: this.renderTileColorPicker.bind(this)
                     }
-                  ],
-                  disableReactivePropertyChanges: false
+                  ]
                 })
               ]
             },
@@ -355,7 +624,32 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
             // ── Size ─────────────────────────────────────────────────
             {
               groupName: strings.sizeGroup,
-              groupFields: [
+              groupFields: ([
+                PropertyPaneDropdown('tileLayout', {
+                  label: strings.tileLayoutLabel,
+                  options: [
+                    { key: 'stacked', text: strings.tileLayoutStacked },
+                    { key: 'columns', text: strings.tileLayoutColumns },
+                    { key: 'flow', text: strings.tileLayoutFlow }
+                  ],
+                  selectedKey: this.properties.tileLayout || 'columns'
+                })
+              ] as any[]).concat((this.properties.tileLayout || 'columns') === 'columns' ? [
+                PropertyPaneSlider('columnCount', {
+                  label: strings.columnCountLabel,
+                  min: 1,
+                  max: 12,
+                  step: 1,
+                  value: this.properties.columnCount || 3
+                })
+              ] : []).concat([
+                PropertyPaneSlider('tileGap', {
+                  label: strings.tileGapLabel,
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  value: typeof this.properties.tileGap === 'number' ? this.properties.tileGap : 16
+                }),
                 PropertyPaneSlider('tileWidth', {
                   label: strings.tileWidthLabel,
                   min: 80,
@@ -370,7 +664,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                   step: 4,
                   value: this.properties.tileHeight || 140
                 })
-              ]
+              ])
             },
             // ── Diagnostics ──────────────────────────────────────────
             {

@@ -220,9 +220,40 @@ var GridDesigner = (function (_super) {
     GridDesigner.prototype.getWebUrl = function () {
         return this.props.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
     };
+    GridDesigner.prototype.getFieldsResponse = function (url) {
+        return __awaiter(this, void 0, void 0, function () {
+            var acceptHeaders, response, i;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        acceptHeaders = [
+                            '',
+                            'application/json;odata=verbose',
+                            'application/json;odata=minimalmetadata',
+                            'application/json;odata=nometadata'
+                        ];
+                        i = 0;
+                        _a.label = 1;
+                    case 1:
+                        if (!(i < acceptHeaders.length)) return [3 /*break*/, 4];
+                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined)];
+                    case 2:
+                        response = _a.sent();
+                        if (response.ok) {
+                            return [2 /*return*/, response];
+                        }
+                        _a.label = 3;
+                    case 3:
+                        i += 1;
+                        return [3 /*break*/, 1];
+                    case 4: return [2 /*return*/, response];
+                }
+            });
+        });
+    };
     GridDesigner.prototype.loadFields = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var url, response, data, sourceFields, fields, configuredFields, configuredIndex, configuredField, sourceIndex, error_1;
+            var fieldsEndpoint, url, response, data, sourceFields, fields, configuredFields, configuredIndex, configuredField, sourceIndex, error_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -233,19 +264,25 @@ var GridDesigner = (function (_super) {
                         this.setState({ loading: true, error: '' });
                         _a.label = 1;
                     case 1:
-                        _a.trys.push([1, 4, , 5]);
-                        url = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
-                            + "')/fields?$select=InternalName,Title,Description,TypeAsString,Required,ReadOnlyField,Hidden,FromBaseType,Choices,MaxLength,DisplayFormat";
-                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
-                                headers: { Accept: 'application/json;odata=nometadata' }
-                            })];
+                        _a.trys.push([1, 6, , 7]);
+                        fieldsEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=";
+                        url = fieldsEndpoint
+                            + 'InternalName,Title,Description,TypeAsString,Required,ReadOnlyField,Hidden,FromBaseType,Choices,MaxLength,DisplayFormat';
+                        return [4 /*yield*/, this.getFieldsResponse(url)];
                     case 2:
                         response = _a.sent();
+                        if (!!response.ok) return [3 /*break*/, 4];
+                        url = fieldsEndpoint + 'InternalName,Title,Description,TypeAsString,Required,ReadOnlyField,Hidden,Choices,DisplayFormat';
+                        return [4 /*yield*/, this.getFieldsResponse(url)];
+                    case 3:
+                        response = _a.sent();
+                        _a.label = 4;
+                    case 4:
                         if (!response.ok) {
-                            throw new Error('SharePoint fields could not be loaded.');
+                            throw new Error('SharePoint fields could not be loaded. HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
                         }
                         return [4 /*yield*/, response.json()];
-                    case 3:
+                    case 5:
                         data = _a.sent();
                         sourceFields = toArray(data && data.value).length > 0 ? toArray(data.value) : toArray(data && data.d && data.d.results);
                         fields = sourceFields.filter(function (field) {
@@ -284,12 +321,12 @@ var GridDesigner = (function (_super) {
                             }
                         }
                         this.setState({ sharePointFields: fields, fields: configuredFields, loading: false });
-                        return [3 /*break*/, 5];
-                    case 4:
+                        return [3 /*break*/, 7];
+                    case 6:
                         error_1 = _a.sent();
                         this.setState({ loading: false, error: error_1 && error_1.message ? error_1.message : 'SharePoint fields could not be loaded.' });
-                        return [3 /*break*/, 5];
-                    case 5: return [2 /*return*/];
+                        return [3 /*break*/, 7];
+                    case 7: return [2 /*return*/];
                 }
             });
         });

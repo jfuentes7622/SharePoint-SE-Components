@@ -10,6 +10,7 @@ import { SPPermission } from '@microsoft/sp-page-context';
 import styles from './SharePointDynamicForm.module.scss';
 import { FormDesigner } from './FormDesigner';
 import { RichTextEditor } from './RichTextEditor';
+import { GridControlHost } from './GridControlHost';
 import { FormField, FormMode, FormSchema, FieldValue, FieldConfig, AdvancedValidationRule } from '../../../formEngine/core/types';
 import * as strings from 'SharePointDynamicFormWebPartStrings';
 
@@ -40,6 +41,7 @@ export interface SharePointDynamicFormContainerProps {
   labelPosition?: 'top' | 'left';
   isPageEditMode: boolean;
   showFieldDescription?: boolean;
+  containerWidth?: number;
   submitButtonLabel?: string;
   addSubmitButtonLabel?: string;
   editSubmitButtonLabel?: string;
@@ -99,8 +101,10 @@ interface ILookupMap {
 interface SharePointDynamicFormContainerState {
   schema: FormSchema | null;
   values: IValueMap;
+  loadedItem: any;
   lookupOptions: ILookupMap;
   resolvedItemId: number;
+  isPostCreateEditing: boolean;
   isViewEditing: boolean;
   loading: boolean;
   error: string | null;
@@ -183,6 +187,12 @@ function normalizeFilterLogical(value: any): FilterConditionLogical {
 function buildODataFilterClause(fieldName: string, fieldType: string, value: any, operator?: FilterConditionOperator): string {
   if (value === undefined || value === null || value === '') { return ''; }
   var op = normalizeFilterOperator(operator);
+  if (Array.isArray(value)) {
+    var arrayClauses = value.map(function(arrayValue: any) { return buildODataFilterClause(fieldName, fieldType, arrayValue, op === 'ne' ? 'eq' : op); }).filter(function(arrayClause: string) { return !!arrayClause; });
+    if (arrayClauses.length === 0) { return ''; }
+    if (op === 'ne') { return arrayClauses.map(function(arrayClause: string) { return 'not (' + arrayClause + ')'; }).join(' and '); }
+    return arrayClauses.map(function(arrayClause: string) { return '(' + arrayClause + ')'; }).join(' or ');
+  }
   var clause = '';
   switch (fieldType) {
     case 'lookup': {
@@ -991,8 +1001,10 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     this.state = {
       schema: null,
       values: {},
+      loadedItem: null,
       lookupOptions: {},
       resolvedItemId: 0,
+      isPostCreateEditing: false,
       isViewEditing: false,
       loading: true,
       error: null,
@@ -1115,6 +1127,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
       this.setSafeState({
         values: values,
+        loadedItem: item,
         resolvedItemId: resolvedItemId,
         isViewEditing: false,
         loading: false,
@@ -1129,7 +1142,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
   private getEffectiveMode(): FormMode {
     if (this.props.mode === 'new') {
-      return 'new';
+      return this.state.isPostCreateEditing && this.state.resolvedItemId > 0 ? 'edit' : 'new';
     }
 
     if (this.state.resolvedItemId <= 0) {
@@ -1240,6 +1253,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   }
 
   private getResolvedItemId(schema?: FormSchema | null): number {
+    if (this.state.isPostCreateEditing && this.state.resolvedItemId > 0) {
+      return this.state.resolvedItemId;
+    }
     var fromDynamic = toPositiveInt(this.props.dynamicItemId);
     var hasDynamicBinding = !!String(this.props.dynamicItemReference || '').trim();
     var fromContext = 0;
@@ -1785,8 +1801,10 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this.setSafeState({
         schema: null,
         values: {},
+        loadedItem: null,
         lookupOptions: {},
         resolvedItemId: 0,
+        isPostCreateEditing: false,
         isViewEditing: false,
         loading: false,
         error: strings.LoadConfigFailed,
@@ -1806,8 +1824,10 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this.setSafeState({
         schema: schema,
         values: {},
+        loadedItem: null,
         lookupOptions: {},
         resolvedItemId: 0,
+        isPostCreateEditing: false,
         isViewEditing: false,
         loading: false,
         error: null,
@@ -1823,6 +1843,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     }
 
     this.setSafeState({
+      isPostCreateEditing: false,
       loading: true,
       error: null,
       submitError: null,
@@ -1949,8 +1970,10 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this.setSafeState({
         schema: schema,
         values: values,
+        loadedItem: loadedItem,
         lookupOptions: lookupOptions,
         resolvedItemId: resolvedItemId,
+        isPostCreateEditing: false,
         isViewEditing: false,
         loading: false,
         error: null,
@@ -1965,8 +1988,10 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this.setSafeState({
         schema: schema,
         values: {},
+        loadedItem: null,
         lookupOptions: {},
         resolvedItemId: 0,
+        isPostCreateEditing: false,
         isViewEditing: false,
         loading: false,
         error: error && error.message ? error.message : strings.LoadConfigFailed,
@@ -2081,7 +2106,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       var response = await this.getWithAcceptFallback(endpoint);
       console.log('[SharePointDynamicForm] REST RESPONSE: Status ' + response.status);
       
-      if (!response.ok) { 
+      if (!response.ok) {
         console.error('[SharePointDynamicForm] REST ERROR: Status ' + response.status);
         var errorText = '';
         try {
@@ -2090,7 +2115,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         } catch (_textError) {
           console.error('[SharePointDynamicForm] Could not read error response');
         }
-        return 0; 
+        return this.resolveLookupNavigationFallback(listName, filterStr);
       }
       
       var data = await response.json();
@@ -2106,11 +2131,58 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         return resolvedId;
       } else {
         console.log('[SharePointDynamicForm] FILTER NO MATCH: Filter executed but no items found');
+        return this.resolveLookupNavigationFallback(listName, filterStr);
       }
     } catch (filterError) {
       console.error('[SharePointDynamicForm] FILTER ERROR: ', filterError);
     }
     console.log('[SharePointDynamicForm] FILTER RESOLUTION FAILED: Returning 0');
+    return 0;
+  }
+
+  private async resolveLookupNavigationFallback(listName: string, filterStr: string): Promise<number> {
+    var fallbackFilter = filterStr;
+    var expandFields: string[] = [];
+    var fieldKey: string;
+    for (fieldKey in this._listFieldTypeLookup) {
+      if (!Object.prototype.hasOwnProperty.call(this._listFieldTypeLookup, fieldKey)) { continue; }
+      var fieldType = this._listFieldTypeLookup[fieldKey];
+      if (fieldType !== 'lookup' && fieldType !== 'lookupmulti') { continue; }
+      var internalName = this._listFieldInternalNameLookup[fieldKey];
+      if (!internalName) { continue; }
+      var escapedName = internalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var idFilterPattern = new RegExp('(^|[\\s(])' + escapedName + 'Id(?=\\s+(?:eq|ne|gt|ge|lt|le)\\s+)', 'g');
+      var nextFilter = fallbackFilter.replace(idFilterPattern, '$1' + internalName + '/Id');
+      if (nextFilter !== fallbackFilter) {
+        fallbackFilter = nextFilter;
+        if (expandFields.indexOf(internalName) < 0) { expandFields.push(internalName); }
+      }
+    }
+
+    if (expandFields.length === 0 || fallbackFilter === filterStr) { return 0; }
+
+    var fallbackEndpoint = this.getWebUrl()
+      + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/items?$filter="
+      + encodeURIComponent(fallbackFilter)
+      + '&$select=Id&$expand=' + encodeURIComponent(expandFields.join(',')) + '&$top=1';
+    console.log('[SharePointDynamicForm] RETRYING LOOKUP FILTER: ' + fallbackFilter);
+
+    try {
+      var response = await this.getWithAcceptFallback(fallbackEndpoint);
+      if (!response.ok) {
+        console.error('[SharePointDynamicForm] LOOKUP FILTER RETRY ERROR: Status ' + response.status);
+        return 0;
+      }
+      var data = await response.json();
+      var items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+      if (items && items.length > 0 && items[0].Id) {
+        var resolvedId = toPositiveInt(items[0].Id);
+        console.log('[SharePointDynamicForm] LOOKUP FILTER RETRY SUCCESS: Resolved to item ID ' + resolvedId);
+        return resolvedId;
+      }
+    } catch (fallbackError) {
+      console.error('[SharePointDynamicForm] LOOKUP FILTER RETRY FAILED: ', fallbackError);
+    }
     return 0;
   }
 
@@ -2755,6 +2827,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       // Display-only and unsupported field types are not persisted to SharePoint items.
       if (
         field.type === 'richtext'
+        || field.type === 'gridcontrol'
+        || field.type === 'customimage'
+        || field.type === 'divider'
         || field.type === 'newline'
         || field.type === 'attachment'
         || field.type === 'taxonomy'
@@ -2921,6 +2996,19 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         await this.uploadAttachments(listName, itemId, schema);
       }
 
+      var savedItem = this.state.loadedItem;
+      if (wasCreate && itemId > 0) {
+        try {
+          savedItem = await this.loadItem(listName, itemId);
+        } catch (createdItemLoadError) {
+          this.logDiagnostic('Created item ' + itemId + ' could not be reloaded immediately. Continuing with its assigned ID.');
+          savedItem = null;
+        }
+        if (!savedItem) {
+          savedItem = { ID: itemId, Id: itemId };
+        }
+      }
+
       var nextValues: IValueMap = {};
       var key: string;
       for (key in this.state.values) {
@@ -2935,12 +3023,18 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           this._attachmentsMarkedForDelete[attachmentFields[attachmentIndex].id] = [];
         }
       }
+      if (wasCreate && savedItem) {
+        nextValues = this.mapItemToValues(schema, savedItem, nextValues);
+      }
 
       this.notifyListControlRefresh(listName, wasCreate ? 'add' : 'edit');
       console.log('[SharePointDynamicForm] handleSubmit SUCCESS - ' + (wasCreate ? 'Created' : 'Updated') + ' item ID: ' + itemId);
 
       this.setState({
         values: nextValues,
+        loadedItem: savedItem,
+        resolvedItemId: itemId > 0 ? itemId : this.state.resolvedItemId,
+        isPostCreateEditing: wasCreate && itemId > 0 ? true : this.state.isPostCreateEditing,
         isSubmitting: false,
         isViewEditing: this.props.mode === 'view' ? false : this.state.isViewEditing,
         submitError: null,
@@ -3101,6 +3195,96 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     }
 
     switch (field.type) {
+      case 'gridcontrol':
+        var gridConfig = field.config || {};
+        var gridSourceRef = String(gridConfig.gridControlFilterSourceField || '').toLowerCase();
+        var gridSourceField: FormField | null = null;
+        if (gridSourceRef && this.state.schema) {
+          var allGridSourceFields = getAllFields(this.state.schema);
+          for (var gridSourceIndex = 0; gridSourceIndex < allGridSourceFields.length; gridSourceIndex += 1) {
+            var candidateGridSource = allGridSourceFields[gridSourceIndex];
+            if (String(candidateGridSource.id || '').toLowerCase() === gridSourceRef || String(candidateGridSource.fieldName || '').toLowerCase() === gridSourceRef) {
+              gridSourceField = candidateGridSource;
+              break;
+            }
+          }
+        }
+        var gridRuntimeValue: any = '';
+        if (gridSourceField) {
+          gridRuntimeValue = gridSourceField.type === 'lookup' || gridSourceField.type === 'person'
+            ? getLookupIdValue(this.state.values[gridSourceField.id])
+            : this.state.values[gridSourceField.id];
+        } else if (gridSourceRef) {
+          var gridLoadedItem = this.state.loadedItem || {};
+          var gridSourceKey = gridConfig.gridControlFilterSourceField || '';
+          gridRuntimeValue = gridLoadedItem[gridSourceKey];
+          if ((gridRuntimeValue === undefined || gridRuntimeValue === null) && gridLoadedItem[gridSourceKey + 'Id'] !== undefined) { gridRuntimeValue = gridLoadedItem[gridSourceKey + 'Id']; }
+          if ((gridRuntimeValue === undefined || gridRuntimeValue === null) && gridSourceRef === 'id') { gridRuntimeValue = gridLoadedItem.ID !== undefined ? gridLoadedItem.ID : this.state.resolvedItemId; }
+        }
+        var gridTargetField = String(gridConfig.gridControlFilterTargetField || '');
+        var gridRuntimeFilterJson = gridSourceRef && gridTargetField ? JSON.stringify([{
+          field: gridTargetField,
+          operator: gridConfig.gridControlFilterOperator || 'eq',
+          logical: 'and',
+          valueType: 'static',
+          value: gridRuntimeValue
+        }]) : '';
+        var gridMappingHasValue = gridRuntimeValue !== undefined
+          && gridRuntimeValue !== null
+          && String(gridRuntimeValue).trim() !== ''
+          && String(gridRuntimeValue) !== '0';
+        var gridReadOnly = effectiveMode === 'new'
+          || effectiveMode === 'view'
+          || (effectiveMode === 'edit' && !this.state.canEditRecords)
+          || (!!gridSourceRef && !!gridTargetField && !gridMappingHasValue);
+        return (
+          <div style={fieldWrapperStyle}>
+            <div style={labelWrapperStyle}>
+              <div style={labelBlockStyle}>{field.label}{this.renderDescriptionIcon(description)}</div>
+              <GridControlHost
+                fieldId={field.id}
+                sourceId={gridConfig.gridControlSourceId || ''}
+                sourceName={gridConfig.gridControlSourceName || field.label}
+                sourceListName={gridConfig.gridControlSourceListName || ''}
+                runtimeFilterJson={gridRuntimeFilterJson}
+                defaultField={gridTargetField}
+                defaultValue={gridRuntimeValue}
+                readOnly={gridReadOnly}
+                isPageEditMode={this.props.isPageEditMode}
+              />
+            </div>
+          </div>
+        );
+      case 'customimage':
+        var customImageConfig = field.config || {};
+        var customImageUrl = String(customImageConfig.imageUrl || '').trim();
+        if (!customImageUrl) {
+          return null;
+        }
+        var customImageWrapperStyle: React.CSSProperties = {
+          marginBottom: '16px',
+          textAlign: (customImageConfig.imageAlignment || 'left') as any
+        };
+        var customImageStyle: React.CSSProperties = {
+          display: 'inline-block',
+          maxWidth: '100%',
+          width: customImageConfig.imageWidth ? String(customImageConfig.imageWidth) + 'px' : 'auto',
+          height: customImageConfig.imageHeight ? String(customImageConfig.imageHeight) + 'px' : 'auto',
+          objectFit: (customImageConfig.imageFit || 'contain') as any
+        };
+        return (
+          <div style={customImageWrapperStyle}>
+            <img src={customImageUrl} alt={String(customImageConfig.imageAltText || field.label || '')} style={customImageStyle} />
+          </div>
+        );
+      case 'divider':
+        var dividerConfig = field.config || {};
+        var dividerSpacing = dividerConfig.dividerSpacing === undefined ? 16 : Math.max(0, dividerConfig.dividerSpacing);
+        var dividerBorder = String(Math.max(1, dividerConfig.dividerThickness || 1)) + 'px ' + String(dividerConfig.dividerStyle || 'solid') + ' ' + String(dividerConfig.dividerColor || '#c8c6c4');
+        if (dividerConfig.dividerOrientation === 'vertical') {
+          return <div style={{ display: 'flex', justifyContent: 'center' }}><div role="separator" aria-orientation="vertical" style={{ borderLeft: dividerBorder, height: String(Math.max(1, dividerConfig.dividerLength || 80)) + 'px', margin: '0 ' + String(dividerSpacing) + 'px' }} /></div>;
+        }
+        return <hr style={{ border: 0, borderTop: dividerBorder, margin: String(dividerSpacing) + 'px 0' }} />;
       case 'richtext':
         // Custom richtext fields render as content divs, not form inputs
         // Always visible, never editable, for informational purposes
@@ -3597,6 +3781,17 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     );
   }
 
+  private getContainerWidthStyle(): React.CSSProperties {
+    var configuredWidth = Number(this.props.containerWidth || 0);
+    return {
+      width: '100%',
+      maxWidth: configuredWidth > 0 ? String(configuredWidth) + 'px' : 'none',
+      marginLeft: 'auto',
+      marginRight: 'auto',
+      boxSizing: 'border-box',
+    };
+  }
+
   public render(): JSX.Element {
     if (this.props.isInDesignerMode) {
       return (
@@ -3625,7 +3820,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
     if (this.state.loading) {
       return (
-        <div className={styles.container}>
+        <div className={styles.container} style={this.getContainerWidthStyle()}>
           <div className={styles.loading}>{strings.CommonLoading}</div>
         </div>
       );
@@ -3633,7 +3828,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
     if (this.state.error) {
       return (
-        <div className={styles.container}>
+        <div className={styles.container} style={this.getContainerWidthStyle()}>
           <MessageBar messageBarType={MessageBarType.error}>{this.state.error}</MessageBar>
         </div>
       );
@@ -3641,7 +3836,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
     if (!this.state.schema) {
       return (
-        <div className={styles.container}>
+        <div className={styles.container} style={this.getContainerWidthStyle()}>
           <MessageBar messageBarType={MessageBarType.warning}>{strings.RuntimeNoSchemaWarning}</MessageBar>
         </div>
       );
@@ -3741,7 +3936,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     };
 
     // Build container styles from theme
-    var containerStyle: React.CSSProperties = {};
+    var containerStyle: React.CSSProperties = this.getContainerWidthStyle();
     if (schema.theme) {
       // Font settings for form wrapper
       if (schema.theme.fontSize) { containerStyle.fontSize = schema.theme.fontSize; }
@@ -3788,20 +3983,18 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           <MessageBar messageBarType={MessageBarType.warning}>{this.state.permissionStatusMessage}</MessageBar>
         )}
 
-        {schema.showTitle !== false && schema.name && <h1>{schema.name}</h1>}
-        {(() => {
-          if (!schema.showTitle || !schema.description) {
-            return null;
-          }
-          var descriptionStyle: React.CSSProperties = {};
-          if (schema.theme) {
-            if (schema.theme.descriptionFontSize) { descriptionStyle.fontSize = schema.theme.descriptionFontSize; }
-            if (schema.theme.descriptionFontFamily) { descriptionStyle.fontFamily = schema.theme.descriptionFontFamily; }
-            if (schema.theme.descriptionFontWeight) { descriptionStyle.fontWeight = schema.theme.descriptionFontWeight as any; }
-            if (schema.theme.descriptionColor) { descriptionStyle.color = schema.theme.descriptionColor; }
-          }
-          return <p style={descriptionStyle}>{schema.description}</p>;
-        })()}
+        {schema.showTitle !== false && (schema.name || schema.description || schema.logoUrl) && <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', width: '100%' }}>
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            {schema.name && <h1 style={{ textAlign: schema.nameAlignment || 'left' }}>{schema.name}</h1>}
+            {schema.description && <p style={Object.assign({}, schema.theme ? {
+              fontSize: schema.theme.descriptionFontSize,
+              fontFamily: schema.theme.descriptionFontFamily,
+              fontWeight: schema.theme.descriptionFontWeight as any,
+              color: schema.theme.descriptionColor
+            } : {}, { textAlign: schema.descriptionAlignment || 'left' })}>{schema.description}</p>}
+          </div>
+          {schema.logoUrl && <img src={schema.logoUrl} alt={schema.logoAltText || ''} style={{ flex: '0 0 auto', maxWidth: '160px', maxHeight: '80px', objectFit: 'contain' }} />}
+        </div>}
 
         {(() => {
           var formGridLayout = !!(schema.theme && schema.theme.layout === 'grid' && schema.theme.columns && schema.theme.columns > 1);
@@ -3848,8 +4041,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
           return (
           <div key={step.id}>
-            {step.showTitle !== false && step.title && <h2>{step.title}</h2>}
-            {step.showTitle !== false && step.description && <p>{step.description}</p>}
+            {step.showTitle !== false && step.title && <h2 style={{ textAlign: step.titleAlignment || 'left' }}>{step.title}</h2>}
+            {step.showTitle !== false && step.description && <p style={{ textAlign: step.descriptionAlignment || 'left' }}>{step.description}</p>}
             <div style={stepContainerStyle}>
             {step.fields.map((field) => {
               if (!field) {

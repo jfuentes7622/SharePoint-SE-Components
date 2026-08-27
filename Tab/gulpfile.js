@@ -1,6 +1,7 @@
 'use strict';
 
 const build = require('@microsoft/sp-build-web');
+const path = require('path');
 
 build.addSuppression(`Warning - [sass] The local CSS class 'ms-Grid' is not camelCase and will not be type-safe.`);
 
@@ -65,6 +66,18 @@ build.tslint.setConfig({
 build.writeManifests.setConfig({
   cumulativeManifestOptions: {
     ignoreOutputManifestIds: ['d688e552-a2fb-4904-af1c-c28aa1ee79d3']
+  }
+});
+
+build.configureWebpack.setConfig({
+  additionalConfiguration: (generatedConfiguration) => {
+    generatedConfiguration.resolve = generatedConfiguration.resolve || {};
+    generatedConfiguration.resolve.alias = generatedConfiguration.resolve.alias || {};
+    generatedConfiguration.resolve.alias['@pnp/telemetry-js'] = path.resolve(
+      __dirname,
+      'lib/webparts/shared/pnpTelemetryNoop.js'
+    );
+    return generatedConfiguration;
   }
 });
 

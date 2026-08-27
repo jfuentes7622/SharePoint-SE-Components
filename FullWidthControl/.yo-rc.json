@@ -1,0 +1,18 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "version": "1.5.1",
+    "libraryName": "FullWidthControl",
+    "libraryId": "6d83f014-43a7-4ca9-a33e-36b6465372c1",
+    "environment": "onprem",
+       "isCreatingSolution": true,
+    "nodeVersion": "10.24.1",
+     "packageManager": "npm",
+    "solutionName": "SPS-FullWidthControl",
+    "solutionShortDescription": "Makes a fixed-width SharePoint section full width.",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "componentType": "webpart"
+  }
+}
+
+

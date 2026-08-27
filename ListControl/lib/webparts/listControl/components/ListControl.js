@@ -58,6 +58,7 @@ var sp_http_1 = require("@microsoft/sp-http");
 var strings = require("ListControlWebPartStrings");
 require("./ListControl.css");
 var LIST_CONTROL_REFRESH_EVENT = 'spse:listcontrol-refresh';
+var LIST_CONTROL_RUNTIME_CONFIG_EVENT = 'spse:listcontrol-runtime-config';
 function escapeODataText(value) {
     return value.replace(/'/g, "''");
 }
@@ -94,9 +95,6 @@ function toArray(value) {
 }
 function trimGuidBraces(value) {
     return String(value || '').replace(/^[{]/, '').replace(/[}]$/, '');
-}
-function appendQuery(url, query) {
-    return url + (url.indexOf('?') >= 0 ? '&' : '?') + query;
 }
 function appendQueryParam(url, key, value) {
     var hash = '';
@@ -164,33 +162,15 @@ function resolveEmbeddedPageUrl(url) {
 function isSharePointWrapperUrl(url) {
     return /\/_layouts\/15\/(sharepoint|onedrive|doc)\.aspx/i.test(String(url || ''));
 }
-function buildViewRequestUrls(baseEndpoint, selectedViewId) {
-    var urls = [];
-    var normalized = trimGuidBraces(selectedViewId);
-    var candidates = [String(selectedViewId || ''), normalized, '{' + normalized + '}'];
-    for (var i = 0; i < candidates.length; i += 1) {
-        var candidate = String(candidates[i] || '');
-        if (!candidate) {
-            continue;
-        }
-        urls.push(appendQuery(baseEndpoint, 'View=' + encodeURIComponent(candidate)));
-        urls.push(appendQuery(baseEndpoint, 'ViewId=' + encodeURIComponent(candidate)));
-    }
-    urls.push(baseEndpoint);
-    var unique = [];
-    for (var j = 0; j < urls.length; j += 1) {
-        if (unique.indexOf(urls[j]) < 0) {
-            unique.push(urls[j]);
-        }
-    }
-    return unique;
-}
 function extractRenderRowsAndFields(data) {
-    var schema = tryParseObject(data.ListSchema) || tryParseObject(data.Schema) || {};
-    var listData = tryParseObject(data.ListData) || {};
-    var rows = toArray(data.Row);
+    var directData = data && data.d && data.d.RenderListDataAsStream
+        ? data.d.RenderListDataAsStream : data;
+    var responseData = tryParseObject(directData) || {};
+    var schema = tryParseObject(responseData.ListSchema) || tryParseObject(responseData.Schema) || {};
+    var listData = tryParseObject(responseData.ListData) || responseData;
+    var rows = toArray(responseData.Row);
     if (rows.length === 0) {
-        rows = toArray(data.Rows);
+        rows = toArray(responseData.Rows);
     }
     if (rows.length === 0) {
         rows = toArray(listData.Row);
@@ -203,7 +183,7 @@ function extractRenderRowsAndFields(data) {
     }
     var fields = toArray(schema.Field);
     if (fields.length === 0) {
-        fields = toArray(data.Field);
+        fields = toArray(responseData.Field);
     }
     return {
         rows: rows,
@@ -283,6 +263,8 @@ var ListControl = (function (_super) {
     __extends(ListControl, _super);
     function ListControl(props) {
         var _this = _super.call(this, props) || this;
+        _this._fieldDisplayFormatMap = {};
+        _this._loadRowsRequestId = 0;
         _this.setDisplayFormFrameRef = function (frame) {
             if (!frame) {
                 return;
@@ -304,27 +286,39 @@ var ListControl = (function (_super) {
             sortFieldName: '',
             sortDirection: '',
             activeFilterFieldName: '',
+            filterPopoverStyle: {},
+            activeFilterIsDate: false,
             draftFilterOperator: 'contains',
             draftFilterValue: '',
+            draftFilterEndValue: '',
+            datePickerTarget: '',
+            datePickerMonth: '',
             columnFilters: {},
             currentPage: 0,
             displayFormUrl: '',
             displayFormLoading: false,
             displayFormError: '',
+            embeddedByReportForms: false,
+            runtimeFilterJson: '',
+            runtimeConfigOwner: '',
         };
         _this._refreshEventHandler = _this.handleExternalRefresh.bind(_this);
+        _this._runtimeConfigEventHandler = _this.handleRuntimeConfig.bind(_this);
         return _this;
     }
     ListControl.prototype.componentDidMount = function () {
         this.logDiagnostic('Component mounted. listName=' + String(this.props.listName || '(none)') + ', defaultViewId=' + String(this.props.defaultViewId || '(none)'));
         if (typeof window !== 'undefined' && window.addEventListener) {
             window.addEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
+            window.addEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
         }
         this.loadRows();
     };
     ListControl.prototype.componentWillUnmount = function () {
+        this._loadRowsRequestId += 1;
         if (typeof window !== 'undefined' && window.removeEventListener) {
             window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
+            window.removeEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
         }
     };
     ListControl.prototype.openDefaultDisplayForm = function (row) {
@@ -381,8 +375,10 @@ var ListControl = (function (_super) {
         var _this = this;
         if (prevProps.listName !== this.props.listName || prevProps.defaultViewId !== this.props.defaultViewId) {
             this.logDiagnostic('Props changed; resetting selection and reloading rows. listName=' + String(this.props.listName || '(none)') + ', viewId=' + String(this.props.defaultViewId || '(none)'));
+            var nextSelectedViewId = this.props.defaultViewId || this.getInitialViewId(this.props.views);
+            var selectedViewWillChange = nextSelectedViewId !== this.state.selectedViewId;
             this.setState({
-                selectedViewId: this.props.defaultViewId || this.getInitialViewId(this.props.views),
+                selectedViewId: nextSelectedViewId,
                 selectedItemId: 0,
                 selectedMode: 'view',
                 sortFieldName: '',
@@ -394,7 +390,9 @@ var ListControl = (function (_super) {
                 currentPage: 0,
             }, function () {
                 _this.props.onSelectionChange(0, 'view');
-                _this.loadRows();
+                if (!selectedViewWillChange) {
+                    _this.loadRows();
+                }
             });
             return;
         }
@@ -428,6 +426,27 @@ var ListControl = (function (_super) {
         }
         this.logDiagnostic('Received external refresh event for list: ' + sourceListName);
         this.loadRows();
+    };
+    ListControl.prototype.handleRuntimeConfig = function (event) {
+        var detail = event && event.detail ? event.detail : {};
+        var targetInstanceId = String(detail.instanceId || '').toLowerCase();
+        var currentInstanceId = String(this.props.context && this.props.context.instanceId || '').toLowerCase();
+        if (!targetInstanceId || targetInstanceId !== currentInstanceId) {
+            return;
+        }
+        var owner = String(detail.owner || '');
+        if (detail.active === false) {
+            if (this.state.runtimeConfigOwner && owner && this.state.runtimeConfigOwner !== owner) {
+                return;
+            }
+            this.setState({ embeddedByReportForms: false, runtimeFilterJson: '', runtimeConfigOwner: '' });
+            return;
+        }
+        this.setState({
+            embeddedByReportForms: true,
+            runtimeFilterJson: String(detail.filterJson || ''),
+            runtimeConfigOwner: owner
+        });
     };
     ListControl.prototype.getWebUrl = function () {
         return this.props.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
@@ -540,6 +559,101 @@ var ListControl = (function (_super) {
             }
         }
         return unique;
+    };
+    ListControl.prototype.buildMinimalViewXml = function (viewQuery, viewFieldNames, rowLimit, scope) {
+        var queryText = String(viewQuery || '').trim();
+        var queryDocument = new DOMParser().parseFromString(/^<Query(?:\s|>)/i.test(queryText) ? queryText : '<Query>' + queryText + '</Query>', 'text/xml');
+        if (queryDocument.getElementsByTagName('parsererror').length > 0 || queryDocument.getElementsByTagName('Query').length === 0) {
+            throw new Error('The selected SharePoint view query is invalid.');
+        }
+        var xmlDocument = new DOMParser().parseFromString('<View><Query/><ViewFields/></View>', 'text/xml');
+        var viewElement = xmlDocument.getElementsByTagName('View')[0];
+        var existingQuery = xmlDocument.getElementsByTagName('Query')[0];
+        var queryElement = xmlDocument.importNode(queryDocument.getElementsByTagName('Query')[0], true);
+        viewElement.replaceChild(queryElement, existingQuery);
+        var viewFieldsElement = xmlDocument.getElementsByTagName('ViewFields')[0];
+        for (var fieldIndex = 0; fieldIndex < viewFieldNames.length; fieldIndex += 1) {
+            var fieldName = String(viewFieldNames[fieldIndex] || '');
+            if (fieldName) {
+                var fieldRef = xmlDocument.createElement('FieldRef');
+                fieldRef.setAttribute('Name', fieldName);
+                viewFieldsElement.appendChild(fieldRef);
+            }
+        }
+        var normalizedScope = String(scope === undefined || scope === null ? '' : scope).toLowerCase();
+        var scopeNames = {
+            '1': 'Recursive',
+            '2': 'RecursiveAll',
+            '3': 'FilesOnly',
+            'recursive': 'Recursive',
+            'recursiveall': 'RecursiveAll',
+            'filesonly': 'FilesOnly'
+        };
+        if (scopeNames[normalizedScope]) {
+            viewElement.setAttribute('Scope', scopeNames[normalizedScope]);
+        }
+        if (rowLimit > 0) {
+            var rowLimitElement = xmlDocument.createElement('RowLimit');
+            rowLimitElement.setAttribute('Paged', 'TRUE');
+            rowLimitElement.appendChild(xmlDocument.createTextNode(String(rowLimit)));
+            viewElement.appendChild(rowLimitElement);
+        }
+        return new XMLSerializer().serializeToString(xmlDocument);
+    };
+    ListControl.prototype.loadSelectedViewXml = function (selectedViewId, viewFieldNames) {
+        return __awaiter(this, void 0, void 0, function () {
+            var webUrl, listPath, viewIds, urls, i, encoded, normalized, j, response, data, viewData, rowLimit, viewXml, viewXmlError_1;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        if (!selectedViewId) {
+                            return [2 /*return*/, ''];
+                        }
+                        webUrl = this.getWebUrl();
+                        listPath = "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')";
+                        viewIds = this.buildViewIdCandidates(selectedViewId);
+                        urls = [];
+                        for (i = 0; i < viewIds.length; i += 1) {
+                            encoded = encodeURIComponent(viewIds[i]);
+                            normalized = encodeURIComponent(trimGuidBraces(viewIds[i]));
+                            urls.push(webUrl + listPath + "/views/getById('" + encoded + "')?$select=ViewQuery,RowLimit,Scope");
+                            urls.push(webUrl + listPath + "/views(guid'" + normalized + "')?$select=ViewQuery,RowLimit,Scope");
+                        }
+                        j = 0;
+                        _a.label = 1;
+                    case 1:
+                        if (!(j < urls.length)) return [3 /*break*/, 7];
+                        _a.label = 2;
+                    case 2:
+                        _a.trys.push([2, 5, , 6]);
+                        return [4 /*yield*/, this.getJsonWithFallback(urls[j])];
+                    case 3:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            return [3 /*break*/, 6];
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 4:
+                        data = _a.sent();
+                        viewData = data && data.d ? data.d : data;
+                        if (viewData && viewData.ViewQuery !== undefined && viewData.ViewQuery !== null) {
+                            rowLimit = parseInt(String(viewData.RowLimit || ''), 10);
+                            viewXml = this.buildMinimalViewXml(String(viewData.ViewQuery), viewFieldNames, isNaN(rowLimit) ? 0 : rowLimit, viewData.Scope);
+                            this.logDiagnostic('Loaded minimal selected view CAML. HasFilter=' + String(/<Where(?:\s|>)/i.test(viewXml)) + ', hasSort=' + String(/<OrderBy(?:\s|>)/i.test(viewXml)) + ', fields=' + String(viewFieldNames.length) + '.');
+                            return [2 /*return*/, viewXml];
+                        }
+                        return [3 /*break*/, 6];
+                    case 5:
+                        viewXmlError_1 = _a.sent();
+                        this.logDiagnostic('loadSelectedViewXml: Attempt failed for url=' + urls[j] + ': ' + (viewXmlError_1 && viewXmlError_1.message ? viewXmlError_1.message : String(viewXmlError_1)));
+                        return [3 /*break*/, 6];
+                    case 6:
+                        j += 1;
+                        return [3 /*break*/, 1];
+                    case 7: throw new Error('Failed to load the selected SharePoint view definition.');
+                }
+            });
+        });
     };
     ListControl.prototype.loadSelectedViewFieldNames = function (selectedViewId) {
         return __awaiter(this, void 0, void 0, function () {
@@ -673,7 +787,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadListFieldTypeMap = function (viewFieldNames) {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, data, fields, requested, i, map, j, field, internalName, error_2;
+            var endpoint, response, data, fields, requested, i, map, j, field, internalName, displayFormat, error_2;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -683,7 +797,7 @@ var ListControl = (function (_super) {
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 4, , 5]);
-                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=InternalName,TypeAsString";
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=InternalName,TypeAsString,DisplayFormat";
                         return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
                     case 2:
                         response = _a.sent();
@@ -709,6 +823,11 @@ var ListControl = (function (_super) {
                                 continue;
                             }
                             map[internalName] = String(field.TypeAsString || '');
+                            map[internalName.toLowerCase()] = String(field.TypeAsString || '');
+                            if (String(field.TypeAsString || '').toLowerCase() === 'datetime') {
+                                displayFormat = parseInt(String(field.DisplayFormat), 10);
+                                this._fieldDisplayFormatMap[internalName.toLowerCase()] = isNaN(displayFormat) ? 1 : displayFormat;
+                            }
                         }
                         return [2 /*return*/, map];
                     case 4:
@@ -767,6 +886,12 @@ var ListControl = (function (_super) {
             return __assign({}, field, { DisplayName: displayName });
         });
     };
+    ListControl.prototype.applyFieldTypes = function (fields, typeMap) {
+        return fields.map(function (field) {
+            var internalName = String(field.RealFieldName || field.Name || '');
+            return __assign({}, field, { TypeAsString: typeMap[internalName] || typeMap[internalName.toLowerCase()] || field.TypeAsString || '', DisplayFormat: this._fieldDisplayFormatMap[internalName.toLowerCase()] });
+        }.bind(this));
+    };
     ListControl.prototype.getRowFieldValue = function (row, field) {
         var fieldName = field.Name || field.RealFieldName || '';
         var value = row[fieldName];
@@ -774,6 +899,43 @@ var ListControl = (function (_super) {
             value = row[field.RealFieldName];
         }
         return value;
+    };
+    ListControl.prototype.getUrlCellValue = function (row, field) {
+        var fieldType = String(field.TypeAsString || '').toLowerCase();
+        if (fieldType !== 'url' && fieldType !== 'hyperlink') {
+            return null;
+        }
+        var rawValue = this.getRowFieldValue(row, field);
+        if (rawValue === undefined || rawValue === null || rawValue === '') {
+            return null;
+        }
+        var href = '';
+        var text = '';
+        if (typeof rawValue === 'object') {
+            href = String(rawValue.Url || rawValue.url || '').trim();
+            text = String(rawValue.Description || rawValue.description || '').trim();
+        }
+        else {
+            var rawText = String(rawValue).trim();
+            if (rawText.indexOf('<') >= 0 && rawText.indexOf('>') >= 0) {
+                var container = document.createElement('div');
+                container.innerHTML = rawText;
+                var anchor = container.querySelector('a');
+                if (anchor) {
+                    href = String(anchor.getAttribute('href') || '').trim();
+                    text = String(anchor.textContent || '').trim();
+                }
+            }
+            if (!href) {
+                var descriptionSeparator = rawText.indexOf(', ');
+                href = descriptionSeparator > 0 ? rawText.substring(0, descriptionSeparator).trim() : rawText;
+                text = descriptionSeparator > 0 ? rawText.substring(descriptionSeparator + 2).trim() : '';
+            }
+        }
+        if (!href || /^\s*(?:javascript|data|vbscript):/i.test(href)) {
+            return null;
+        }
+        return { href: href, text: text || href };
     };
     ListControl.prototype.stringifyCellValue = function (value) {
         if (value === undefined || value === null || value === '') {
@@ -820,6 +982,41 @@ var ListControl = (function (_super) {
         }
         return String(value);
     };
+    ListControl.prototype.formatDateCellValue = function (value, field) {
+        var rawValue = this.stringifyCellValue(value);
+        if (String(field.TypeAsString || '').toLowerCase() !== 'datetime') {
+            return rawValue;
+        }
+        var dateOnlyMatch = field.DisplayFormat === 0 ? /^(\d{4})-(\d{2})-(\d{2})/.exec(rawValue) : null;
+        var dateValue = new Date(rawValue);
+        if (isNaN(dateValue.getTime())) {
+            return rawValue;
+        }
+        var month = dateOnlyMatch ? dateOnlyMatch[2] : String(dateValue.getMonth() + 1);
+        var day = dateOnlyMatch ? dateOnlyMatch[3] : String(dateValue.getDate());
+        var year = dateOnlyMatch ? dateOnlyMatch[1] : String(dateValue.getFullYear());
+        month = month.length < 2 ? '0' + month : month;
+        day = day.length < 2 ? '0' + day : day;
+        var dateText = month + '/' + day + '/' + year;
+        if (this.props.dateDisplayFormat === 'dmy') {
+            dateText = day + '/' + month + '/' + year;
+        }
+        else if (this.props.dateDisplayFormat === 'ymd') {
+            dateText = year + '-' + month + '-' + day;
+        }
+        if (field.DisplayFormat === 0) {
+            return dateText;
+        }
+        var hours = dateValue.getHours();
+        var minutes = String(dateValue.getMinutes());
+        minutes = minutes.length < 2 ? '0' + minutes : minutes;
+        if (this.props.timeDisplayFormat === '12hour') {
+            var period = hours >= 12 ? 'PM' : 'AM';
+            var twelveHour = hours % 12 || 12;
+            return dateText + ' ' + (twelveHour < 10 ? '0' : '') + String(twelveHour) + ':' + minutes + ' ' + period;
+        }
+        return dateText + ' ' + (hours < 10 ? '0' : '') + String(hours) + ':' + minutes;
+    };
     ListControl.prototype.isMeaningfulCellValue = function (value) {
         if (value === undefined || value === null) {
             return false;
@@ -831,6 +1028,10 @@ var ListControl = (function (_super) {
         var filtered = [];
         for (var i = 0; i < rows.length; i += 1) {
             var row = rows[i] || {};
+            if (this.getRowItemId(row) > 0) {
+                filtered.push(row);
+                continue;
+            }
             var hasVisibleValue = false;
             for (var j = 0; j < visibleFields.length; j += 1) {
                 var field = visibleFields[j];
@@ -845,7 +1046,7 @@ var ListControl = (function (_super) {
                     break;
                 }
             }
-            // Keep rows only when at least one visible field has meaningful content.
+            // Rows without a standard item ID still require visible content.
             if (hasVisibleValue) {
                 filtered.push(row);
             }
@@ -931,7 +1132,8 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var baseEndpoint, selectedViewId, body, requestUrls, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, viewFieldNames, itemsFallback, visibleFields, fieldTitleMap, renderableRows, error_4, loadError;
+            var _this = this;
+            var requestId, baseEndpoint, selectedViewId, viewFieldNames, selectedViewXml, body, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, visibleFields, fieldTitleMap, visibleFieldNames, fieldTypeMap, renderableRows, error_4, loadError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -939,53 +1141,64 @@ var ListControl = (function (_super) {
                             this.setState({ loading: false, error: null, fields: [], rows: [] });
                             return [2 /*return*/];
                         }
-                        this.logDiagnostic('Starting loadRows. listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
+                        requestId = ++this._loadRowsRequestId;
+                        this.logDiagnostic('Starting loadRows. requestId=' + String(requestId) + ', listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
                         this.setState({ loading: true, error: null });
                         _a.label = 1;
                     case 1:
-                        _a.trys.push([1, 16, , 17]);
+                        _a.trys.push([1, 18, , 19]);
                         baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
                         selectedViewId = this.state.selectedViewId;
+                        return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
+                    case 2:
+                        viewFieldNames = _a.sent();
+                        return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, viewFieldNames)];
+                    case 3:
+                        selectedViewXml = _a.sent();
                         body = {
                             parameters: {
-                                RenderOptions: 17
+                                RenderOptions: 7
                             }
                         };
-                        requestUrls = selectedViewId ? buildViewRequestUrls(baseEndpoint, selectedViewId) : [baseEndpoint];
+                        if (selectedViewXml) {
+                            body.parameters.ViewXml = selectedViewXml;
+                        }
                         selectedRows = [];
                         selectedFields = [];
                         lastError = '';
                         hadSuccessfulResponse = false;
+                        requestUrls = [baseEndpoint];
                         requestIndex = 0;
-                        _a.label = 2;
-                    case 2:
-                        if (!(requestIndex < requestUrls.length)) return [3 /*break*/, 11];
-                        requestUrl = requestUrls[requestIndex];
-                        return [4 /*yield*/, this.postJsonWithFallback(requestUrl, body)];
-                    case 3:
-                        response = _a.sent();
-                        if (!!response.ok) return [3 /*break*/, 8];
-                        errorText = '';
                         _a.label = 4;
                     case 4:
-                        _a.trys.push([4, 6, , 7]);
-                        return [4 /*yield*/, response.text()];
+                        if (!(requestIndex < requestUrls.length)) return [3 /*break*/, 13];
+                        requestUrl = requestUrls[requestIndex];
+                        return [4 /*yield*/, this.postJsonWithFallback(requestUrl, body)];
                     case 5:
-                        errorText = _a.sent();
-                        return [3 /*break*/, 7];
+                        response = _a.sent();
+                        if (!!response.ok) return [3 /*break*/, 10];
+                        errorText = '';
+                        _a.label = 6;
                     case 6:
+                        _a.trys.push([6, 8, , 9]);
+                        return [4 /*yield*/, response.text()];
+                    case 7:
+                        errorText = _a.sent();
+                        return [3 /*break*/, 9];
+                    case 8:
                         _readError_1 = _a.sent();
                         errorText = '';
-                        return [3 /*break*/, 7];
-                    case 7:
+                        return [3 /*break*/, 9];
+                    case 9:
                         lastError = 'Failed to load list view data. HTTP ' + String(response.status) + ' ' + response.statusText + (errorText ? (': ' + errorText) : '');
-                        return [3 /*break*/, 10];
-                    case 8:
+                        return [3 /*break*/, 12];
+                    case 10:
                         hadSuccessfulResponse = true;
                         return [4 /*yield*/, response.json()];
-                    case 9:
+                    case 11:
                         data = _a.sent();
                         extracted = extractRenderRowsAndFields(data);
+                        this.logDiagnostic('RenderListDataAsStream parsed. rows=' + String(extracted.rows.length) + ', fields=' + String(extracted.fields.length));
                         if (selectedFields.length === 0 && extracted.fields.length > 0) {
                             selectedFields = extracted.fields;
                         }
@@ -994,37 +1207,43 @@ var ListControl = (function (_super) {
                             if (selectedFields.length === 0) {
                                 selectedFields = extracted.fields;
                             }
-                            return [3 /*break*/, 11];
+                            return [3 /*break*/, 13];
                         }
-                        _a.label = 10;
-                    case 10:
+                        _a.label = 12;
+                    case 12:
                         requestIndex += 1;
-                        return [3 /*break*/, 2];
-                    case 11:
+                        return [3 /*break*/, 4];
+                    case 13:
                         if (!hadSuccessfulResponse) {
                             throw new Error(lastError || 'Failed to load list view data.');
                         }
                         rows = selectedRows;
                         fields = selectedFields;
-                        return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
-                    case 12:
-                        viewFieldNames = _a.sent();
-                        if (!(rows.length === 0)) return [3 /*break*/, 14];
+                        if (!(rows.length === 0 && !selectedViewId)) return [3 /*break*/, 15];
                         return [4 /*yield*/, this.loadRowsFromItemsEndpoint(viewFieldNames)];
-                    case 13:
+                    case 14:
                         itemsFallback = _a.sent();
                         rows = itemsFallback.rows;
                         if (fields.length === 0) {
                             fields = itemsFallback.fields;
                         }
-                        _a.label = 14;
-                    case 14:
+                        _a.label = 15;
+                    case 15:
                         visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
                         return [4 /*yield*/, this.loadListFieldTitleMap()];
-                    case 15:
+                    case 16:
                         fieldTitleMap = _a.sent();
+                        visibleFieldNames = visibleFields.map(function (field) { return _this.getFieldKey(field); });
+                        return [4 /*yield*/, this.loadListFieldTypeMap(visibleFieldNames)];
+                    case 17:
+                        fieldTypeMap = _a.sent();
                         visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
+                        visibleFields = this.applyFieldTypes(visibleFields, fieldTypeMap);
                         renderableRows = this.filterRenderableRows(rows, visibleFields);
+                        if (requestId !== this._loadRowsRequestId) {
+                            this.logDiagnostic('Ignoring stale loadRows result. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
+                            return [2 /*return*/];
+                        }
                         this.setState({
                             fields: visibleFields,
                             rows: renderableRows,
@@ -1032,10 +1251,14 @@ var ListControl = (function (_super) {
                             error: null
                         });
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
-                        return [3 /*break*/, 17];
-                    case 16:
+                        return [3 /*break*/, 19];
+                    case 18:
                         error_4 = _a.sent();
                         loadError = error_4;
+                        if (requestId !== this._loadRowsRequestId) {
+                            this.logDiagnostic('Ignoring stale loadRows failure. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
+                            return [2 /*return*/];
+                        }
                         this.setState({
                             loading: false,
                             error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
@@ -1043,8 +1266,8 @@ var ListControl = (function (_super) {
                             rows: []
                         });
                         this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
-                        return [3 /*break*/, 17];
-                    case 17: return [2 /*return*/];
+                        return [3 /*break*/, 19];
+                    case 19: return [2 /*return*/];
                 }
             });
         });
@@ -1119,7 +1342,7 @@ var ListControl = (function (_super) {
         if (value === undefined || value === null || value === '') {
             return null;
         }
-        var text = this.stringifyCellValue(value);
+        var text = this.formatDateCellValue(value, field);
         if (text.indexOf('<') >= 0 && text.indexOf('>') >= 0) {
             return { __html: text };
         }
@@ -1238,20 +1461,118 @@ var ListControl = (function (_super) {
             currentPage: 0
         });
     };
-    ListControl.prototype.openFilter = function (field) {
+    ListControl.prototype.openFilter = function (field, anchorElement) {
         var fieldKey = this.getFieldKey(field);
         if (!fieldKey) {
             return;
         }
+        var anchorRect = anchorElement.getBoundingClientRect();
+        var viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+        var viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+        var popoverWidth = 220;
+        var estimatedPopoverHeight = 190;
+        var viewportMargin = 8;
+        var popoverGap = 6;
+        var left = anchorRect.right - popoverWidth;
+        left = Math.max(viewportMargin, Math.min(left, viewportWidth - popoverWidth - viewportMargin));
+        var availableBelow = viewportHeight - anchorRect.bottom - popoverGap - viewportMargin;
+        var availableAbove = anchorRect.top - popoverGap - viewportMargin;
+        var popoverStyle = {
+            left: left,
+            right: 'auto'
+        };
+        if (availableBelow < estimatedPopoverHeight && availableAbove > availableBelow) {
+            popoverStyle.top = 'auto';
+            popoverStyle.bottom = viewportHeight - anchorRect.top + popoverGap;
+            popoverStyle.maxHeight = Math.max(120, availableAbove);
+        }
+        else {
+            popoverStyle.top = anchorRect.bottom + popoverGap;
+            popoverStyle.bottom = 'auto';
+            popoverStyle.maxHeight = Math.max(120, availableBelow);
+        }
         var existing = this.state.columnFilters[fieldKey];
+        var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
         this.setState({
             activeFilterFieldName: fieldKey,
-            draftFilterOperator: existing ? existing.operator : 'contains',
-            draftFilterValue: existing ? existing.value : ''
+            filterPopoverStyle: popoverStyle,
+            activeFilterIsDate: isDateField,
+            draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
+            draftFilterValue: existing ? existing.value : '',
+            draftFilterEndValue: existing ? String(existing.endValue || '') : '',
+            datePickerTarget: '',
+            datePickerMonth: ''
         });
     };
     ListControl.prototype.closeFilter = function () {
-        this.setState({ activeFilterFieldName: '' });
+        this.setState({ activeFilterFieldName: '', datePickerTarget: '' });
+    };
+    ListControl.prototype.getIsoDate = function (date) {
+        var month = String(date.getMonth() + 1);
+        var day = String(date.getDate());
+        return String(date.getFullYear()) + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
+    };
+    ListControl.prototype.toggleDatePicker = function (target) {
+        if (this.state.datePickerTarget === target) {
+            this.setState({ datePickerTarget: '' });
+            return;
+        }
+        var value = target === 'start' ? this.state.draftFilterValue : this.state.draftFilterEndValue;
+        var month = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.substr(0, 7) : this.getIsoDate(new Date()).substr(0, 7);
+        this.setState({ datePickerTarget: target, datePickerMonth: month });
+    };
+    ListControl.prototype.changeDatePickerMonth = function (offset) {
+        var parts = this.state.datePickerMonth.split('-');
+        var monthDate = new Date(Number(parts[0]), Number(parts[1]) - 1 + offset, 1);
+        this.setState({ datePickerMonth: this.getIsoDate(monthDate).substr(0, 7) });
+    };
+    ListControl.prototype.selectFilterDate = function (value) {
+        if (this.state.datePickerTarget === 'end') {
+            this.setState({ draftFilterEndValue: value, datePickerTarget: '' });
+        }
+        else {
+            this.setState({ draftFilterValue: value, datePickerTarget: '' });
+        }
+    };
+    ListControl.prototype.renderDatePicker = function () {
+        var _this = this;
+        if (!this.state.datePickerTarget || !/^\d{4}-\d{2}$/.test(this.state.datePickerMonth)) {
+            return null;
+        }
+        var parts = this.state.datePickerMonth.split('-');
+        var year = Number(parts[0]);
+        var monthIndex = Number(parts[1]) - 1;
+        var firstWeekday = new Date(year, monthIndex, 1).getDay();
+        var dayCount = new Date(year, monthIndex + 1, 0).getDate();
+        var selectedValue = this.state.datePickerTarget === 'start' ? this.state.draftFilterValue : this.state.draftFilterEndValue;
+        var cells = [];
+        var index;
+        for (index = 0; index < firstWeekday; index += 1) {
+            cells.push(React.createElement("span", { key: 'blank-' + index, className: "lc-date-picker-blank" }));
+        }
+        var _loop_1 = function () {
+            var dateValue = this_1.getIsoDate(new Date(year, monthIndex, index));
+            var disabled = this_1.state.datePickerTarget === 'end' && !!this_1.state.draftFilterValue && dateValue < this_1.state.draftFilterValue;
+            cells.push(React.createElement("button", { key: dateValue, type: "button", className: dateValue === selectedValue ? 'lc-date-picker-day lc-date-picker-selected' : 'lc-date-picker-day', disabled: disabled, onClick: function () { return _this.selectFilterDate(dateValue); } }, index));
+        };
+        var this_1 = this;
+        for (index = 1; index <= dayCount; index += 1) {
+            _loop_1();
+        }
+        return (React.createElement("div", { className: "lc-date-picker", role: "dialog", "aria-label": "Choose date" },
+            React.createElement("div", { className: "lc-date-picker-header" },
+                React.createElement("button", { type: "button", title: "Previous month", "aria-label": "Previous month", onClick: function () { return _this.changeDatePickerMonth(-1); } }, "\u2039"),
+                React.createElement("strong", null, new Date(year, monthIndex, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })),
+                React.createElement("button", { type: "button", title: "Next month", "aria-label": "Next month", onClick: function () { return _this.changeDatePickerMonth(1); } }, "\u203A")),
+            React.createElement("div", { className: "lc-date-picker-weekdays" },
+                React.createElement("span", null, "Su"),
+                React.createElement("span", null, "Mo"),
+                React.createElement("span", null, "Tu"),
+                React.createElement("span", null, "We"),
+                React.createElement("span", null, "Th"),
+                React.createElement("span", null, "Fr"),
+                React.createElement("span", null, "Sa")),
+            React.createElement("div", { className: "lc-date-picker-days" }, cells)));
     };
     ListControl.prototype.applyActiveFilter = function () {
         var fieldKey = String(this.state.activeFilterFieldName || '');
@@ -1266,8 +1587,22 @@ var ListControl = (function (_super) {
             }
         }
         var value = String(this.state.draftFilterValue || '').trim();
+        var endValue = String(this.state.draftFilterEndValue || '').trim();
         if (!value) {
             delete nextFilters[fieldKey];
+        }
+        else if (this.state.activeFilterIsDate) {
+            if (endValue && endValue < value) {
+                var originalValue = value;
+                value = endValue;
+                endValue = originalValue;
+            }
+            nextFilters[fieldKey] = {
+                operator: 'eq',
+                value: value,
+                endValue: endValue,
+                compareDateOnly: true
+            };
         }
         else {
             nextFilters[fieldKey] = {
@@ -1297,6 +1632,7 @@ var ListControl = (function (_super) {
             columnFilters: nextFilters,
             draftFilterOperator: 'contains',
             draftFilterValue: '',
+            draftFilterEndValue: '',
             activeFilterFieldName: '',
             currentPage: 0
         });
@@ -1335,7 +1671,18 @@ var ListControl = (function (_super) {
         return 0;
     };
     ListControl.prototype.rowMatchesFilter = function (row, field, filter) {
-        var valueText = this.getCellPlainText(row, field);
+        var _this = this;
+        if (Array.isArray(filter.value)) {
+            var values = filter.value.filter(function (value) { return value !== undefined && value !== null && String(value).trim() !== ''; });
+            if (values.length === 0) {
+                return true;
+            }
+            var isNegative = filter.operator === 'ne' || filter.operator === 'notcontains';
+            var scalarOperator = filter.operator === 'ne' ? 'eq' : (filter.operator === 'notcontains' ? 'contains' : filter.operator);
+            var scalarMatches = values.map(function (value) { return _this.rowMatchesFilter(row, field, { operator: scalarOperator, value: value, compareDateOnly: filter.compareDateOnly }); });
+            return isNegative ? scalarMatches.every(function (matches) { return !matches; }) : scalarMatches.some(function (matches) { return matches; });
+        }
+        var valueText = this.getFilterCellText(row, field);
         var candidate = String(valueText || '').trim();
         var query = String(filter.value || '').trim();
         if (!query) {
@@ -1344,18 +1691,26 @@ var ListControl = (function (_super) {
         var normalizedCandidate = candidate.toLowerCase();
         var normalizedQuery = query.toLowerCase();
         var compareResult = this.compareComparableValues(candidate, query);
+        var fieldType = String(field.TypeAsString || '').toLowerCase();
+        var lookupCandidates = fieldType.indexOf('lookup') >= 0
+            ? normalizedCandidate.split(';').map(function (value) { return value.trim(); }).filter(function (value) { return !!value; })
+            : [];
         if (filter.compareDateOnly) {
             var candidateDate = new Date(candidate);
-            if (!isNaN(candidateDate.getTime())) {
-                normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
-                compareResult = this.compareComparableValues(normalizedCandidate, query);
+            if (isNaN(candidateDate.getTime())) {
+                return false;
+            }
+            normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
+            compareResult = this.compareComparableValues(normalizedCandidate, query);
+            if (filter.endValue) {
+                return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
             }
         }
         switch (filter.operator) {
             case 'eq':
-                return normalizedCandidate === normalizedQuery;
+                return lookupCandidates.length > 0 ? lookupCandidates.indexOf(normalizedQuery) >= 0 : normalizedCandidate === normalizedQuery;
             case 'ne':
-                return normalizedCandidate !== normalizedQuery;
+                return lookupCandidates.length > 0 ? lookupCandidates.indexOf(normalizedQuery) < 0 : normalizedCandidate !== normalizedQuery;
             case 'contains':
                 return normalizedCandidate.indexOf(normalizedQuery) >= 0;
             case 'notcontains':
@@ -1376,37 +1731,90 @@ var ListControl = (function (_super) {
                 return true;
         }
     };
-    ListControl.prototype.parsePresetFilterConditions = function () {
-        var source = String(this.props.filterJson || '').trim();
-        if (!source) {
-            return [];
+    ListControl.prototype.getFilterCellText = function (row, field) {
+        var fieldType = String(field.TypeAsString || '').toLowerCase();
+        if (fieldType.indexOf('lookup') < 0) {
+            return this.getCellPlainText(row, field);
         }
-        try {
-            var parsed = JSON.parse(source);
-            if (!Array.isArray(parsed)) {
-                return [];
+        var rawValue = this.getRowFieldValue(row, field);
+        var lookupIds = [];
+        var collectLookupIds = function (value) {
+            if (value === undefined || value === null || value === '') {
+                return;
             }
-            var conditions = [];
-            for (var i = 0; i < parsed.length; i += 1) {
-                var item = parsed[i] || {};
-                var field = String(item.field || '').trim();
-                if (!field) {
+            if (Array.isArray(value)) {
+                for (var valueIndex = 0; valueIndex < value.length; valueIndex += 1) {
+                    collectLookupIds(value[valueIndex]);
+                }
+                return;
+            }
+            if (typeof value === 'object') {
+                var lookupId = value.LookupId !== undefined ? value.LookupId
+                    : value.lookupId !== undefined ? value.lookupId
+                        : value.Id !== undefined ? value.Id
+                            : value.ID;
+                if (lookupId !== undefined && lookupId !== null && String(lookupId).trim()) {
+                    lookupIds.push(String(lookupId).trim());
+                }
+            }
+        };
+        collectLookupIds(rawValue);
+        if (lookupIds.length === 0) {
+            var lookupFieldNames = [String(field.RealFieldName || ''), String(field.Name || '')];
+            for (var fieldIndex = 0; fieldIndex < lookupFieldNames.length; fieldIndex += 1) {
+                var fieldName = lookupFieldNames[fieldIndex];
+                if (!fieldName) {
                     continue;
                 }
-                conditions.push({
-                    field: field,
-                    operator: normalizeFilterOperator(item.operator),
-                    logical: normalizeFilterLogical(item.logical),
-                    valueType: String(item.valueType || '').toLowerCase() === 'expression' ? 'expression' : 'static',
-                    value: item.value
-                });
+                var companionValues = [row[fieldName + 'Id'], row[fieldName + '.lookupId']];
+                for (var companionIndex = 0; companionIndex < companionValues.length; companionIndex += 1) {
+                    var companionValue = companionValues[companionIndex];
+                    if (Array.isArray(companionValue)) {
+                        for (var lookupIndex = 0; lookupIndex < companionValue.length; lookupIndex += 1) {
+                            lookupIds.push(String(companionValue[lookupIndex]).trim());
+                        }
+                    }
+                    else if (companionValue !== undefined && companionValue !== null && String(companionValue).trim()) {
+                        lookupIds.push(String(companionValue).trim());
+                    }
+                }
             }
-            return conditions;
         }
-        catch (_parseError) {
-            this.logDiagnostic('Preset filter JSON is invalid; skipping preset filters.');
-            return [];
+        return lookupIds.length > 0 ? lookupIds.join('; ') : this.getCellPlainText(row, field);
+    };
+    ListControl.prototype.parsePresetFilterConditions = function () {
+        var sources = [String(this.props.filterJson || '').trim(), String(this.state.runtimeFilterJson || '').trim()];
+        var conditions = [];
+        for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+            var source = sources[sourceIndex];
+            if (!source) {
+                continue;
+            }
+            try {
+                var parsed = JSON.parse(source);
+                if (!Array.isArray(parsed)) {
+                    continue;
+                }
+                for (var i = 0; i < parsed.length; i += 1) {
+                    var item = parsed[i] || {};
+                    var field = String(item.field || '').trim();
+                    if (!field) {
+                        continue;
+                    }
+                    conditions.push({
+                        field: field,
+                        operator: normalizeFilterOperator(item.operator),
+                        logical: normalizeFilterLogical(item.logical),
+                        valueType: String(item.valueType || '').toLowerCase() === 'expression' ? 'expression' : (String(item.valueType || '').toLowerCase() === 'fieldvalue' ? 'fieldValue' : 'static'),
+                        value: item.value
+                    });
+                }
+            }
+            catch (_parseError) {
+                this.logDiagnostic('Preset filter JSON is invalid; skipping that preset filter source.');
+            }
         }
+        return conditions;
     };
     ListControl.prototype.resolveFieldByReference = function (fieldsByKey, fieldRef) {
         var direct = fieldsByKey[fieldRef];
@@ -1465,7 +1873,7 @@ var ListControl = (function (_super) {
         return aggregate === null ? true : aggregate;
     };
     ListControl.prototype.resolvePresetFilterValue = function (condition) {
-        var rawValue = condition.value === undefined || condition.value === null ? '' : String(condition.value).trim();
+        var rawValue = Array.isArray(condition.value) ? condition.value : (condition.value === undefined || condition.value === null ? '' : String(condition.value).trim());
         if (String(condition.valueType || '').toLowerCase() !== 'expression') {
             return { value: rawValue, compareDateOnly: false };
         }
@@ -1824,25 +2232,25 @@ var ListControl = (function (_super) {
                         this.state.displayFormError && React.createElement("div", { className: "lc-form-dialog-error" }, this.state.displayFormError),
                         this.state.displayFormUrl && React.createElement("iframe", { ref: this.setDisplayFormFrameRef, className: "lc-form-dialog-frame", src: this.state.displayFormUrl, title: "Item details" }))),
             React.createElement("div", { className: "lc-toolbar" },
-                this.props.showViewSelector && (React.createElement("label", null,
+                this.props.showViewSelector && !this.state.embeddedByReportForms && (React.createElement("label", null,
                     React.createElement("span", { style: { marginRight: '6px' } }, strings.RuntimeViewLabel),
                     React.createElement("select", { value: this.state.selectedViewId, onChange: function (ev) { return _this.setState({ selectedViewId: ev.currentTarget.value }); } }, this.props.views.map(function (view) {
                         return React.createElement("option", { key: view.key, value: view.key }, view.text);
                     })))),
-                this.props.showRefresh && React.createElement("button", { type: "button", onClick: function () { return _this.loadRows(); } }, strings.RuntimeRefresh),
-                this.props.showAdd && (React.createElement("button", { type: "button", onClick: function () {
+                this.props.showRefresh && !this.state.embeddedByReportForms && React.createElement("button", { type: "button", onClick: function () { return _this.loadRows(); } }, strings.RuntimeRefresh),
+                this.props.showAdd && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", onClick: function () {
                         _this.setState({ selectedItemId: 0, selectedMode: 'new' });
                         _this.props.onSelectionChange(0, 'new');
                     } }, strings.RuntimeNew)),
-                this.props.showEdit && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection, onClick: function () {
+                this.props.showEdit && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection, onClick: function () {
                         _this.setState({ selectedMode: 'edit' });
                         _this.props.onSelectionChange(_this.state.selectedItemId, 'edit');
                     } }, strings.RuntimeEdit)),
-                this.props.showView && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection, onClick: function () {
+                this.props.showView && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection, onClick: function () {
                         _this.setState({ selectedMode: 'view' });
                         _this.props.onSelectionChange(_this.state.selectedItemId, 'view');
                     } }, strings.RuntimeView)),
-                this.props.showDelete && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection || this.state.deleting, onClick: function () { return _this.deleteSelected(); } }, strings.RuntimeDelete))),
+                this.props.showDelete && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection || this.state.deleting, onClick: function () { return _this.deleteSelected(); } }, strings.RuntimeDelete))),
             this.props.isEditMode && (React.createElement("div", { className: "lc-status" },
                 React.createElement("div", null, formatString(strings.RuntimeSelectedItem, this.state.selectedItemId || 0)),
                 React.createElement("div", null, formatString(strings.RuntimeSelectedMode, this.state.selectedMode)),
@@ -1881,23 +2289,35 @@ var ListControl = (function (_super) {
                                                     _this.closeFilter();
                                                 }
                                                 else {
-                                                    _this.openFilter(field);
+                                                    _this.openFilter(field, ev.currentTarget);
                                                 }
                                             } }, strings.RuntimeFilterIcon)),
-                                    _this.state.activeFilterFieldName === fieldKey && (React.createElement("div", { className: "lc-filter-popover", onClick: function (ev) {
+                                    _this.state.activeFilterFieldName === fieldKey && (React.createElement("div", { className: "lc-filter-popover", style: _this.state.filterPopoverStyle, onClick: function (ev) {
                                             ev.preventDefault();
                                             ev.stopPropagation();
                                         } },
-                                        React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterOperatorLabel),
-                                        React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterOperator, onChange: function (ev) { return _this.setState({ draftFilterOperator: ev.currentTarget.value }); } }, _this.getFilterOperatorOptions().map(function (option) {
-                                            return React.createElement("option", { key: option.key, value: option.key }, option.label);
-                                        })),
-                                        React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterValueLabel),
-                                        React.createElement("input", { className: "lc-filter-input", type: "text", value: _this.state.draftFilterValue, placeholder: strings.RuntimeFilterValuePlaceholder, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); }, onKeyDown: function (ev) {
-                                                if (ev.key === 'Enter') {
-                                                    _this.applyActiveFilter();
-                                                }
-                                            } }),
+                                        _this.state.activeFilterIsDate ? (React.createElement("div", null,
+                                            React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterDateLabel),
+                                            React.createElement("div", { className: "lc-date-input-row" },
+                                                React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterValue, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } }),
+                                                React.createElement("button", { type: "button", className: "lc-date-picker-button", title: "Choose from date", "aria-label": "Choose from date", onClick: function () { return _this.toggleDatePicker('start'); } },
+                                                    React.createElement("span", { "aria-hidden": "true" }, "\uF4C5"))),
+                                            React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterEndDateLabel),
+                                            React.createElement("div", { className: "lc-date-input-row" },
+                                                React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterEndValue, onChange: function (ev) { return _this.setState({ draftFilterEndValue: ev.currentTarget.value }); } }),
+                                                React.createElement("button", { type: "button", className: "lc-date-picker-button", title: "Choose to date", "aria-label": "Choose to date", onClick: function () { return _this.toggleDatePicker('end'); } },
+                                                    React.createElement("span", { "aria-hidden": "true" }, "\uF4C5"))),
+                                            _this.renderDatePicker())) : (React.createElement("div", null,
+                                            React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterOperatorLabel),
+                                            React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterOperator, onChange: function (ev) { return _this.setState({ draftFilterOperator: ev.currentTarget.value }); } }, _this.getFilterOperatorOptions().map(function (option) {
+                                                return React.createElement("option", { key: option.key, value: option.key }, option.label);
+                                            })),
+                                            React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterValueLabel),
+                                            React.createElement("input", { className: "lc-filter-input", type: "text", value: _this.state.draftFilterValue, placeholder: strings.RuntimeFilterValuePlaceholder, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); }, onKeyDown: function (ev) {
+                                                    if (ev.key === 'Enter') {
+                                                        _this.applyActiveFilter();
+                                                    }
+                                                } }))),
                                         React.createElement("div", { className: "lc-filter-actions" },
                                             React.createElement("button", { type: "button", onClick: function () { return _this.applyActiveFilter(); } }, strings.RuntimeFilterApply),
                                             React.createElement("button", { type: "button", onClick: function () { return _this.clearActiveFilter(); } }, strings.RuntimeFilterClear),
@@ -1909,13 +2329,14 @@ var ListControl = (function (_super) {
                         var conditionalStyle = _this.getConditionalStyleForRow(row, fieldsByKey, conditionalRules);
                         return (React.createElement("tr", { key: rowItemId > 0 ? String(rowItemId) : String(index), onClick: function () { return _this.selectRow(row); }, className: joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '']) }, displayFields.map(function (field) {
                             var markup = _this.getCellMarkup(row, field);
+                            var urlCell = _this.getUrlCellValue(row, field);
                             var showItemLink = _this.props.showLinkToItem && _this.isTitleField(field);
                             var itemLinkUrl = showItemLink ? _this.getItemLinkUrl(row) : '';
                             var itemLinkText = showItemLink ? _this.getCellPlainText(row, field) : '';
                             var cellFieldKey = _this.getFieldKey(field);
                             var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
                             var mergedCellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
-                            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) {
+                            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) {
                                     ev.stopPropagation();
                                     if (!String(_this.props.linkTargetPageUrl || '').trim()) {
                                         ev.preventDefault();

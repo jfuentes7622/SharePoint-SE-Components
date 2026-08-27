@@ -40,6 +40,8 @@ export interface IGridControlProps {
   bodyFontStyle: string;
   bodyFontBold: boolean;
   bodyTextAlign: string;
+  dateDisplayFormat: string;
+  timeDisplayFormat: string;
   selectedTextColor: string;
   selectedBackgroundColor: string;
   selectedFontStyle: string;
@@ -81,6 +83,8 @@ export interface IListFieldDefinition {
   Name: string;
   RealFieldName?: string;
   DisplayName?: string;
+  TypeAsString?: string;
+  DisplayFormat?: number;
   Hidden?: string | boolean;
   ConfiguredWidth?: string;
 }
@@ -95,6 +99,14 @@ export interface IGridFieldMetadata {
   description: string;
   choices: string[];
   displayFormat: number;
+  lookupList: string;
+  lookupField: string;
+  allowMultiple: boolean;
+}
+
+export interface IGridLookupOption {
+  id: number;
+  text: string;
 }
 
 interface IGridSchemaField {
@@ -146,6 +158,7 @@ export interface IGridControlState {
   selectedViewId: string;
   fields: IListFieldDefinition[];
   fieldMetadataByName: { [fieldName: string]: IGridFieldMetadata };
+  lookupOptionsByField: { [fieldName: string]: IGridLookupOption[] };
   rows: any[];
   loading: boolean;
   error: string | null;
@@ -157,21 +170,33 @@ export interface IGridControlState {
   sortFieldName: string;
   sortDirection: 'asc' | 'desc' | '';
   activeFilterFieldName: string;
+  filterPopoverStyle: any;
+  activeFilterIsDate: boolean;
   draftFilterOperator: FilterOperator;
   draftFilterValue: string;
+  draftFilterEndValue: string;
+  datePickerTarget: 'start' | 'end' | '';
+  datePickerMonth: string;
   columnFilters: { [fieldName: string]: IColumnFilter };
   currentPage: number;
   editingItemId: number;
   editingValues: { [fieldName: string]: any };
   editingErrors: { [fieldName: string]: string };
   saving: boolean;
+  embeddedByDynamicForms: boolean;
+  runtimeFilterJson: string;
+  runtimeDefaultField: string;
+  runtimeDefaultValue: any;
+  runtimeReadOnly: boolean;
+  runtimeConfigOwner: string;
 }
 
 export type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
 
 export interface IColumnFilter {
   operator: FilterOperator;
-  value: string;
+  value: any;
+  endValue?: string;
   compareDateOnly?: boolean;
 }
 
@@ -220,6 +245,8 @@ interface IResolvedConditionalStyle {
 }
 
 var GRID_CONTROL_REFRESH_EVENT = 'spse:gridcontrol-refresh';
+var GRID_CONTROL_RUNTIME_CONFIG_EVENT = 'spse:gridcontrol-runtime-config';
+var GRID_CONTROL_RUNTIME_CONFIG_REQUEST_EVENT = 'spse:gridcontrol-runtime-config-request';
 
 function escapeODataText(value: string): string {
   return value.replace(/'/g, "''");
@@ -266,10 +293,6 @@ function toArray(value: any): any[] {
 
 function trimGuidBraces(value: string): string {
   return String(value || '').replace(/^[{]/, '').replace(/[}]$/, '');
-}
-
-function appendQuery(url: string, query: string): string {
-  return url + (url.indexOf('?') >= 0 ? '&' : '?') + query;
 }
 
 function appendQueryParam(url: string, key: string, value: string): string {
@@ -351,40 +374,16 @@ function isSharePointWrapperUrl(url: string): boolean {
   return /\/_layouts\/15\/(sharepoint|onedrive|doc)\.aspx/i.test(String(url || ''));
 }
 
-function buildViewRequestUrls(baseEndpoint: string, selectedViewId: string): string[] {
-  var urls: string[] = [];
-  var normalized = trimGuidBraces(selectedViewId);
-  var candidates = [String(selectedViewId || ''), normalized, '{' + normalized + '}'];
-
-  for (var i = 0; i < candidates.length; i += 1) {
-    var candidate = String(candidates[i] || '');
-    if (!candidate) {
-      continue;
-    }
-
-    urls.push(appendQuery(baseEndpoint, 'View=' + encodeURIComponent(candidate)));
-    urls.push(appendQuery(baseEndpoint, 'ViewId=' + encodeURIComponent(candidate)));
-  }
-
-  urls.push(baseEndpoint);
-
-  var unique: string[] = [];
-  for (var j = 0; j < urls.length; j += 1) {
-    if (unique.indexOf(urls[j]) < 0) {
-      unique.push(urls[j]);
-    }
-  }
-
-  return unique;
-}
-
 function extractRenderRowsAndFields(data: any): { rows: any[]; fields: IListFieldDefinition[] } {
-  var schema = tryParseObject(data.ListSchema) || tryParseObject(data.Schema) || {};
-  var listData = tryParseObject(data.ListData) || {};
-  var rows = toArray(data.Row);
+  var directData = data && data.d && data.d.RenderListDataAsStream
+    ? data.d.RenderListDataAsStream : data;
+  var responseData = tryParseObject(directData) || {};
+  var schema = tryParseObject(responseData.ListSchema) || tryParseObject(responseData.Schema) || {};
+  var listData = tryParseObject(responseData.ListData) || responseData;
+  var rows = toArray(responseData.Row);
 
   if (rows.length === 0) {
-    rows = toArray(data.Rows);
+    rows = toArray(responseData.Rows);
   }
 
   if (rows.length === 0) {
@@ -401,7 +400,7 @@ function extractRenderRowsAndFields(data: any): { rows: any[]; fields: IListFiel
 
   var fields = toArray(schema.Field);
   if (fields.length === 0) {
-    fields = toArray(data.Field);
+    fields = toArray(responseData.Field);
   }
 
   return {
@@ -500,6 +499,10 @@ function toPriorityNumber(value: any, fallback: number): number {
 
 export class GridControl extends React.Component<IGridControlProps, IGridControlState> {
   private _refreshEventHandler: any;
+  private _runtimeConfigEventHandler: any;
+  private _loadRowsRequestId: number = 0;
+  private _listItemEntityTypeName: string = '';
+  private _listItemEntityTypeListName: string = '';
 
   public constructor(props: IGridControlProps) {
     super(props);
@@ -508,6 +511,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       selectedViewId: props.defaultViewId || this.getInitialViewId(props.views),
       fields: [],
       fieldMetadataByName: {},
+      lookupOptionsByField: {},
       rows: [],
       loading: true,
       error: null,
@@ -519,30 +523,56 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       sortFieldName: '',
       sortDirection: '',
       activeFilterFieldName: '',
+      filterPopoverStyle: {},
+      activeFilterIsDate: false,
       draftFilterOperator: 'contains',
       draftFilterValue: '',
+      draftFilterEndValue: '',
+      datePickerTarget: '',
+      datePickerMonth: '',
       columnFilters: {},
       currentPage: 0,
       editingItemId: -1,
       editingValues: {},
       editingErrors: {},
       saving: false,
+      embeddedByDynamicForms: false,
+      runtimeFilterJson: '',
+      runtimeDefaultField: '',
+      runtimeDefaultValue: '',
+      runtimeReadOnly: false,
+      runtimeConfigOwner: '',
     };
 
     this._refreshEventHandler = this.handleExternalRefresh.bind(this);
+    this._runtimeConfigEventHandler = this.handleRuntimeConfig.bind(this);
   }
 
   public componentDidMount(): void {
     this.logDiagnostic('Component mounted. listName=' + String(this.props.listName || '(none)') + ', defaultViewId=' + String(this.props.defaultViewId || '(none)'));
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener(GRID_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
+      window.addEventListener(GRID_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
+      var requestDetail = {
+        instanceId: String(this.props.context && this.props.context.instanceId || '').toLowerCase()
+      };
+      var requestEvent: any;
+      if (typeof (window as any).CustomEvent === 'function') {
+        requestEvent = new (window as any).CustomEvent(GRID_CONTROL_RUNTIME_CONFIG_REQUEST_EVENT, { detail: requestDetail });
+      } else {
+        requestEvent = document.createEvent('CustomEvent');
+        requestEvent.initCustomEvent(GRID_CONTROL_RUNTIME_CONFIG_REQUEST_EVENT, false, false, requestDetail);
+      }
+      window.dispatchEvent(requestEvent);
     }
     this.loadRows();
   }
 
   public componentWillUnmount(): void {
+    this._loadRowsRequestId += 1;
     if (typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener(GRID_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
+      window.removeEventListener(GRID_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
     }
   }
 
@@ -550,8 +580,10 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     if (prevProps.listName !== this.props.listName || prevProps.defaultViewId !== this.props.defaultViewId
       || prevProps.gridSchemaJson !== this.props.gridSchemaJson) {
       this.logDiagnostic('Props changed; resetting selection and reloading rows. listName=' + String(this.props.listName || '(none)') + ', viewId=' + String(this.props.defaultViewId || '(none)'));
+      var nextSelectedViewId = this.props.defaultViewId || this.getInitialViewId(this.props.views);
+      var selectedViewWillChange = nextSelectedViewId !== this.state.selectedViewId;
       this.setState({
-        selectedViewId: this.props.defaultViewId || this.getInitialViewId(this.props.views),
+        selectedViewId: nextSelectedViewId,
         selectedItemId: 0,
         selectedItemIds: [],
         selectedMode: 'view',
@@ -569,7 +601,9 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         saving: false,
       }, () => {
         this.props.onSelectionChange(0, 'view');
-        this.loadRows();
+        if (!selectedViewWillChange) {
+          this.loadRows();
+        }
       });
       return;
     }
@@ -611,6 +645,61 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     this.loadRows();
   }
 
+  private handleRuntimeConfig(event: any): void {
+    var detail = event && event.detail ? event.detail : {};
+    var targetInstanceId = String(detail.instanceId || '').toLowerCase();
+    var currentInstanceId = String(this.props.context && this.props.context.instanceId || '').toLowerCase();
+    if (!targetInstanceId || targetInstanceId !== currentInstanceId) {
+      return;
+    }
+
+    var owner = String(detail.owner || '');
+    if (detail.active === false) {
+      if (this.state.runtimeConfigOwner && owner && this.state.runtimeConfigOwner !== owner) {
+        return;
+      }
+      this.cancelRuntimeEdit();
+      this.setState({
+        embeddedByDynamicForms: false,
+        runtimeFilterJson: '',
+        runtimeDefaultField: '',
+        runtimeDefaultValue: '',
+        runtimeReadOnly: false,
+        runtimeConfigOwner: '',
+        currentPage: 0
+      });
+      return;
+    }
+
+    var nextReadOnly = detail.readOnly === true;
+    if (nextReadOnly) {
+      this.cancelRuntimeEdit();
+    }
+    this.setState({
+      embeddedByDynamicForms: true,
+      runtimeFilterJson: String(detail.filterJson || ''),
+      runtimeDefaultField: String(detail.defaultField || ''),
+      runtimeDefaultValue: detail.defaultValue,
+      runtimeReadOnly: nextReadOnly,
+      runtimeConfigOwner: owner,
+      currentPage: 0
+    });
+  }
+
+  private cancelRuntimeEdit(): void {
+    if (this.state.editingItemId < 0) {
+      return;
+    }
+    this.setState({
+      editingItemId: -1,
+      editingValues: {},
+      editingErrors: {},
+      saving: false,
+      selectedMode: 'view'
+    });
+    this.props.onSelectionChange(this.state.selectedItemId, 'view');
+  }
+
   private getWebUrl(): string {
     return this.props.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
   }
@@ -645,46 +734,86 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     return response;
   }
 
-  private async postJsonWithFallback(url: string, body: any): Promise<any> {
+  private async logPostAttempt(label: string, url: string, response: any, payload: string): Promise<void> {
+    if (this.props.enableDiagnostics === false) { return; }
+    var responseText = '';
+    try {
+      responseText = await response.clone().text();
+    } catch (_responseReadError) {
+      responseText = '';
+    }
+    this.logDiagnostic('POST ' + label + ' status=' + String(response.status) + ' ' + String(response.statusText || '')
+      + ', url=' + url + ', payload=' + payload.substring(0, 2000)
+      + (responseText ? ', response=' + responseText.substring(0, 2000) : ''));
+  }
+
+  private async postJsonWithFallback(url: string, body: any, baseHeaders?: { [key: string]: string }, verboseBody?: any, allowFallback?: boolean): Promise<any> {
     var payload = JSON.stringify(body || {});
-    var response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8'
-      },
+    var verbosePayload = JSON.stringify(verboseBody || body || {});
+    var createHeaders = function(contentType: string, accept?: string): { [key: string]: string } {
+      var headers: { [key: string]: string } = {};
+      var headerName: string;
+      if (baseHeaders) {
+        for (headerName in baseHeaders) {
+          if (Object.prototype.hasOwnProperty.call(baseHeaders, headerName)) {
+            headers[headerName] = baseHeaders[headerName];
+          }
+        }
+      }
+      headers['Content-Type'] = contentType;
+      if (accept) { headers.Accept = accept; }
+      return headers;
+    };
+    var response: any;
+    var preferredErrorResponse: any = null;
+    if (verboseBody) {
+      var verboseItemHeaders = createHeaders(
+        'application/json;odata=verbose;charset=utf-8',
+        'application/json;odata=verbose'
+      );
+      verboseItemHeaders['OData-Version'] = '3.0';
+      response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
+        headers: verboseItemHeaders,
+        body: verbosePayload
+      });
+      await this.logPostAttempt('verbose-item-v3', url, response, verbosePayload);
+      if (response.ok) { return response; }
+      if (allowFallback === false) { return response; }
+      if (response.status !== 406) { preferredErrorResponse = response; }
+    }
+
+    response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
+      headers: createHeaders('application/json; charset=utf-8', 'application/json;odata=verbose'),
       body: payload
     });
+    await this.logPostAttempt('generic-json', url, response, payload);
+    if (response.ok) { return response; }
+    if (response.status !== 406) { preferredErrorResponse = response; }
 
-    if (!response.ok) {
-      response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
-        headers: {
-          Accept: 'application/json;odata=verbose',
-          'Content-Type': 'application/json;odata=verbose'
-        },
-        body: payload
-      });
-    }
+    response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
+      headers: createHeaders('application/json;odata=verbose', 'application/json;odata=verbose'),
+      body: verbosePayload
+    });
+    await this.logPostAttempt('verbose-json', url, response, verbosePayload);
+    if (response.ok) { return response; }
+    if (response.status !== 406) { preferredErrorResponse = response; }
 
-    if (!response.ok) {
-      response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
-        headers: {
-          Accept: 'application/json;odata=minimalmetadata',
-          'Content-Type': 'application/json;odata=minimalmetadata'
-        },
-        body: payload
-      });
-    }
+    response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
+      headers: createHeaders('application/json;odata=minimalmetadata', 'application/json;odata=minimalmetadata'),
+      body: payload
+    });
+    await this.logPostAttempt('minimal-json', url, response, payload);
+    if (response.ok) { return response; }
+    if (response.status !== 406) { preferredErrorResponse = response; }
 
-    if (!response.ok) {
-      response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
-        headers: {
-          Accept: 'application/json;odata=nometadata',
-          'Content-Type': 'application/json;odata=nometadata'
-        },
-        body: payload
-      });
-    }
+    response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
+      headers: createHeaders('application/json;odata=nometadata', 'application/json;odata=nometadata'),
+      body: payload
+    });
+    await this.logPostAttempt('nometadata-json', url, response, payload);
+    if (response.ok) { return response; }
 
-    return response;
+    return preferredErrorResponse || response;
   }
 
   private buildViewIdCandidates(selectedViewId: string): string[] {
@@ -700,6 +829,138 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     }
 
     return unique;
+  }
+
+  private buildMinimalViewXml(viewQuery: string, viewFieldNames: string[], rowLimit: number, scope: any): string {
+    var queryText = String(viewQuery || '').trim();
+    var queryDocument = new DOMParser().parseFromString(
+      /^<Query(?:\s|>)/i.test(queryText) ? queryText : '<Query>' + queryText + '</Query>',
+      'text/xml'
+    );
+    if (queryDocument.getElementsByTagName('parsererror').length > 0 || queryDocument.getElementsByTagName('Query').length === 0) {
+      throw new Error('The selected SharePoint view query is invalid.');
+    }
+
+    var xmlDocument = new DOMParser().parseFromString('<View><Query/><ViewFields/></View>', 'text/xml');
+    var viewElement = xmlDocument.getElementsByTagName('View')[0];
+    var existingQuery = xmlDocument.getElementsByTagName('Query')[0];
+    var queryElement = xmlDocument.importNode(queryDocument.getElementsByTagName('Query')[0], true);
+    viewElement.replaceChild(queryElement, existingQuery);
+
+    var viewFieldsElement = xmlDocument.getElementsByTagName('ViewFields')[0];
+    for (var fieldIndex = 0; fieldIndex < viewFieldNames.length; fieldIndex += 1) {
+      var fieldName = String(viewFieldNames[fieldIndex] || '');
+      if (fieldName) {
+        var fieldRef = xmlDocument.createElement('FieldRef');
+        fieldRef.setAttribute('Name', fieldName);
+        viewFieldsElement.appendChild(fieldRef);
+      }
+    }
+
+    var normalizedScope = String(scope === undefined || scope === null ? '' : scope).toLowerCase();
+    var scopeNames: { [key: string]: string } = {
+      '1': 'Recursive',
+      '2': 'RecursiveAll',
+      '3': 'FilesOnly',
+      'recursive': 'Recursive',
+      'recursiveall': 'RecursiveAll',
+      'filesonly': 'FilesOnly'
+    };
+    if (scopeNames[normalizedScope]) {
+      viewElement.setAttribute('Scope', scopeNames[normalizedScope]);
+    }
+
+    if (rowLimit > 0) {
+      var rowLimitElement = xmlDocument.createElement('RowLimit');
+      rowLimitElement.setAttribute('Paged', 'TRUE');
+      rowLimitElement.appendChild(xmlDocument.createTextNode(String(rowLimit)));
+      viewElement.appendChild(rowLimitElement);
+    }
+
+    return new XMLSerializer().serializeToString(xmlDocument);
+  }
+
+  private async loadSelectedViewXml(selectedViewId: string, viewFieldNames: string[]): Promise<string> {
+    if (!selectedViewId) {
+      return '';
+    }
+
+    var webUrl = this.getWebUrl();
+    var listPath = "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')";
+    var viewIds = this.buildViewIdCandidates(selectedViewId);
+    var urls: string[] = [];
+
+    for (var i = 0; i < viewIds.length; i += 1) {
+      var encoded = encodeURIComponent(viewIds[i]);
+      var normalized = encodeURIComponent(trimGuidBraces(viewIds[i]));
+      urls.push(webUrl + listPath + "/views/getById('" + encoded + "')?$select=ViewQuery,RowLimit,Scope");
+      urls.push(webUrl + listPath + "/views(guid'" + normalized + "')?$select=ViewQuery,RowLimit,Scope");
+    }
+
+    for (var j = 0; j < urls.length; j += 1) {
+      try {
+        var response = await this.getJsonWithFallback(urls[j]);
+        if (!response.ok) {
+          continue;
+        }
+
+        var data = await response.json();
+        var viewData = data && data.d ? data.d : data;
+        if (viewData && viewData.ViewQuery !== undefined && viewData.ViewQuery !== null) {
+          var rowLimit = parseInt(String(viewData.RowLimit || ''), 10);
+          var viewXml = this.buildMinimalViewXml(String(viewData.ViewQuery), viewFieldNames, isNaN(rowLimit) ? 0 : rowLimit, viewData.Scope);
+          this.logDiagnostic('Loaded minimal selected view CAML. HasFilter=' + String(/<Where(?:\s|>)/i.test(viewXml)) + ', hasSort=' + String(/<OrderBy(?:\s|>)/i.test(viewXml)) + ', fields=' + String(viewFieldNames.length) + '.');
+          return viewXml;
+        }
+      } catch (viewXmlError) {
+        this.logDiagnostic('loadSelectedViewXml: Attempt failed for url=' + urls[j] + ': ' + (viewXmlError && viewXmlError.message ? viewXmlError.message : String(viewXmlError)));
+      }
+    }
+
+    throw new Error('Failed to load the selected SharePoint view definition.');
+  }
+
+  private addFieldsToViewXml(viewXml: string, fieldNames: string[]): string {
+    if (!viewXml || fieldNames.length === 0) {
+      return viewXml;
+    }
+
+    var xmlDocument = new DOMParser().parseFromString(viewXml, 'text/xml');
+    if (xmlDocument.getElementsByTagName('parsererror').length > 0) {
+      throw new Error('The selected SharePoint view definition is invalid.');
+    }
+
+    var viewElements = xmlDocument.getElementsByTagName('View');
+    if (viewElements.length === 0) {
+      throw new Error('The selected SharePoint view definition does not contain a View element.');
+    }
+
+    var viewElement = viewElements[0];
+    var viewFieldsElements = viewElement.getElementsByTagName('ViewFields');
+    var viewFieldsElement = viewFieldsElements.length > 0 ? viewFieldsElements[0] : xmlDocument.createElement('ViewFields');
+    if (viewFieldsElements.length === 0) {
+      viewElement.appendChild(viewFieldsElement);
+    }
+
+    var existingFields: { [fieldName: string]: boolean } = {};
+    var fieldRefs = viewFieldsElement.getElementsByTagName('FieldRef');
+    for (var i = 0; i < fieldRefs.length; i += 1) {
+      existingFields[String(fieldRefs[i].getAttribute('Name') || '').toLowerCase()] = true;
+    }
+
+    for (var j = 0; j < fieldNames.length; j += 1) {
+      var fieldName = String(fieldNames[j] || '');
+      if (!fieldName || existingFields[fieldName.toLowerCase()]) {
+        continue;
+      }
+
+      var fieldRef = xmlDocument.createElement('FieldRef');
+      fieldRef.setAttribute('Name', fieldName);
+      viewFieldsElement.appendChild(fieldRef);
+      existingFields[fieldName.toLowerCase()] = true;
+    }
+
+    return new XMLSerializer().serializeToString(xmlDocument);
   }
 
   private async loadSelectedViewFieldNames(selectedViewId: string): Promise<string[]> {
@@ -782,8 +1043,12 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     var byName: { [fieldName: string]: IListFieldDefinition } = {};
     for (var baseIndex = 0; baseIndex < this.state.fields.length; baseIndex += 1) {
       var baseField = this.state.fields[baseIndex];
-      byName[String(baseField.Name || '').toLowerCase()] = baseField;
+      var baseFieldName = String(baseField.Name || '').toLowerCase();
+      byName[baseFieldName] = baseField;
       byName[String(baseField.RealFieldName || '').toLowerCase()] = baseField;
+      if (baseFieldName === 'linktitle' || baseFieldName === 'linktitlenomenu') {
+        byName.title = baseField;
+      }
     }
     var schemaDisplayFields: IListFieldDefinition[] = [];
     for (var schemaIndex = 0; schemaIndex < schemaFields.length; schemaIndex += 1) {
@@ -970,7 +1235,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   private async loadGridFieldMetadata(): Promise<{ [fieldName: string]: IGridFieldMetadata }> {
     try {
       var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
-        + "')/fields?$select=InternalName,Title,TypeAsString,Required,ReadOnlyField,Hidden,Description,Choices,DisplayFormat";
+        + "')/fields?$select=InternalName,Title,TypeAsString,Required,ReadOnlyField,Hidden,Description,Choices,DisplayFormat,LookupList,LookupField,AllowMultipleValues";
       var response = await this.getJsonWithFallback(endpoint);
       if (!response.ok) {
         return {};
@@ -998,7 +1263,10 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           hidden: source.Hidden === true,
           description: String(source.Description || ''),
           choices: toArray(source.Choices).map(function(choice: any) { return String(choice); }),
-          displayFormat: parseInt(String(source.DisplayFormat || '0'), 10) || 0
+          displayFormat: parseInt(String(source.DisplayFormat || '0'), 10) || 0,
+          lookupList: String(source.LookupList || '').replace(/^\{|\}$/g, ''),
+          lookupField: String(source.LookupField || 'Title'),
+          allowMultiple: source.AllowMultipleValues === true || String(source.TypeAsString || '').toLowerCase().indexOf('multi') >= 0
         };
       }
       return metadataByName;
@@ -1006,6 +1274,84 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this.logDiagnostic('loadGridFieldMetadata failed: ' + (error && error.message ? error.message : String(error)));
       return {};
     }
+  }
+
+  private async loadListItemEntityTypeName(): Promise<string> {
+    var listName = String(this.props.listName || '');
+    if (this._listItemEntityTypeListName === listName && this._listItemEntityTypeName) {
+      return this._listItemEntityTypeName;
+    }
+    var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName)
+      + "')?$select=ListItemEntityTypeFullName";
+    var response = await this.getJsonWithFallback(endpoint);
+    if (!response.ok) {
+      throw new Error('Unable to resolve the SharePoint list item entity type. HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+    }
+    var data = await response.json();
+    var source = data && data.d ? data.d : data;
+    var entityTypeName = String(source && source.ListItemEntityTypeFullName || '');
+    if (!entityTypeName) {
+      throw new Error('SharePoint did not return ListItemEntityTypeFullName for list ' + listName + '.');
+    }
+    this._listItemEntityTypeListName = listName;
+    this._listItemEntityTypeName = entityTypeName;
+    this.logDiagnostic('Resolved list item entity type. listName=' + listName + ', type=' + entityTypeName);
+    return entityTypeName;
+  }
+
+  private async loadLookupOptions(metadata: IGridFieldMetadata): Promise<IGridLookupOption[]> {
+    var typeName = String(metadata.typeAsString || '');
+    var endpoint = '';
+    if (typeName === 'User' || typeName === 'UserMulti') {
+      endpoint = this.getWebUrl() + '/_api/web/siteusers?$select=Id,Title,Email,PrincipalType&$top=5000';
+    } else if ((typeName === 'Lookup' || typeName === 'LookupMulti') && metadata.lookupList) {
+      var lookupField = /^[A-Za-z0-9_]+$/.test(metadata.lookupField) ? metadata.lookupField : 'Title';
+      endpoint = this.getWebUrl() + "/_api/web/lists(guid'" + metadata.lookupList + "')/items?$select="
+        + encodeURIComponent('Id,' + lookupField) + '&$top=5000';
+    }
+    if (!endpoint) {
+      return [];
+    }
+
+    try {
+      var response = await this.getJsonWithFallback(endpoint);
+      if (!response.ok) {
+        this.logDiagnostic('Lookup options unavailable for field ' + metadata.internalName + '. Status=' + String(response.status));
+        return [];
+      }
+      var data = await response.json();
+      var items = toArray(data.value);
+      if (items.length === 0) {
+        items = toArray(data && data.d && data.d.results);
+      }
+      return items.filter(function(item: any) {
+        if (!item || toPositiveInt(item.Id) <= 0) { return false; }
+        if (typeName !== 'User' && typeName !== 'UserMulti') { return true; }
+        return parseInt(String(item.PrincipalType || '0'), 10) > 0;
+      }).map(function(item: any) {
+        return {
+          id: toPositiveInt(item.Id),
+          text: String(item[metadata.lookupField] || item.Title || item.Email || item.Id)
+        };
+      });
+    } catch (error) {
+      this.logDiagnostic('Lookup options failed for field ' + metadata.internalName + ': ' + (error && error.message ? error.message : String(error)));
+      return [];
+    }
+  }
+
+  private async loadLookupOptionsByField(metadataByName: { [fieldName: string]: IGridFieldMetadata }): Promise<{ [fieldName: string]: IGridLookupOption[] }> {
+    var optionsByField: { [fieldName: string]: IGridLookupOption[] } = {};
+    var fieldName: string;
+    for (fieldName in metadataByName) {
+      if (!Object.prototype.hasOwnProperty.call(metadataByName, fieldName)) { continue; }
+      var metadata = metadataByName[fieldName];
+      if (metadata.typeAsString === 'Lookup' || metadata.typeAsString === 'LookupMulti'
+        || metadata.typeAsString === 'User' || metadata.typeAsString === 'UserMulti') {
+        optionsByField[fieldName] = await this.loadLookupOptions(metadata);
+      }
+    }
+    return optionsByField;
   }
 
   private applyFieldDisplayNames(fields: IListFieldDefinition[], titleMap: { [internalName: string]: string }): IListFieldDefinition[] {
@@ -1019,6 +1365,18 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     });
   }
 
+  private applyFieldTypes(fields: IListFieldDefinition[], metadataByName: { [fieldName: string]: IGridFieldMetadata }): IListFieldDefinition[] {
+    return fields.map(function(field: IListFieldDefinition) {
+      var internalName = String(field.RealFieldName || field.Name || '');
+      var metadata = metadataByName[internalName.toLowerCase()];
+      return {
+        ...field,
+        TypeAsString: metadata ? metadata.typeAsString : (field.TypeAsString || ''),
+        DisplayFormat: metadata ? metadata.displayFormat : field.DisplayFormat
+      };
+    });
+  }
+
   private getRowFieldValue(row: any, field: IListFieldDefinition): any {
     var fieldName = field.Name || field.RealFieldName || '';
     var value = row[fieldName];
@@ -1026,6 +1384,40 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       value = row[field.RealFieldName];
     }
     return value;
+  }
+
+  private getUrlCellValue(row: any, field: IListFieldDefinition): { href: string; text: string } | null {
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    if (fieldType !== 'url' && fieldType !== 'hyperlink') { return null; }
+
+    var rawValue = this.getRowFieldValue(row, field);
+    if (rawValue === undefined || rawValue === null || rawValue === '') { return null; }
+
+    var href = '';
+    var text = '';
+    if (typeof rawValue === 'object') {
+      href = String((rawValue as any).Url || (rawValue as any).url || '').trim();
+      text = String((rawValue as any).Description || (rawValue as any).description || '').trim();
+    } else {
+      var rawText = String(rawValue).trim();
+      if (rawText.indexOf('<') >= 0 && rawText.indexOf('>') >= 0) {
+        var container = document.createElement('div');
+        container.innerHTML = rawText;
+        var anchor = container.querySelector('a');
+        if (anchor) {
+          href = String(anchor.getAttribute('href') || '').trim();
+          text = String(anchor.textContent || '').trim();
+        }
+      }
+      if (!href) {
+        var descriptionSeparator = rawText.indexOf(', ');
+        href = descriptionSeparator > 0 ? rawText.substring(0, descriptionSeparator).trim() : rawText;
+        text = descriptionSeparator > 0 ? rawText.substring(descriptionSeparator + 2).trim() : '';
+      }
+    }
+
+    if (!href || /^\s*(?:javascript|data|vbscript):/i.test(href)) { return null; }
+    return { href: href, text: text || href };
   }
 
   private stringifyCellValue(value: any): string {
@@ -1076,6 +1468,47 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     return String(value);
   }
 
+  private formatDateCellValue(value: any, field: IListFieldDefinition): string {
+    var rawValue = this.stringifyCellValue(value);
+    if (String(field.TypeAsString || '').toLowerCase() !== 'datetime') {
+      return rawValue;
+    }
+
+    var dateOnlyMatch = field.DisplayFormat === 0 ? /^(\d{4})-(\d{2})-(\d{2})/.exec(rawValue) : null;
+    var dateValue = new Date(rawValue);
+    if (isNaN(dateValue.getTime())) {
+      return rawValue;
+    }
+
+    var month = dateOnlyMatch ? dateOnlyMatch[2] : String(dateValue.getMonth() + 1);
+    var day = dateOnlyMatch ? dateOnlyMatch[3] : String(dateValue.getDate());
+    var year = dateOnlyMatch ? dateOnlyMatch[1] : String(dateValue.getFullYear());
+    month = month.length < 2 ? '0' + month : month;
+    day = day.length < 2 ? '0' + day : day;
+
+    var dateText = month + '/' + day + '/' + year;
+    if (this.props.dateDisplayFormat === 'dmy') {
+      dateText = day + '/' + month + '/' + year;
+    } else if (this.props.dateDisplayFormat === 'ymd') {
+      dateText = year + '-' + month + '-' + day;
+    }
+
+    if (field.DisplayFormat === 0) {
+      return dateText;
+    }
+
+    var hours = dateValue.getHours();
+    var minutes = String(dateValue.getMinutes());
+    minutes = minutes.length < 2 ? '0' + minutes : minutes;
+    if (this.props.timeDisplayFormat === '12hour') {
+      var period = hours >= 12 ? 'PM' : 'AM';
+      var twelveHour = hours % 12 || 12;
+      return dateText + ' ' + (twelveHour < 10 ? '0' : '') + String(twelveHour) + ':' + minutes + ' ' + period;
+    }
+
+    return dateText + ' ' + (hours < 10 ? '0' : '') + String(hours) + ':' + minutes;
+  }
+
   private isMeaningfulCellValue(value: any): boolean {
     if (value === undefined || value === null) {
       return false;
@@ -1090,6 +1523,10 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
     for (var i = 0; i < rows.length; i += 1) {
       var row = rows[i] || {};
+      if (this.getRowItemId(row) > 0) {
+        filtered.push(row);
+        continue;
+      }
       var hasVisibleValue = false;
       for (var j = 0; j < visibleFields.length; j += 1) {
         var field = visibleFields[j];
@@ -1107,7 +1544,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         }
       }
 
-      // Keep rows only when at least one visible field has meaningful content.
+      // Rows without a standard item ID still require visible content.
       if (hasVisibleValue) {
         filtered.push(row);
       }
@@ -1192,24 +1629,42 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       return;
     }
 
-    this.logDiagnostic('Starting loadRows. listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
+    var requestId = ++this._loadRowsRequestId;
+    this.logDiagnostic('Starting loadRows. requestId=' + String(requestId) + ', listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
     this.setState({ loading: true, error: null });
 
     try {
       var baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
       var selectedViewId = this.state.selectedViewId;
+      var schemaFields = this.getGridSchemaFields();
+      var schemaFieldNames = schemaFields.filter(function(field: IGridSchemaField) {
+        return field.visible !== false && !!field.fieldName;
+      }).map(function(field: IGridSchemaField) {
+        return String(field.fieldName);
+      });
+      var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
+      var requestFieldNames = viewFieldNames.slice();
+      for (var schemaFieldIndex = 0; schemaFieldIndex < schemaFieldNames.length; schemaFieldIndex += 1) {
+        if (requestFieldNames.indexOf(schemaFieldNames[schemaFieldIndex]) < 0) {
+          requestFieldNames.push(schemaFieldNames[schemaFieldIndex]);
+        }
+      }
+      var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, requestFieldNames);
 
       var body: any = {
         parameters: {
-          RenderOptions: 17
+          RenderOptions: 7
         }
       };
+      if (selectedViewXml) {
+        body.parameters.ViewXml = selectedViewXml;
+      }
 
-      var requestUrls = selectedViewId ? buildViewRequestUrls(baseEndpoint, selectedViewId) : [baseEndpoint];
       var selectedRows: any[] = [];
       var selectedFields: IListFieldDefinition[] = [];
       var lastError: string = '';
       var hadSuccessfulResponse = false;
+      var requestUrls = [baseEndpoint];
 
       for (var requestIndex = 0; requestIndex < requestUrls.length; requestIndex += 1) {
         var requestUrl = requestUrls[requestIndex];
@@ -1250,20 +1705,15 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
       var rows = selectedRows;
       var fields = selectedFields;
-      var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
-      var schemaFields = this.getGridSchemaFields();
 
       if (schemaFields.length > 0) {
-        var schemaFieldNames = schemaFields.filter(function(field: IGridSchemaField) {
-          return field.visible !== false && !!field.fieldName;
-        }).map(function(field: IGridSchemaField) {
-          return String(field.fieldName);
-        });
-        var schemaItems = await this.loadRowsFromItemsEndpoint(schemaFieldNames);
-        rows = schemaItems.rows;
-        fields = schemaItems.fields;
         viewFieldNames = schemaFieldNames;
-      } else if (rows.length === 0) {
+        if (!selectedViewId && rows.length === 0) {
+          var schemaItems = await this.loadRowsFromItemsEndpoint(schemaFieldNames);
+          rows = schemaItems.rows;
+          fields = schemaItems.fields;
+        }
+      } else if (rows.length === 0 && !selectedViewId) {
         var itemsFallback = await this.loadRowsFromItemsEndpoint(viewFieldNames);
         rows = itemsFallback.rows;
 
@@ -1275,8 +1725,16 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       var visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
       var fieldTitleMap = await this.loadListFieldTitleMap();
       var fieldMetadataByName = await this.loadGridFieldMetadata();
+      var lookupOptionsByField = await this.loadLookupOptionsByField(fieldMetadataByName);
       visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
+      visibleFields = this.applyFieldTypes(visibleFields, fieldMetadataByName);
       var renderableRows = this.filterRenderableRows(rows, visibleFields);
+
+      if (requestId !== this._loadRowsRequestId) {
+        this.logDiagnostic('Ignoring stale loadRows result. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
+        return;
+      }
+
       var renderableItemIds = renderableRows.map((row: any) => this.getRowItemId(row));
       var selectedItemIds = this.state.selectedItemIds.filter(function(itemId: number) {
         return renderableItemIds.indexOf(itemId) >= 0;
@@ -1285,6 +1743,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this.setState({
         fields: visibleFields,
         fieldMetadataByName: fieldMetadataByName,
+        lookupOptionsByField: lookupOptionsByField,
         rows: renderableRows,
         selectedItemIds: selectedItemIds,
         loading: false,
@@ -1293,11 +1752,16 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
     } catch (error) {
       var loadError: any = error as any;
+      if (requestId !== this._loadRowsRequestId) {
+        this.logDiagnostic('Ignoring stale loadRows failure. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
+        return;
+      }
       this.setState({
         loading: false,
         error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
         fields: [],
         fieldMetadataByName: {},
+        lookupOptionsByField: {},
         rows: []
       });
       this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
@@ -1320,7 +1784,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private toggleItemChecked(itemId: number): void {
-    if (itemId <= 0 || this.state.deleting) {
+    if (itemId <= 0 || this.state.deleting || this.state.runtimeReadOnly) {
       return;
     }
     var selectedItemIds = this.state.selectedItemIds.slice(0);
@@ -1334,6 +1798,9 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private toggleVisibleItemsChecked(rows: any[]): void {
+    if (this.state.runtimeReadOnly) {
+      return;
+    }
     var visibleItemIds = rows.map((row: any) => this.getRowItemId(row)).filter(function(itemId: number) {
       return itemId > 0;
     });
@@ -1353,6 +1820,9 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
   private getGridFieldMetadata(field: IListFieldDefinition): IGridFieldMetadata | undefined {
     var fieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
+    if (fieldName === 'linktitle' || fieldName === 'linktitlenomenu') {
+      fieldName = 'title';
+    }
     var metadata = this.state.fieldMetadataByName[fieldName];
     if (!metadata) {
       metadata = this.state.fieldMetadataByName[String(field.Name || '').toLowerCase()];
@@ -1373,7 +1843,9 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       dropdown: 'Choice',
       multiselect: 'MultiChoice',
       datetime: 'DateTime',
-      url: 'URL'
+      url: 'URL',
+      lookup: 'Lookup',
+      person: 'User'
     };
     var config = schemaField.config || {};
     var displayFormat = config.displayFormat === 'dateOnly' ? 0 : config.displayFormat === 'timeOnly' ? 2 : 1;
@@ -1396,8 +1868,38 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     if (!metadata || metadata.readOnly || metadata.hidden) {
       return false;
     }
-    var supportedTypes = ['Text', 'Note', 'Number', 'Currency', 'Integer', 'Boolean', 'Choice', 'MultiChoice', 'DateTime', 'URL'];
+    var supportedTypes = ['Text', 'Note', 'Number', 'Currency', 'Integer', 'Boolean', 'Choice', 'MultiChoice', 'DateTime', 'URL', 'Lookup', 'LookupMulti', 'User', 'UserMulti'];
     return supportedTypes.indexOf(metadata.typeAsString) >= 0;
+  }
+
+  private getLookupIds(value: any): string[] {
+    var ids: string[] = [];
+    var collect = function(candidate: any): void {
+      if (candidate === undefined || candidate === null || candidate === '') { return; }
+      if (Array.isArray(candidate)) {
+        for (var arrayIndex = 0; arrayIndex < candidate.length; arrayIndex += 1) { collect(candidate[arrayIndex]); }
+        return;
+      }
+      if (typeof candidate === 'object') {
+        if (candidate.results !== undefined) { collect(candidate.results); return; }
+        var objectId = candidate.LookupId !== undefined ? candidate.LookupId
+          : candidate.Id !== undefined ? candidate.Id : candidate.ID !== undefined ? candidate.ID : candidate.id;
+        collect(objectId);
+        return;
+      }
+      var text = String(candidate);
+      var lookupMatches = text.match(/(?:^|;#)(\d+)(?=;#|$)/g);
+      if (lookupMatches && lookupMatches.length > 0) {
+        for (var matchIndex = 0; matchIndex < lookupMatches.length; matchIndex += 1) {
+          var matchedId = lookupMatches[matchIndex].replace(';#', '');
+          if (toPositiveInt(matchedId) > 0 && ids.indexOf(matchedId) < 0) { ids.push(matchedId); }
+        }
+        return;
+      }
+      if (toPositiveInt(text) > 0 && ids.indexOf(String(toPositiveInt(text))) < 0) { ids.push(String(toPositiveInt(text))); }
+    };
+    collect(value);
+    return ids;
   }
 
   private normalizeEditingValue(value: any, metadata: IGridFieldMetadata): any {
@@ -1406,6 +1908,11 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     }
     if (metadata.typeAsString === 'MultiChoice') {
       return toArray(value).map(function(entry: any) { return String(entry); });
+    }
+    if (metadata.typeAsString === 'Lookup' || metadata.typeAsString === 'LookupMulti'
+      || metadata.typeAsString === 'User' || metadata.typeAsString === 'UserMulti') {
+      var lookupIds = this.getLookupIds(value);
+      return metadata.allowMultiple ? lookupIds : (lookupIds.length > 0 ? lookupIds[0] : '');
     }
     if (metadata.typeAsString === 'DateTime') {
       if (!value) {
@@ -1428,7 +1935,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
   private beginRowEdit(row: any): void {
     var itemId = this.getRowItemId(row);
-    if (itemId <= 0 || this.state.saving) {
+    if (itemId <= 0 || this.state.saving || this.state.runtimeReadOnly) {
       return;
     }
     var values: { [fieldName: string]: any } = {};
@@ -1436,7 +1943,14 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     for (var i = 0; i < fields.length; i += 1) {
       var metadata = this.getGridFieldMetadata(fields[i]);
       if (metadata && this.isEditableGridField(fields[i])) {
-        values[metadata.internalName] = this.normalizeEditingValue(this.getRowFieldValue(row, fields[i]), metadata);
+        var rawValue = this.getRowFieldValue(row, fields[i]);
+        if (metadata.typeAsString === 'Lookup' || metadata.typeAsString === 'LookupMulti'
+          || metadata.typeAsString === 'User' || metadata.typeAsString === 'UserMulti') {
+          var lookupCompanion = row[metadata.internalName + 'Id'];
+          if (lookupCompanion === undefined) { lookupCompanion = row[String(fields[i].Name || '') + '.lookupId']; }
+          if (lookupCompanion !== undefined) { rawValue = lookupCompanion; }
+        }
+        values[metadata.internalName] = this.normalizeEditingValue(rawValue, metadata);
       }
     }
     this.setState({
@@ -1451,7 +1965,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private beginNewRow(): void {
-    if (this.state.saving) {
+    if (this.state.saving || this.state.runtimeReadOnly) {
       return;
     }
     var values: { [fieldName: string]: any } = {};
@@ -1464,6 +1978,9 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           ? schemaField.defaultValue
           : metadata.typeAsString === 'Boolean' ? false
             : metadata.typeAsString === 'MultiChoice' ? [] : '';
+        if (this.state.runtimeDefaultField && metadata.internalName.toLowerCase() === this.state.runtimeDefaultField.toLowerCase()) {
+          values[metadata.internalName] = this.normalizeEditingValue(this.state.runtimeDefaultValue, metadata);
+        }
       }
     }
     this.setState({
@@ -1613,7 +2130,12 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       } else if (storageType === 'Boolean') {
         payload[metadata.internalName] = value === true;
       } else if (storageType === 'MultiChoice') {
-        payload[metadata.internalName] = { results: Array.isArray(value) ? value : [] };
+        payload[metadata.internalName] = Array.isArray(value) ? value : [];
+      } else if (storageType === 'Lookup' || storageType === 'LookupMulti' || storageType === 'User' || storageType === 'UserMulti') {
+        var isMultipleLookup = storageMetadata.allowMultiple || storageType === 'LookupMulti' || storageType === 'UserMulti';
+        payload[metadata.internalName + 'Id'] = isMultipleLookup
+          ? (Array.isArray(value) ? value.map(function(entry: any) { return toPositiveInt(entry); }).filter(function(entry: number) { return entry > 0; }) : [])
+          : (toPositiveInt(value) || null);
       } else if (storageType === 'DateTime') {
         var dateValue = String(value || '');
         payload[metadata.internalName] = !dateValue ? null
@@ -1631,7 +2153,45 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     return payload;
   }
 
+  private buildVerboseEditingPayload(payload: any, entityTypeName: string): any {
+    var verbosePayload: any = {
+      __metadata: { type: entityTypeName }
+    };
+    var payloadKey: string;
+    for (payloadKey in payload) {
+      if (Object.prototype.hasOwnProperty.call(payload, payloadKey)) {
+        verbosePayload[payloadKey] = payload[payloadKey];
+      }
+    }
+    var fields = this.getDisplayFields();
+    for (var fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+      var metadata = this.getGridFieldMetadata(fields[fieldIndex]);
+      if (!metadata) { continue; }
+      var storageMetadata = this.state.fieldMetadataByName[String(metadata.internalName || '').toLowerCase()] || metadata;
+      var storageType = storageMetadata.typeAsString;
+      if (storageType === 'MultiChoice' && Array.isArray(payload[metadata.internalName])) {
+        verbosePayload[metadata.internalName] = {
+          __metadata: { type: 'Collection(Edm.String)' },
+          results: payload[metadata.internalName]
+        };
+      } else if (storageType === 'LookupMulti' || storageType === 'UserMulti' || storageMetadata.allowMultiple) {
+        var idProperty = metadata.internalName + 'Id';
+        if (Array.isArray(payload[idProperty])) {
+          verbosePayload[idProperty] = {
+            __metadata: { type: 'Collection(Edm.Int32)' },
+            results: payload[idProperty]
+          };
+        }
+      }
+    }
+    return verbosePayload;
+  }
+
   private async saveEditingRow(): Promise<void> {
+    if (this.state.runtimeReadOnly) {
+      this.cancelRuntimeEdit();
+      return;
+    }
     var validationErrors = this.validateEditingValues();
     if (Object.keys(validationErrors).length > 0) {
       this.setState({ editingErrors: validationErrors });
@@ -1642,32 +2202,30 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     try {
       var listUrl = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items";
       var payload = this.buildEditingPayload();
+      var entityTypeName = await this.loadListItemEntityTypeName();
+      var verbosePayload = this.buildVerboseEditingPayload(payload, entityTypeName);
+      this.logDiagnostic('Saving row. mode=' + (this.state.editingItemId > 0 ? 'edit' : 'new')
+        + ', itemId=' + String(this.state.editingItemId) + ', fields=' + Object.keys(payload).join(','));
       var response: any;
       if (this.state.editingItemId > 0) {
-        response = await this.props.context.spHttpClient.post(
+        response = await this.postJsonWithFallback(
           listUrl + '(' + this.state.editingItemId + ')',
-          SPHttpClient.configurations.v1,
+          payload,
           {
-            headers: {
-              Accept: 'application/json;odata=nometadata',
-              'Content-Type': 'application/json;odata=nometadata',
-              'IF-MATCH': '*',
-              'X-HTTP-Method': 'MERGE'
-            },
-            body: JSON.stringify(payload)
-          }
+            'IF-MATCH': '*',
+            'X-HTTP-Method': 'MERGE',
+            'Prefer': 'return-no-content'
+          },
+          verbosePayload,
+          false
         );
       } else {
-        response = await this.props.context.spHttpClient.post(
+        response = await this.postJsonWithFallback(
           listUrl,
-          SPHttpClient.configurations.v1,
-          {
-            headers: {
-              Accept: 'application/json;odata=nometadata',
-              'Content-Type': 'application/json;odata=nometadata'
-            },
-            body: JSON.stringify(payload)
-          }
+          payload,
+          { 'Prefer': 'return-no-content' },
+          verbosePayload,
+          false
         );
       }
       if (!response.ok) {
@@ -1713,25 +2271,51 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         </select>
       );
     } else if (metadata.typeAsString === 'MultiChoice') {
+      var selectedChoices = Array.isArray(value) ? value : [];
       control = (
-        <select
-          multiple={true}
-          value={Array.isArray(value) ? value : []}
-          title={metadata.description}
-          onChange={(ev) => {
-            var selected: string[] = [];
-            var options = ev.currentTarget.options;
-            for (var optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
-              if (options[optionIndex].selected) {
-                selected.push(options[optionIndex].value);
-              }
-            }
-            this.updateEditingValue(metadata.internalName, selected);
-          }}
-        >
-          {metadata.choices.map(function(choice: string) { return <option key={choice} value={choice}>{choice}</option>; })}
-        </select>
+        <div title={metadata.description}>
+          {metadata.choices.map((choice: string) => (
+            <label key={choice} style={{ display: 'block' }}>
+              <input type="checkbox" checked={selectedChoices.indexOf(choice) >= 0} onChange={(ev) => {
+                var nextChoices = selectedChoices.slice(0);
+                var choiceIndex = nextChoices.indexOf(choice);
+                if (ev.currentTarget.checked && choiceIndex < 0) { nextChoices.push(choice); }
+                else if (!ev.currentTarget.checked && choiceIndex >= 0) { nextChoices.splice(choiceIndex, 1); }
+                this.updateEditingValue(metadata.internalName, nextChoices);
+              }} /> {choice}
+            </label>
+          ))}
+        </div>
       );
+    } else if (metadata.typeAsString === 'Lookup' || metadata.typeAsString === 'LookupMulti'
+      || metadata.typeAsString === 'User' || metadata.typeAsString === 'UserMulti') {
+      var lookupOptions = this.state.lookupOptionsByField[metadata.internalName.toLowerCase()] || [];
+      if (metadata.allowMultiple) {
+        var selectedLookupIds = Array.isArray(value) ? value.map(function(entry: any) { return String(entry); }) : [];
+        control = (
+          <div title={metadata.description}>
+            {lookupOptions.map((option: IGridLookupOption) => (
+              <label key={String(option.id)} style={{ display: 'block' }}>
+                <input type="checkbox" checked={selectedLookupIds.indexOf(String(option.id)) >= 0} onChange={(ev) => {
+                  var nextIds = selectedLookupIds.slice(0);
+                  var optionId = String(option.id);
+                  var optionIndex = nextIds.indexOf(optionId);
+                  if (ev.currentTarget.checked && optionIndex < 0) { nextIds.push(optionId); }
+                  else if (!ev.currentTarget.checked && optionIndex >= 0) { nextIds.splice(optionIndex, 1); }
+                  this.updateEditingValue(metadata.internalName, nextIds);
+                }} /> {option.text}
+              </label>
+            ))}
+          </div>
+        );
+      } else {
+        control = (
+          <select value={String(value || '')} title={metadata.description} onChange={(ev) => this.updateEditingValue(metadata.internalName, ev.currentTarget.value)}>
+            <option value=""></option>
+            {lookupOptions.map(function(option: IGridLookupOption) { return <option key={String(option.id)} value={String(option.id)}>{option.text}</option>; })}
+          </select>
+        );
+      }
     } else {
       var inputType = metadata.typeAsString === 'DateTime' ? (metadata.displayFormat === 0 ? 'date' : metadata.displayFormat === 2 ? 'time' : 'datetime-local')
         : (metadata.typeAsString === 'Number' || metadata.typeAsString === 'Currency' || metadata.typeAsString === 'Integer') ? 'number'
@@ -1752,7 +2336,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     var isNew = this.state.editingItemId === 0;
     return (
       <tr className="lc-row gc-row-editing" onClick={(ev) => ev.stopPropagation()}>
-        {this.props.showDelete && <td className="gc-selection-cell"></td>}
+        {this.props.showDelete && !this.state.runtimeReadOnly && <td className="gc-selection-cell"></td>}
         {displayFields.map((field) => {
           var editor = this.renderEditingControl(field);
           return <td key={field.Name} style={this.getConfiguredColumnStyle(field)}>{editor || (isNew ? null : strings.RuntimeReadOnlyCell)}</td>;
@@ -1767,6 +2351,9 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private async deleteSelected(): Promise<void> {
+    if (this.state.runtimeReadOnly) {
+      return;
+    }
     var itemIds = this.state.selectedItemIds.slice(0);
     if (itemIds.length === 0) {
       return;
@@ -1842,7 +2429,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       return null;
     }
 
-    var text = this.stringifyCellValue(value);
+    var text = this.formatDateCellValue(value, field);
     if (text.indexOf('<') >= 0 && text.indexOf('>') >= 0) {
       return { __html: text };
     }
@@ -1978,22 +2565,124 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     });
   }
 
-  private openFilter(field: IListFieldDefinition): void {
+  private openFilter(field: IListFieldDefinition, anchorElement: HTMLElement): void {
     var fieldKey = this.getFieldKey(field);
     if (!fieldKey) {
       return;
     }
 
+    var anchorRect = anchorElement.getBoundingClientRect();
+    var viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    var viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+    var popoverWidth = 220;
+    var estimatedPopoverHeight = 190;
+    var viewportMargin = 8;
+    var popoverGap = 6;
+    var left = anchorRect.right - popoverWidth;
+    left = Math.max(viewportMargin, Math.min(left, viewportWidth - popoverWidth - viewportMargin));
+    var availableBelow = viewportHeight - anchorRect.bottom - popoverGap - viewportMargin;
+    var availableAbove = anchorRect.top - popoverGap - viewportMargin;
+    var popoverStyle: any = {
+      left: left,
+      right: 'auto'
+    };
+
+    if (availableBelow < estimatedPopoverHeight && availableAbove > availableBelow) {
+      popoverStyle.top = 'auto';
+      popoverStyle.bottom = viewportHeight - anchorRect.top + popoverGap;
+      popoverStyle.maxHeight = Math.max(120, availableAbove);
+    } else {
+      popoverStyle.top = anchorRect.bottom + popoverGap;
+      popoverStyle.bottom = 'auto';
+      popoverStyle.maxHeight = Math.max(120, availableBelow);
+    }
+
     var existing = this.state.columnFilters[fieldKey];
+    var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
     this.setState({
       activeFilterFieldName: fieldKey,
-      draftFilterOperator: existing ? existing.operator : 'contains',
-      draftFilterValue: existing ? existing.value : ''
+      filterPopoverStyle: popoverStyle,
+      activeFilterIsDate: isDateField,
+      draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
+      draftFilterValue: existing ? existing.value : '',
+      draftFilterEndValue: existing ? String(existing.endValue || '') : '',
+      datePickerTarget: '',
+      datePickerMonth: ''
     });
   }
 
   private closeFilter(): void {
-    this.setState({ activeFilterFieldName: '' });
+    this.setState({ activeFilterFieldName: '', datePickerTarget: '' });
+  }
+
+  private getIsoDate(date: Date): string {
+    var month = String(date.getMonth() + 1);
+    var day = String(date.getDate());
+    return String(date.getFullYear()) + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
+  }
+
+  private toggleDatePicker(target: 'start' | 'end'): void {
+    if (this.state.datePickerTarget === target) {
+      this.setState({ datePickerTarget: '' });
+      return;
+    }
+
+    var value = target === 'start' ? this.state.draftFilterValue : this.state.draftFilterEndValue;
+    var month = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.substr(0, 7) : this.getIsoDate(new Date()).substr(0, 7);
+    this.setState({ datePickerTarget: target, datePickerMonth: month });
+  }
+
+  private changeDatePickerMonth(offset: number): void {
+    var parts = this.state.datePickerMonth.split('-');
+    var monthDate = new Date(Number(parts[0]), Number(parts[1]) - 1 + offset, 1);
+    this.setState({ datePickerMonth: this.getIsoDate(monthDate).substr(0, 7) });
+  }
+
+  private selectFilterDate(value: string): void {
+    if (this.state.datePickerTarget === 'end') {
+      this.setState({ draftFilterEndValue: value, datePickerTarget: '' });
+    } else {
+      this.setState({ draftFilterValue: value, datePickerTarget: '' });
+    }
+  }
+
+  private renderDatePicker(): React.ReactNode {
+    if (!this.state.datePickerTarget || !/^\d{4}-\d{2}$/.test(this.state.datePickerMonth)) {
+      return null;
+    }
+
+    var parts = this.state.datePickerMonth.split('-');
+    var year = Number(parts[0]);
+    var monthIndex = Number(parts[1]) - 1;
+    var firstWeekday = new Date(year, monthIndex, 1).getDay();
+    var dayCount = new Date(year, monthIndex + 1, 0).getDate();
+    var selectedValue = this.state.datePickerTarget === 'start' ? this.state.draftFilterValue : this.state.draftFilterEndValue;
+    var cells: React.ReactNode[] = [];
+    var index: number;
+    for (index = 0; index < firstWeekday; index += 1) {
+      cells.push(<span key={'blank-' + index} className="lc-date-picker-blank" />);
+    }
+    for (index = 1; index <= dayCount; index += 1) {
+      let dateValue = this.getIsoDate(new Date(year, monthIndex, index));
+      let disabled = this.state.datePickerTarget === 'end' && !!this.state.draftFilterValue && dateValue < this.state.draftFilterValue;
+      cells.push(
+        <button key={dateValue} type="button" className={dateValue === selectedValue ? 'lc-date-picker-day lc-date-picker-selected' : 'lc-date-picker-day'} disabled={disabled} onClick={() => this.selectFilterDate(dateValue)}>
+          {index}
+        </button>
+      );
+    }
+
+    return (
+      <div className="lc-date-picker" role="dialog" aria-label="Choose date">
+        <div className="lc-date-picker-header">
+          <button type="button" title="Previous month" aria-label="Previous month" onClick={() => this.changeDatePickerMonth(-1)}>&#8249;</button>
+          <strong>{new Date(year, monthIndex, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })}</strong>
+          <button type="button" title="Next month" aria-label="Next month" onClick={() => this.changeDatePickerMonth(1)}>&#8250;</button>
+        </div>
+        <div className="lc-date-picker-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+        <div className="lc-date-picker-days">{cells}</div>
+      </div>
+    );
   }
 
   private applyActiveFilter(): void {
@@ -2011,8 +2700,21 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     }
 
     var value = String(this.state.draftFilterValue || '').trim();
+    var endValue = String(this.state.draftFilterEndValue || '').trim();
     if (!value) {
       delete nextFilters[fieldKey];
+    } else if (this.state.activeFilterIsDate) {
+      if (endValue && endValue < value) {
+        var originalValue = value;
+        value = endValue;
+        endValue = originalValue;
+      }
+      nextFilters[fieldKey] = {
+        operator: 'eq',
+        value: value,
+        endValue: endValue,
+        compareDateOnly: true
+      };
     } else {
       nextFilters[fieldKey] = {
         operator: this.state.draftFilterOperator,
@@ -2045,6 +2747,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       columnFilters: nextFilters,
       draftFilterOperator: 'contains',
       draftFilterValue: '',
+      draftFilterEndValue: '',
       activeFilterFieldName: '',
       currentPage: 0
     });
@@ -2087,7 +2790,15 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private rowMatchesFilter(row: any, field: IListFieldDefinition, filter: IColumnFilter): boolean {
-    var valueText = this.getCellPlainText(row, field);
+    if (Array.isArray(filter.value)) {
+      var values = filter.value.filter(function(value: any) { return value !== undefined && value !== null && String(value).trim() !== ''; });
+      if (values.length === 0) { return true; }
+      var isNegative = filter.operator === 'ne' || filter.operator === 'notcontains';
+      var scalarOperator: FilterOperator = filter.operator === 'ne' ? 'eq' : (filter.operator === 'notcontains' ? 'contains' : filter.operator);
+      var scalarMatches = values.map((value: any) => this.rowMatchesFilter(row, field, { operator: scalarOperator, value: value, compareDateOnly: filter.compareDateOnly }));
+      return isNegative ? scalarMatches.every(function(matches: boolean) { return !matches; }) : scalarMatches.some(function(matches: boolean) { return matches; });
+    }
+    var valueText = this.getFilterCellText(row, field);
     var candidate = String(valueText || '').trim();
     var query = String(filter.value || '').trim();
 
@@ -2098,20 +2809,28 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     var normalizedCandidate = candidate.toLowerCase();
     var normalizedQuery = query.toLowerCase();
     var compareResult = this.compareComparableValues(candidate, query);
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    var lookupCandidates = fieldType.indexOf('lookup') >= 0
+      ? normalizedCandidate.split(';').map(function(value) { return value.trim(); }).filter(function(value) { return !!value; })
+      : [];
 
     if (filter.compareDateOnly) {
       var candidateDate = new Date(candidate);
-      if (!isNaN(candidateDate.getTime())) {
-        normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
-        compareResult = this.compareComparableValues(normalizedCandidate, query);
+      if (isNaN(candidateDate.getTime())) {
+        return false;
+      }
+      normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
+      compareResult = this.compareComparableValues(normalizedCandidate, query);
+      if (filter.endValue) {
+        return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
       }
     }
 
     switch (filter.operator) {
       case 'eq':
-        return normalizedCandidate === normalizedQuery;
+        return lookupCandidates.length > 0 ? lookupCandidates.indexOf(normalizedQuery) >= 0 : normalizedCandidate === normalizedQuery;
       case 'ne':
-        return normalizedCandidate !== normalizedQuery;
+        return lookupCandidates.length > 0 ? lookupCandidates.indexOf(normalizedQuery) < 0 : normalizedCandidate !== normalizedQuery;
       case 'contains':
         return normalizedCandidate.indexOf(normalizedQuery) >= 0;
       case 'notcontains':
@@ -2133,19 +2852,50 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     }
   }
 
-  private parsePresetFilterConditions(): IPresetFilterCondition[] {
-    var source = String(this.props.filterJson || '').trim();
-    if (!source) {
-      return [];
+  private getFilterCellText(row: any, field: IListFieldDefinition): string {
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    if (fieldType.indexOf('lookup') < 0) {
+      return this.getCellPlainText(row, field);
     }
-
-    try {
-      var parsed = JSON.parse(source);
-      if (!Array.isArray(parsed)) {
-        return [];
+    var lookupIds: string[] = [];
+    var collectLookupIds = function(value: any): void {
+      if (value === undefined || value === null || value === '') { return; }
+      if (Array.isArray(value)) {
+        for (var valueIndex = 0; valueIndex < value.length; valueIndex += 1) { collectLookupIds(value[valueIndex]); }
+        return;
       }
+      if (typeof value === 'object') {
+        var lookupId = value.LookupId !== undefined ? value.LookupId : value.lookupId !== undefined ? value.lookupId : value.Id !== undefined ? value.Id : value.ID;
+        if (lookupId !== undefined && lookupId !== null && String(lookupId).trim()) { lookupIds.push(String(lookupId).trim()); }
+      }
+    };
+    collectLookupIds(this.getRowFieldValue(row, field));
+    var fieldNames = [String(field.RealFieldName || ''), String(field.Name || '')];
+    for (var fieldIndex = 0; fieldIndex < fieldNames.length; fieldIndex += 1) {
+      var fieldName = fieldNames[fieldIndex];
+      if (!fieldName) { continue; }
+      var companions = [row[fieldName + 'Id'], row[fieldName + '.lookupId']];
+      for (var companionIndex = 0; companionIndex < companions.length; companionIndex += 1) {
+        var companion = companions[companionIndex];
+        if (Array.isArray(companion)) {
+          for (var lookupIndex = 0; lookupIndex < companion.length; lookupIndex += 1) { lookupIds.push(String(companion[lookupIndex]).trim()); }
+        } else if (companion !== undefined && companion !== null && String(companion).trim()) {
+          lookupIds.push(String(companion).trim());
+        }
+      }
+    }
+    return lookupIds.length > 0 ? lookupIds.join('; ') : this.getCellPlainText(row, field);
+  }
 
-      var conditions: IPresetFilterCondition[] = [];
+  private parsePresetFilterConditions(): IPresetFilterCondition[] {
+    var sources = [String(this.props.filterJson || '').trim(), String(this.state.runtimeFilterJson || '').trim()];
+    var conditions: IPresetFilterCondition[] = [];
+    for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+      var source = sources[sourceIndex];
+      if (!source) { continue; }
+      try {
+        var parsed = JSON.parse(source);
+        if (!Array.isArray(parsed)) { continue; }
       for (var i = 0; i < parsed.length; i += 1) {
         var item = parsed[i] || {};
         var field = String(item.field || '').trim();
@@ -2157,16 +2907,15 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           field: field,
           operator: normalizeFilterOperator(item.operator),
           logical: normalizeFilterLogical(item.logical),
-          valueType: String(item.valueType || '').toLowerCase() === 'expression' ? 'expression' : 'static',
+          valueType: String(item.valueType || '').toLowerCase() === 'expression' ? 'expression' : (String(item.valueType || '').toLowerCase() === 'fieldvalue' ? 'fieldValue' : 'static'),
           value: item.value
         });
       }
-
-      return conditions;
-    } catch (_parseError) {
-      this.logDiagnostic('Preset filter JSON is invalid; skipping preset filters.');
-      return [];
+      } catch (_parseError) {
+        this.logDiagnostic('Preset filter JSON is invalid; skipping that preset filter source.');
+      }
     }
+    return conditions;
   }
 
   private resolveFieldByReference(fieldsByKey: { [key: string]: IListFieldDefinition }, fieldRef: string): IListFieldDefinition | undefined {
@@ -2236,8 +2985,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     return aggregate === null ? true : aggregate;
   }
 
-  private resolvePresetFilterValue(condition: { value: any; valueType?: string }): { value: string; compareDateOnly: boolean } {
-    var rawValue = condition.value === undefined || condition.value === null ? '' : String(condition.value).trim();
+  private resolvePresetFilterValue(condition: { value: any; valueType?: string }): { value: any; compareDateOnly: boolean } {
+    var rawValue: any = Array.isArray(condition.value) ? condition.value : (condition.value === undefined || condition.value === null ? '' : String(condition.value).trim());
     if (String(condition.valueType || '').toLowerCase() !== 'expression') {
       return { value: rawValue, compareDateOnly: false };
     }
@@ -2630,7 +3379,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     };
 
     return (
-      <div className="lc-root" style={containerStyle}>
+      <div className="lc-root gc-root" style={containerStyle}>
         <div className="lc-toolbar">
           {this.props.showViewSelector && (
             <label>
@@ -2646,7 +3395,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
             </label>
           )}
           {this.props.showRefresh && <button type="button" onClick={() => this.loadRows()}>{strings.RuntimeRefresh}</button>}
-          {this.props.showAdd && (
+          {this.props.showAdd && !this.state.runtimeReadOnly && (
             <button
               type="button"
               className="gc-add-row"
@@ -2657,7 +3406,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
               + {strings.RuntimeAddRow}
             </button>
           )}
-          {this.props.showDelete && (
+          {this.props.showDelete && !this.state.runtimeReadOnly && (
             <button
               type="button"
               disabled={this.state.selectedItemIds.length === 0 || this.state.deleting || isEditingRow}
@@ -2691,7 +3440,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
             <table className="lc-table">
               <thead>
                 <tr>
-                  {this.props.showDelete && (
+                  {this.props.showDelete && !this.state.runtimeReadOnly && (
                     <th className="gc-selection-header">
                       <input
                         type="checkbox"
@@ -2739,7 +3488,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                                 if (this.state.activeFilterFieldName === fieldKey) {
                                   this.closeFilter();
                                 } else {
-                                  this.openFilter(field);
+                                  this.openFilter(field, ev.currentTarget);
                                 }
                               }}
                             >
@@ -2749,34 +3498,42 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                           {this.state.activeFilterFieldName === fieldKey && (
                             <div
                               className="lc-filter-popover"
+                              style={this.state.filterPopoverStyle}
                               onClick={(ev) => {
                                 ev.preventDefault();
                                 ev.stopPropagation();
                               }}
                             >
-                              <label className="lc-filter-label">{strings.RuntimeFilterOperatorLabel}</label>
-                              <select
-                                className="lc-filter-select"
-                                value={this.state.draftFilterOperator}
-                                onChange={(ev) => this.setState({ draftFilterOperator: ev.currentTarget.value as FilterOperator })}
-                              >
-                                {this.getFilterOperatorOptions().map((option) => {
-                                  return <option key={option.key} value={option.key}>{option.label}</option>;
-                                })}
-                              </select>
-                              <label className="lc-filter-label">{strings.RuntimeFilterValueLabel}</label>
-                              <input
-                                className="lc-filter-input"
-                                type="text"
-                                value={this.state.draftFilterValue}
-                                placeholder={strings.RuntimeFilterValuePlaceholder}
-                                onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })}
-                                onKeyDown={(ev) => {
-                                  if (ev.key === 'Enter') {
-                                    this.applyActiveFilter();
-                                  }
-                                }}
-                              />
+                              {this.state.activeFilterIsDate ? (
+                                <div>
+                                  <label className="lc-filter-label">{strings.RuntimeFilterDateLabel}</label>
+                                  <div className="lc-date-input-row">
+                                    <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterValue} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} />
+                                    <button type="button" className="lc-date-picker-button" title="Choose from date" aria-label="Choose from date" onClick={() => this.toggleDatePicker('start')}><span aria-hidden="true">&#128197;</span></button>
+                                  </div>
+                                  <label className="lc-filter-label">{strings.RuntimeFilterEndDateLabel}</label>
+                                  <div className="lc-date-input-row">
+                                    <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterEndValue} onChange={(ev) => this.setState({ draftFilterEndValue: ev.currentTarget.value })} />
+                                    <button type="button" className="lc-date-picker-button" title="Choose to date" aria-label="Choose to date" onClick={() => this.toggleDatePicker('end')}><span aria-hidden="true">&#128197;</span></button>
+                                  </div>
+                                  {this.renderDatePicker()}
+                                </div>
+                              ) : (
+                                <div>
+                                  <label className="lc-filter-label">{strings.RuntimeFilterOperatorLabel}</label>
+                                  <select className="lc-filter-select" value={this.state.draftFilterOperator} onChange={(ev) => this.setState({ draftFilterOperator: ev.currentTarget.value as FilterOperator })}>
+                                    {this.getFilterOperatorOptions().map((option) => {
+                                      return <option key={option.key} value={option.key}>{option.label}</option>;
+                                    })}
+                                  </select>
+                                  <label className="lc-filter-label">{strings.RuntimeFilterValueLabel}</label>
+                                  <input className="lc-filter-input" type="text" value={this.state.draftFilterValue} placeholder={strings.RuntimeFilterValuePlaceholder} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} onKeyDown={(ev) => {
+                                    if (ev.key === 'Enter') {
+                                      this.applyActiveFilter();
+                                    }
+                                  }} />
+                                </div>
+                              )}
                               <div className="lc-filter-actions">
                                 <button type="button" onClick={() => this.applyActiveFilter()}>{strings.RuntimeFilterApply}</button>
                                 <button type="button" onClick={() => this.clearActiveFilter()}>{strings.RuntimeFilterClear}</button>
@@ -2788,7 +3545,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                       </th>
                     );
                   })}
-                  <th className="gc-actions-header">{strings.RuntimeActions}</th>
+                  {!this.state.runtimeReadOnly && <th className="gc-actions-header">{strings.RuntimeActions}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -2806,7 +3563,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                       onClick={() => this.selectRow(row)}
                       className={joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '', this.isItemChecked(rowItemId) ? 'gc-row-delete-selected' : ''])}
                     >
-                      {this.props.showDelete && (
+                      {this.props.showDelete && !this.state.runtimeReadOnly && (
                         <td className="gc-selection-cell">
                           <input
                             type="checkbox"
@@ -2821,6 +3578,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                       )}
                       {displayFields.map((field) => {
                         var markup = this.getCellMarkup(row, field);
+                        var urlCell = this.getUrlCellValue(row, field);
                         var showItemLink = this.props.showLinkToItem && this.isTitleField(field);
                         var itemLinkUrl = showItemLink ? this.getItemLinkUrl(row) : '';
                         var itemLinkText = showItemLink ? this.getCellPlainText(row, field) : '';
@@ -2832,7 +3590,17 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                         );
                         return (
                           <td key={field.Name} style={mergedCellStyle} title={(this.getGridFieldMetadata(field) || {} as IGridFieldMetadata).description || ''}>
-                            {showItemLink && itemLinkUrl ? (
+                            {urlCell ? (
+                              <a
+                                className="lc-item-link"
+                                href={urlCell.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(ev) => ev.stopPropagation()}
+                              >
+                                {urlCell.text}
+                              </a>
+                            ) : showItemLink && itemLinkUrl ? (
                               <a
                                 className="lc-item-link"
                                 href={itemLinkUrl}
@@ -2846,7 +3614,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                           </td>
                         );
                       })}
-                      <td className="gc-row-actions">
+                      {!this.state.runtimeReadOnly && <td className="gc-row-actions">
                         <button
                           type="button"
                           disabled={isEditingRow || this.state.deleting}
@@ -2857,7 +3625,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                         >
                           {strings.RuntimeEdit}
                         </button>
-                      </td>
+                      </td>}
                     </tr>
                   );
                 })}

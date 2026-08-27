@@ -40,16 +40,24 @@ export default class RecordSvc implements IRecordService {
             const rawPath = (d.File && d.File.ServerRelativeUrl) || d.FileRef || '';
             const normalizedPath = rawPath.indexOf('http') === 0 ? rawPath : this._spContexts.aUrl + rawPath;
             const imageUrl = encodeURI(normalizedPath);
-            const navUrl = d.LinkTarget || d.ClickLink || '';
+            const rawTitle: any = this._configData.slideTitleField ? (d as any)[this._configData.slideTitleField] : '';
+            const rawDescription: any = this._configData.slideDescriptionField ? (d as any)[this._configData.slideDescriptionField] : '';
+            const rawLink: any = this._configData.slideLinkField ? (d as any)[this._configData.slideLinkField] : '';
+            const navUrl = typeof rawLink === 'string' ? rawLink : String(rawLink.Url || '');
+            const linkText = typeof rawLink === 'string' ? '' : String(rawLink.Description || '');
+            const slideTitle = typeof rawTitle === 'string' ? rawTitle : String((rawTitle && (rawTitle.Description || rawTitle.Url)) || '');
+            const slideDescription = typeof rawDescription === 'string' ? rawDescription : String((rawDescription && (rawDescription.Description || rawDescription.Url)) || '');
             const fallbackOrder = Number(d.Id) || 0;
             const slideOrder = typeof d.SlideOrder === 'number' ? d.SlideOrder : fallbackOrder;
 
             const retModel = ({
               slideId: d.Id,
-              slideText: d.Title || '',
+              slideTitle: slideTitle,
+              slideText: slideDescription,
               slideNumber: slideOrder,
               slideImgUrl: imageUrl,
-              slideNavigationUrl: navUrl
+              slideNavigationUrl: navUrl,
+              slideLinkText: linkText
             } as SlideItemModel);
             return retModel;
 

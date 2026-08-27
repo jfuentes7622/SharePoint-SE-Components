@@ -4,7 +4,17 @@
   "https": true,
   "serveConfigurations": {
     "default": {
-       "pageUrl": "https://goldentroutfarms.sharepoint.com/sites/TeamSite/test2/SitePages/Home.aspx",
+      "pageUrl": "https://goldentroutfarms.sharepoint.com/sites/TeamSite/test2/SitePages/Home.aspx",
+      "customActions": {
+        "6fad0110-ac0c-46b4-a16b-337c1c6df3c4": {
+          "location": "ClientSideExtension.ApplicationCustomizer",
+          "properties": {
+          }
+        }
+      }
+    },
+    "navinLab": {
+      "pageUrl": "https://sharepoint.lab.navintechnologies.com/_layouts/workbench.aspx",
       "customActions": {
         "6fad0110-ac0c-46b4-a16b-337c1c6df3c4": {
           "location": "ClientSideExtension.ApplicationCustomizer",

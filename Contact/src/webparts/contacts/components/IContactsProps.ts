@@ -9,6 +9,7 @@ export type ConfigData = {
   siteUrl:string;
   directorateField:string;
   divisionField:string;
+  titleField: string;
   groupField:string;
   branchField: string;
   groupHeiarchyField: string;

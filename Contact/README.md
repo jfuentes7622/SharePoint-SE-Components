@@ -14,7 +14,9 @@ SPFx 1.5.1 personnel directory web part for SharePoint Server Subscription Editi
 
 ## Data Source
 
-Enable **Use Existing List** to select a SharePoint list and map the job title, directorate, and division columns. The remaining contact fields follow the component's contact schema, including name, email, phone number, biography link, image link, display-photo flag, VOIP, group, and display order.
+Enable **Use a List** to use SharePoint data, then choose **Use an Existing List** or **Create a New List**. After a list is selected or created, the **Columns to Use** group loads its columns for every contact field mapping.
+
+To create a compatible list on demand, enter a name under **New Contact List Name** and select **Create Contact List**. The web part creates the required columns in the current SharePoint web, selects the new list, and configures all field mappings. The editing user must have permission to manage lists.
 
 Disable **Use Existing List** to enter contact records directly in the property-pane collection editor.
 

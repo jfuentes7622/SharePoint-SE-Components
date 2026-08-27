@@ -1,0 +1,104 @@
+const OWNER_ATTRIBUTE = 'data-sps-full-width-owners';
+const ORIGINAL_WIDTH_ATTRIBUTE = 'data-sps-full-width-width';
+const ORIGINAL_MIN_WIDTH_ATTRIBUTE = 'data-sps-full-width-min-width';
+const ORIGINAL_MAX_WIDTH_ATTRIBUTE = 'data-sps-full-width-max-width';
+const ORIGINAL_FLEX_BASIS_ATTRIBUTE = 'data-sps-full-width-flex-basis';
+const ORIGINAL_FLEX_GROW_ATTRIBUTE = 'data-sps-full-width-flex-grow';
+const ORIGINAL_FLEX_SHRINK_ATTRIBUTE = 'data-sps-full-width-flex-shrink';
+const ORIGINAL_GRID_COLUMN_ATTRIBUTE = 'data-sps-full-width-grid-column';
+const ORIGINAL_BOX_SIZING_ATTRIBUTE = 'data-sps-full-width-box-sizing';
+const ORIGINAL_MARGIN_LEFT_ATTRIBUTE = 'data-sps-full-width-margin-left';
+const ORIGINAL_MARGIN_RIGHT_ATTRIBUTE = 'data-sps-full-width-margin-right';
+const ORIGINAL_OVERFLOW_X_ATTRIBUTE = 'data-sps-full-width-overflow-x';
+const ORIGINAL_OVERFLOW_Y_ATTRIBUTE = 'data-sps-full-width-overflow-y';
+const ADDED_NATIVE_CLASS_ATTRIBUTE = 'data-sps-full-width-native-class';
+interface IFullWidthBounds { width: number; leftOffset: number; rightOffset: number; }
+interface IFullWidthLayout { bounds: IFullWidthBounds; boundary: HTMLElement; }
+function hasLayoutName(element: HTMLElement, name: string): boolean { const automationId = String(element.getAttribute('data-automation-id') || ''); if (automationId === name) { return true; } const classes = String(element.className || '').split(/\s+/); return classes.some((className: string) => className === name || className.indexOf(name + '-') === 0 || className.indexOf(name + '_') === 0); }
+function isLayoutContainer(element: HTMLElement): boolean { return hasLayoutName(element, 'CanvasZone') || hasLayoutName(element, 'CanvasZoneContainer') || hasLayoutName(element, 'CanvasZoneSectionContainer') || hasLayoutName(element, 'CanvasSection') || hasLayoutName(element, 'ControlZone'); }
+function getOwners(element: HTMLElement): string[] { return String(element.getAttribute(OWNER_ATTRIBUTE) || '').split(',').filter((owner: string) => !!owner); }
+function getFullWidthLeftOffset(documentRef: Document): number { const hostname = String(documentRef.location && documentRef.location.hostname || '').toLowerCase(); const isLocal = hostname === 'localhost' || hostname === '127.0.0.1'; const isSharePointOnline = /\.sharepoint(?:-mil)?\.[a-z.]+$/.test(hostname); return !isLocal && !isSharePointOnline ? -25 : -15; }
+function getFullWidthLayout(element: HTMLElement): IFullWidthLayout { const elementRect = element.getBoundingClientRect(); const documentRef = element.ownerDocument; const viewportWidth = documentRef.documentElement.clientWidth; let pageLeft = 0; let boundary = element; let ancestor = element.parentElement; while (ancestor && ancestor !== documentRef.body) { const rect = ancestor.getBoundingClientRect(); const left = Math.max(0, rect.left + ancestor.clientLeft); const right = Math.min(viewportWidth, rect.left + ancestor.clientLeft + ancestor.clientWidth); const width = Math.max(0, right - left); if (width >= viewportWidth * 0.8 && right >= viewportWidth * 0.9 && left >= pageLeft) { pageLeft = left; boundary = ancestor; } ancestor = ancestor.parentElement; } const measuredLeftOffset = Math.floor(pageLeft - elementRect.left); const rightOffset = Math.floor(elementRect.right - viewportWidth); return { bounds: { width: Math.max(1, Math.floor(elementRect.width - measuredLeftOffset - rightOffset + 10)), leftOffset: getFullWidthLeftOffset(documentRef), rightOffset: -5 }, boundary: boundary }; }
+function addOwner(element: HTMLElement, ownerId: string, bounds?: IFullWidthBounds, overflowOnly?: boolean): void { const owners = getOwners(element); if (owners.indexOf(ownerId) >= 0) { return; } if (owners.length === 0) { element.setAttribute(ORIGINAL_WIDTH_ATTRIBUTE, element.style.width || ''); element.setAttribute(ORIGINAL_MIN_WIDTH_ATTRIBUTE, element.style.minWidth || ''); element.setAttribute(ORIGINAL_MAX_WIDTH_ATTRIBUTE, element.style.maxWidth || ''); element.setAttribute(ORIGINAL_FLEX_BASIS_ATTRIBUTE, element.style.flexBasis || ''); element.setAttribute(ORIGINAL_FLEX_GROW_ATTRIBUTE, element.style.flexGrow || ''); element.setAttribute(ORIGINAL_FLEX_SHRINK_ATTRIBUTE, element.style.flexShrink || ''); element.setAttribute(ORIGINAL_GRID_COLUMN_ATTRIBUTE, element.style.getPropertyValue('grid-column') || ''); element.setAttribute(ORIGINAL_BOX_SIZING_ATTRIBUTE, element.style.boxSizing || ''); element.setAttribute(ORIGINAL_MARGIN_LEFT_ATTRIBUTE, element.style.marginLeft || ''); element.setAttribute(ORIGINAL_MARGIN_RIGHT_ATTRIBUTE, element.style.marginRight || ''); element.setAttribute(ORIGINAL_OVERFLOW_X_ATTRIBUTE, element.style.overflowX || ''); element.setAttribute(ORIGINAL_OVERFLOW_Y_ATTRIBUTE, element.style.overflowY || ''); if (!overflowOnly && hasLayoutName(element, 'CanvasZone') && !element.classList.contains('CanvasZone--fullWidth')) { element.classList.add('CanvasZone--fullWidth'); element.setAttribute(ADDED_NATIVE_CLASS_ATTRIBUTE, 'true'); } } owners.push(ownerId); element.setAttribute(OWNER_ATTRIBUTE, owners.join(',')); if (overflowOnly) { element.style.overflowX = 'visible'; element.style.overflowY = 'visible'; return; } if (bounds) { const width = String(bounds.width) + 'px'; element.style.setProperty('min-width', width, 'important'); element.style.setProperty('max-width', width, 'important'); element.style.marginLeft = String(bounds.leftOffset) + 'px'; element.style.marginRight = String(bounds.rightOffset) + 'px'; return; } element.style.width = '100%'; element.style.minWidth = '0'; element.style.maxWidth = 'none'; element.style.flexBasis = '100%'; element.style.flexGrow = '1'; element.style.flexShrink = '0'; element.style.setProperty('grid-column', '1 / -1'); element.style.boxSizing = 'border-box'; }
+function removeOwner(element: HTMLElement, ownerId: string): void { const owners = getOwners(element).filter((owner: string) => owner !== ownerId); if (owners.length > 0) { element.setAttribute(OWNER_ATTRIBUTE, owners.join(',')); return; } element.style.setProperty('width', element.getAttribute(ORIGINAL_WIDTH_ATTRIBUTE) || ''); element.style.setProperty('min-width', element.getAttribute(ORIGINAL_MIN_WIDTH_ATTRIBUTE) || ''); element.style.setProperty('max-width', element.getAttribute(ORIGINAL_MAX_WIDTH_ATTRIBUTE) || ''); element.style.setProperty('flex-basis', element.getAttribute(ORIGINAL_FLEX_BASIS_ATTRIBUTE) || ''); element.style.setProperty('flex-grow', element.getAttribute(ORIGINAL_FLEX_GROW_ATTRIBUTE) || ''); element.style.setProperty('flex-shrink', element.getAttribute(ORIGINAL_FLEX_SHRINK_ATTRIBUTE) || ''); element.style.setProperty('grid-column', element.getAttribute(ORIGINAL_GRID_COLUMN_ATTRIBUTE) || ''); element.style.boxSizing = element.getAttribute(ORIGINAL_BOX_SIZING_ATTRIBUTE) || ''; element.style.marginLeft = element.getAttribute(ORIGINAL_MARGIN_LEFT_ATTRIBUTE) || ''; element.style.marginRight = element.getAttribute(ORIGINAL_MARGIN_RIGHT_ATTRIBUTE) || ''; element.style.overflowX = element.getAttribute(ORIGINAL_OVERFLOW_X_ATTRIBUTE) || ''; element.style.overflowY = element.getAttribute(ORIGINAL_OVERFLOW_Y_ATTRIBUTE) || ''; if (element.getAttribute(ADDED_NATIVE_CLASS_ATTRIBUTE) === 'true') { element.classList.remove('CanvasZone--fullWidth'); } element.removeAttribute(OWNER_ATTRIBUTE); element.removeAttribute(ORIGINAL_WIDTH_ATTRIBUTE); element.removeAttribute(ORIGINAL_MIN_WIDTH_ATTRIBUTE); element.removeAttribute(ORIGINAL_MAX_WIDTH_ATTRIBUTE); element.removeAttribute(ORIGINAL_FLEX_BASIS_ATTRIBUTE); element.removeAttribute(ORIGINAL_FLEX_GROW_ATTRIBUTE); element.removeAttribute(ORIGINAL_FLEX_SHRINK_ATTRIBUTE); element.removeAttribute(ORIGINAL_GRID_COLUMN_ATTRIBUTE); element.removeAttribute(ORIGINAL_BOX_SIZING_ATTRIBUTE); element.removeAttribute(ORIGINAL_MARGIN_LEFT_ATTRIBUTE); element.removeAttribute(ORIGINAL_MARGIN_RIGHT_ATTRIBUTE); element.removeAttribute(ORIGINAL_OVERFLOW_X_ATTRIBUTE); element.removeAttribute(ORIGINAL_OVERFLOW_Y_ATTRIBUTE); element.removeAttribute(ADDED_NATIVE_CLASS_ATTRIBUTE); }
+export function adjustOptionalFullWidthForScrollbar(documentRef: Document, ownerId: string): void {
+	const ownedElements = documentRef.querySelectorAll('[' + OWNER_ATTRIBUTE + ']');
+	let scrollbarGutter = 0;
+	for (let index = 0; index < ownedElements.length; index += 1) {
+		const element = ownedElements[index] as HTMLElement;
+		if (getOwners(element).indexOf(ownerId) < 0) { continue; }
+		element.style.overflowY = element.getAttribute('data-sps-full-width-overflow-y') || '';
+		const computedStyle = documentRef.defaultView ? documentRef.defaultView.getComputedStyle(element) : undefined;
+		const borderWidth = computedStyle ? parseFloat(computedStyle.borderLeftWidth || '0') + parseFloat(computedStyle.borderRightWidth || '0') : 0;
+		scrollbarGutter = Math.max(scrollbarGutter, Math.max(0, element.offsetWidth - element.clientWidth - borderWidth));
+	}
+	if (scrollbarGutter <= 0) { return; }
+	for (let index = 0; index < ownedElements.length; index += 1) {
+		const element = ownedElements[index] as HTMLElement;
+		if (getOwners(element).indexOf(ownerId) < 0) { continue; }
+		const appliedWidth = parseFloat(element.style.maxWidth || '');
+		if (!isNaN(appliedWidth) && appliedWidth > scrollbarGutter) {
+			const adjustedWidth = String(Math.floor(appliedWidth - scrollbarGutter)) + 'px';
+			element.style.setProperty('min-width', adjustedWidth, 'important');
+			element.style.setProperty('max-width', adjustedWidth, 'important');
+		}
+	}
+}
+export function updateOptionalFullWidth(domElement: HTMLElement, ownerId: string, enabled: boolean): void { releaseOptionalFullWidth(domElement.ownerDocument, ownerId); if (!enabled) { return; } const path: HTMLElement[] = []; const containers: HTMLElement[] = []; let ancestor = domElement.parentElement; let depth = 0; while (ancestor && ancestor !== domElement.ownerDocument.body && depth < 32) { path.push(ancestor); if (isLayoutContainer(ancestor)) { containers.push(ancestor); } ancestor = ancestor.parentElement; depth += 1; } const nativeFullWidth = containers.some((container: HTMLElement) => hasLayoutName(container, 'CanvasZone') && container.classList.contains('CanvasZone--fullWidth')); if (nativeFullWidth) { return; } let breakoutContainer: HTMLElement | undefined; for (let index = 0; index < containers.length; index += 1) { if (hasLayoutName(containers[index], 'CanvasZoneSectionContainer')) { breakoutContainer = containers[index]; break; } } if (!breakoutContainer) { for (let index = 0; index < containers.length; index += 1) { if (hasLayoutName(containers[index], 'CanvasSection')) { breakoutContainer = containers[index]; break; } } } if (!breakoutContainer && containers.length > 0) { breakoutContainer = containers[containers.length - 1]; } if (!breakoutContainer) { return; } const layout = getFullWidthLayout(breakoutContainer); const breakoutIndex = path.indexOf(breakoutContainer); const boundaryIndex = path.indexOf(layout.boundary); path.slice(0, breakoutIndex + 1).forEach((container: HTMLElement) => addOwner(container, ownerId, container === breakoutContainer ? layout.bounds : undefined)); if (boundaryIndex > breakoutIndex) { path.slice(breakoutIndex + 1, boundaryIndex).forEach((container: HTMLElement) => addOwner(container, ownerId, undefined, true)); } }
+const RESPONSIVE_MONITORS: { [ownerId: string]: { observer: any; timer: number } } = {};
+export function updateResponsiveOptionalFullWidth(domElement: HTMLElement, ownerId: string, enabled: boolean): void {
+	updateOptionalFullWidth(domElement, ownerId, enabled);
+	if (!enabled) { return; }
+	const documentRef = domElement.ownerDocument;
+	const viewportWidth = documentRef.documentElement.clientWidth;
+	const hostname = String(documentRef.location && documentRef.location.hostname || '').toLowerCase();
+	const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+	const isSharePointOnline = /\.sharepoint(?:-mil)?\.[a-z.]+$/.test(hostname);
+	const isSharePointServer = !isLocal && !isSharePointOnline;
+	const serverRightGutter = isSharePointServer ? 20 : 0;
+	let propertyPaneLeft = 0;
+	let availableRight = viewportWidth;
+	let ancestor = domElement.parentElement;
+	while (ancestor && ancestor !== documentRef.body) {
+		const rect = ancestor.getBoundingClientRect();
+		const right = Math.min(viewportWidth, rect.left + ancestor.clientLeft + ancestor.clientWidth);
+		if (rect.width >= viewportWidth * 0.45 && right > viewportWidth * 0.45 && right < availableRight) { availableRight = right; }
+		ancestor = ancestor.parentElement;
+	}
+	const pane = documentRef.querySelector('#spPropertyPaneContainer, .spPropertyPaneContainer, [data-automation-id="propertyPane"]') as HTMLElement;
+	if (pane) {
+		const paneRect = pane.getBoundingClientRect();
+		if (paneRect.width > 0 && paneRect.left > 0 && paneRect.left < viewportWidth) {
+			availableRight = Math.min(availableRight, paneRect.left);
+			propertyPaneLeft = paneRect.left;
+		}
+	}
+	const overlap = Math.max(0, viewportWidth - availableRight) + serverRightGutter;
+	if (overlap > 0) {
+		const ownedElements = documentRef.querySelectorAll('[' + OWNER_ATTRIBUTE + ']');
+		for (let index = 0; index < ownedElements.length; index += 1) {
+			const element = ownedElements[index] as HTMLElement;
+			const appliedWidth = parseFloat(element.style.maxWidth || '');
+			if (getOwners(element).indexOf(ownerId) >= 0 && !isNaN(appliedWidth) && appliedWidth > overlap) {
+				const adjustedWidth = isSharePointServer && propertyPaneLeft > 0
+					? Math.floor(propertyPaneLeft - element.getBoundingClientRect().left - serverRightGutter)
+					: Math.floor(appliedWidth - overlap);
+				const width = String(Math.max(1, adjustedWidth)) + 'px';
+				element.style.setProperty('min-width', width, 'important');
+				element.style.setProperty('max-width', width, 'important');
+			}
+		}
+	}
+	adjustOptionalFullWidthForScrollbar(documentRef, ownerId);
+	const MutationObserverConstructor: any = (documentRef.defaultView as any).MutationObserver;
+	if (MutationObserverConstructor && documentRef.body) {
+		const monitor = { observer: undefined as any, timer: 0 };
+		monitor.observer = new MutationObserverConstructor(() => {
+			if (monitor.timer) { window.clearTimeout(monitor.timer); }
+			monitor.timer = window.setTimeout(() => updateResponsiveOptionalFullWidth(domElement, ownerId, true), 350);
+		});
+		monitor.observer.observe(documentRef.body, { childList: true, subtree: true });
+		RESPONSIVE_MONITORS[ownerId] = monitor;
+	}
+}
+export function releaseOptionalFullWidth(documentRef: Document, ownerId: string): void { const monitor = RESPONSIVE_MONITORS[ownerId]; if (monitor) { if (monitor.timer) { window.clearTimeout(monitor.timer); } if (monitor.observer) { monitor.observer.disconnect(); } delete RESPONSIVE_MONITORS[ownerId]; } const ownedElements = documentRef.querySelectorAll('[' + OWNER_ATTRIBUTE + ']'); for (let index = 0; index < ownedElements.length; index += 1) { removeOwner(ownedElements[index] as HTMLElement, ownerId); } }

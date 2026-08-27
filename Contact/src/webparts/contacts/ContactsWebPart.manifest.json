@@ -16,6 +16,8 @@
       "directorate": "",
       "division":"",
       "propertyCheckbox": true,
+      "listSourceMode": "existing",
+      "provisionListName": "Contacts",
       "personnelImgWidth": 100,
       "personnelDefaultImg": "",
       "PersonnelPanelHeaderBackColor": "#8A1717",

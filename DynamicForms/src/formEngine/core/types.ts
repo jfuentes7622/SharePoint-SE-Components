@@ -12,6 +12,9 @@ export type FieldType =
   | 'text'
   | 'multiline'
   | 'richtext'
+  | 'customimage'
+  | 'divider'
+  | 'gridcontrol'
   | 'number'
   | 'datetime'
   | 'dropdown'
@@ -52,6 +55,10 @@ export interface FormSchema {
   id: string;
   name: string;
   description?: string;
+  nameAlignment?: 'left' | 'center' | 'right';
+  descriptionAlignment?: 'left' | 'center' | 'right';
+  logoUrl?: string;
+  logoAltText?: string;
   showTitle?: boolean; // default true
   mode: FormMode;
   listName: string;
@@ -112,6 +119,8 @@ export interface FormStep {
   id: string;
   title: string;
   description?: string;
+  titleAlignment?: 'left' | 'center' | 'right';
+  descriptionAlignment?: 'left' | 'center' | 'right';
   showTitle?: boolean; // default true
   fields: (FormField | null)[]; // allow null placeholders to preserve correct grid layout positions
   visible?: boolean; // whether the step is visible (e.g. for welcome-page scenarios)
@@ -178,6 +187,24 @@ export interface FieldConfig {
   accepts?: string;
   allowAttachmentDelete?: boolean;
   booleanText?: string;
+  imageUrl?: string;
+  imageAltText?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  imageFit?: 'contain' | 'cover';
+  imageAlignment?: 'left' | 'center' | 'right';
+  dividerColor?: string;
+  dividerThickness?: number;
+  dividerStyle?: 'solid' | 'dashed' | 'dotted';
+  dividerSpacing?: number;
+  dividerOrientation?: 'horizontal' | 'vertical';
+  dividerLength?: number;
+  gridControlSourceId?: string;
+  gridControlSourceName?: string;
+  gridControlSourceListName?: string;
+  gridControlFilterSourceField?: string;
+  gridControlFilterTargetField?: string;
+  gridControlFilterOperator?: string;
 }
 
 export type FieldAction =

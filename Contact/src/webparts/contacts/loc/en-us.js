@@ -1,8 +1,8 @@
 define([], function() {
   return {
     "PropertyPaneDescription": "Contacts Web Part",
-    "BasicGroupName": "List",
-    "ListConfigGroupName": "List Configuration",
+    "BasicGroupName": "Data Source",
+    "ListConfigGroupName": "Columns to Use",
     "ListChoicesGroupName": "List Items",
     "overRideCSS": "Override CSS URL",
     "CommonGroupName": "Common Properties",

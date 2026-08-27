@@ -174,6 +174,10 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       this._calendar.setOption('weekends', this.props.showWeekends !== false);
       shouldReloadEvents = true;
     }
+    if (prevProps.showMonthEventStartTime !== this.props.showMonthEventStartTime
+      || prevProps.showMonthEventDuration !== this.props.showMonthEventDuration) {
+      this._calendar.rerenderEvents();
+    }
     if (prevProps.calendarHeight !== this.props.calendarHeight) {
       this._calendar.updateSize();
     }
@@ -324,10 +328,18 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       expandRows: true,
       dayMaxEvents: false,
       displayEventTime: false,
+      eventContent: (info: any) => this.renderEventContent(info),
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
         right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+      },
+      buttonText: {
+        today: strings.SwimlaneTodayLabel,
+        month: strings.ViewMonthLabel,
+        week: strings.ViewWeekLabel,
+        day: strings.ViewDayLabel,
+        list: strings.ViewListLabel
       },
       datesSet: () => {
         if (this.props.enableSwimlanes !== true) {
@@ -357,7 +369,21 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
         const eventStyle = info.event.extendedProps && info.event.extendedProps.eventStyle;
         const sourceItemId = Number(info.event.extendedProps && info.event.extendedProps.sourceItemId || 0);
         const sourceItemKey = String(info.event.extendedProps && info.event.extendedProps.sourceItemKey || info.event.id || '');
-        info.el.title = info.event.title + (location ? ' \u2014 ' + location : '');
+        const isMonthView = info.view && info.view.type === 'dayGridMonth';
+        const hasVisibleTimeDetails = isMonthView && !info.event.allDay
+          && (this.props.showMonthEventStartTime === true || this.props.showMonthEventDuration === true);
+        const hasAllVisibleTimeDetails = isMonthView && !info.event.allDay
+          && this.props.showMonthEventStartTime === true && this.props.showMonthEventDuration === true;
+        if (!hasAllVisibleTimeDetails) {
+          if (isMonthView && !info.event.allDay) {
+            info.el.title = this.formatMonthEventTimeDetails(info.event);
+          } else {
+            info.el.title = String(info.event.title || '') + (location ? ' \u2014 ' + location : '');
+          }
+        }
+        if (hasVisibleTimeDetails) {
+          info.el.classList.add(styles.monthEventDetails);
+        }
         info.el.setAttribute('data-calendar-event-id', String(info.event.id || ''));
         info.el.style.position = 'relative';
         var editAction = document.createElement('span');
@@ -404,6 +430,74 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     });
 
     this._calendar.render();
+  }
+
+  private renderEventContent(info: any): any {
+    var event = info.event;
+    var title = document.createElement('span');
+    title.className = 'fc-event-title';
+    var isMonthView = info.view && info.view.type === 'dayGridMonth';
+    title.textContent = this.formatMonthEventLabel(event,
+      isMonthView && this.props.showMonthEventStartTime === true,
+      isMonthView && this.props.showMonthEventDuration === true);
+    return { domNodes: [title] };
+  }
+
+  private formatMonthEventLabel(event: any, includeStartTime: boolean, includeDuration: boolean): string {
+    var parts: string[] = [];
+    if (!event.allDay && includeStartTime) {
+      var startTime = this.formatMonthEventStartTime(event.start);
+      if (startTime) {
+        parts.push(startTime);
+      }
+    }
+    parts.push(String(event.title || ''));
+    if (!event.allDay && includeDuration) {
+      var duration = this.formatMonthEventDuration(event.start, event.end);
+      if (duration) {
+        parts.push(duration);
+      }
+    }
+    return parts.join(' ');
+  }
+
+  private formatMonthEventTimeDetails(event: any): string {
+    var parts: string[] = [];
+    var startTime = this.formatMonthEventStartTime(event.start);
+    var duration = this.formatMonthEventDuration(event.start, event.end);
+    if (startTime) {
+      parts.push(startTime);
+    }
+    if (duration) {
+      parts.push(duration);
+    }
+    return parts.join(' ');
+  }
+
+  private formatMonthEventStartTime(value: any): string {
+    var start = value ? new Date(value) : undefined;
+    if (!start || isNaN(start.getTime())) {
+      return '';
+    }
+    var hours = start.getHours();
+    var minutes = start.getMinutes();
+    return String(hours % 12 || 12) + ':' + (minutes < 10 ? '0' : '') + String(minutes)
+      + (hours >= 12 ? 'pm' : 'am');
+  }
+
+  private formatMonthEventDuration(startValue: any, endValue: any): string {
+    var start = startValue ? new Date(startValue) : undefined;
+    var end = endValue ? new Date(endValue) : undefined;
+    if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+      return '';
+    }
+    var totalMinutes = Math.round((end.getTime() - start.getTime()) / 60000);
+    var hours = Math.floor(totalMinutes / 60);
+    var minutes = totalMinutes % 60;
+    if (hours === 0) {
+      return String(minutes) + 'min';
+    }
+    return String(hours) + 'hr' + (minutes > 0 ? ' ' + String(minutes) + 'min' : '');
   }
 
   private openNewEventDialog(date: Date): void {

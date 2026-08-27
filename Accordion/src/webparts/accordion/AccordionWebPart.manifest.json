@@ -9,11 +9,30 @@
   "preconfiguredEntries": [{
     "groupId": "5c03119e-3074-46fd-976b-c60198311f70",  
     "group": { "default": "Other" },
-    "title": { "default": "Accordion" },
+    "title": { "default": "SPS Accordion" },
     "description": { "default": "Accordion Webpart" },
     "officeFabricIconFontName": "Page",
     "properties": {
-      "description": "Accordion"
+      "description": "Accordion",
+      "headerBackgroundColor": "#f0f0f0",
+      "headerTextColor": "#000000",
+      "headerFontBold": false,
+      "headerFontSize": 16,
+      "contentBackgroundColor": "#ffffff",
+      "contentTextColor": "#000000",
+      "contentFontBold": false,
+      "contentFontSize": 16,
+      "cornerStyle": "square",
+      "cornerRadius": 8,
+      "showCloseBar": true,
+      "closeBarText": "Close others \u00d7",
+      "closeBarBackgroundColor": "#333333",
+      "closeBarTextColor": "#ffffff",
+      "closeBarFontSize": 12,
+      "closeBarFontBold": false,
+      "closeBarAlignment": "right",
+      "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+      "fontStyle": "normal"
     }
   }]
 }

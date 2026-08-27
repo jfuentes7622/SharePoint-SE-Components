@@ -14,6 +14,21 @@ export interface ITabGlobalFontSettings {
   tabWidth?: number;
   autoTabWidth?: boolean;
   tabShape?: 'rounded' | 'square';
+  tabTextColor?: string;
+  tabBorderColor?: string;
+  tabBorderWidth?: number;
+  tabBorderStyle?: 'none' | 'solid' | 'dashed' | 'dotted' | 'double';
+  tabCornerRadius?: number;
+  tabLineColor?: string;
+  tabLineWidth?: number;
+  webPartBorderColor?: string;
+  webPartBorderWidth?: number;
+  webPartBorderStyle?: 'none' | 'solid' | 'dashed' | 'dotted' | 'double';
+  webPartCornerStyle?: 'square' | 'rounded';
+  webPartCornerRadius?: number;
+  inactiveImageFade?: number;
+  contentPaddingTop?: number;
+  contentPaddingBottom?: number;
 }
 
 export interface ITabComponentProps {

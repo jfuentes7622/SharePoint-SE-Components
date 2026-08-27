@@ -18,6 +18,8 @@ import {
   PropertyPaneDropdown,
   IPropertyPaneDropdownOption,
   PropertyPaneCheckbox,
+  PropertyPaneButton,
+  PropertyPaneButtonType,
   PropertyPaneLabel,
   IPropertyPaneGroup,
   BaseClientSideWebPart
@@ -30,7 +32,7 @@ import {
 
 //import { CustomFilePicker } from './components/CustomFilePicker';
 
-//(SPO) import { PropertyFieldCollectionData, CustomCollectionFieldType } from '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData';
+import { PropertyFieldCollectionData, CustomCollectionFieldType } from '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData';
 //(SPO) import { FilePicker, IFilePickerResult } from '@pnp/spfx-controls-react/lib/FilePicker';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
 import { PropertyFieldListPicker, PropertyFieldListPickerOrderBy } from '@pnp/spfx-property-controls/lib/PropertyFieldListPicker';
@@ -41,13 +43,6 @@ import { PropertyFieldListPicker, PropertyFieldListPickerOrderBy } from '@pnp/sp
 //import { PropertyFieldColorPickerMini } from 'sp-client-custom-fields/lib/PropertyFieldColorPickerMini';
 
 //import { PropertyFieldSPListQuery,PropertyFieldSPListQueryOrderBy,IPropertyFieldSPListQueryProps} from 'sp-client-custom-fields/lib/PropertyFieldSPListQuery'
-
-import {
-  PropertyFieldCustomList,
-  //IPropertyFieldCustomListProps,
-  CustomListFieldType
-} from 'sp-client-custom-fields/lib/PropertyFieldCustomList';
-
 
 import * as strings from 'ContactsWebPartStrings';
 
@@ -70,6 +65,10 @@ import { ConfigData } from './components/shared/ConfigData';
 import pnp from 'sp-pnp-js';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
+const documentPickerModule: any = require('sp-client-custom-fields/lib/PropertyFieldDocumentPickerHost');
+const PropertyFieldDocumentPickerHost: any = documentPickerModule.default || documentPickerModule;
+const picturePickerModule: any = require('sp-client-custom-fields/lib/PropertyFieldPicturePickerHost');
+const PropertyFieldPicturePickerHost: any = picturePickerModule.default || picturePickerModule;
 
 export interface IContactsWebPartProps {
   overridecss: string;
@@ -85,6 +84,8 @@ export interface IContactsWebPartProps {
   PersonnelPanelHeaderBackColor: string;
   PersonnelPanelHeaderTextColor: string;
   ContactsListId: string;
+  listSourceMode: string;
+  provisionListName: string;
   imageWidth: number;
   personnelDefaultImgUrl: string;
   personnelShowDefaultImg: boolean;
@@ -125,6 +126,8 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
   private dirsDropdownDisabled: boolean = true;
   private divs: IPropertyPaneDropdownOption[];
   private divsDropdownDisabled: boolean = true;
+  private provisionListStatus: string = '';
+  private isProvisioningList: boolean = false;
 
   private logDiagnostic(message: string): void {
     if (this.properties.enableDiagnostics === false) {
@@ -203,7 +206,7 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
         division: this.properties.division,
         propertyCheckbox: this.properties.propertyCheckbox,
         recSvc: this.GetNewRecSvc(),
-        customList: this.properties.customList,
+        customList: this.getNormalizedCustomList(),
         spfxContext: this.context,
         imageWidth: this.properties.imageWidth,
         ContactsListId: this.properties.ContactsListId,
@@ -226,12 +229,89 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
     ReactDom.render(element, this.domElement);
   }
 
+  private getNormalizedCustomList(): IRecord[] {
+    const contacts: any[] = this.properties.customList || [];
+
+    return contacts.map((contact: any) => {
+      const displayPhoto = contact.displayPhoto === true || contact.displayPhoto === 'true' || contact.displayPhoto === 1 || contact.displayPhoto === '1';
+      const displayOrder = Number(contact.groupHeiarchyValue);
+
+      return {
+        ...contact,
+        displayPhoto: displayPhoto,
+        groupHeiarchyValue: isNaN(displayOrder) ? 0 : displayOrder
+      };
+    }) as IRecord[];
+  }
+
+  private renderBiographyPicker(field: any, value: any,
+    onUpdate: (fieldId: string, fieldValue: any) => void): React.ReactElement<any> {
+    return this.renderCollectionFilePicker(
+      PropertyFieldDocumentPickerHost,
+      field,
+      value,
+      onUpdate,
+      '.doc,.docx,.ppt,.pptx,.xls,.xlsx,.pdf,.txt',
+      false
+    );
+  }
+
+  private renderImagePicker(field: any, value: any,
+    onUpdate: (fieldId: string, fieldValue: any) => void): React.ReactElement<any> {
+    return this.renderCollectionFilePicker(
+      PropertyFieldPicturePickerHost,
+      field,
+      value,
+      onUpdate,
+      '.gif,.jpg,.jpeg,.bmp,.png,.svg,.webp',
+      true
+    );
+  }
+
+  private renderCollectionFilePicker(picker: any, field: any, value: any,
+    onUpdate: (fieldId: string, fieldValue: any) => void,
+    allowedFileExtensions: string, previewImage: boolean): React.ReactElement<any> {
+    const properties: any = {};
+    properties[field.id] = String(value || '');
+
+    return React.createElement(picker, {
+      key: 'contactFilePicker-' + field.id + '-' + String(value || ''),
+      targetProperty: field.id,
+      label: '',
+      initialValue: String(value || ''),
+      context: this.context,
+      previewImage: previewImage,
+      previewDocument: !previewImage,
+      allowedFileExtensions: allowedFileExtensions,
+      readOnly: false,
+      disabled: false,
+      properties: properties,
+      disableReactivePropertyChanges: true,
+      deferredValidationTime: 0,
+      onGetErrorMessage: undefined,
+      onPropertyChange: (propertyPath: string, oldValue: any, newValue: any): void => {
+        onUpdate(field.id, String(newValue || ''));
+      },
+      render: (): void => undefined,
+      onRender: undefined,
+      onDispose: undefined
+    });
+  }
+
 
   protected onPropertyPaneConfigurationStart(): void {
     this.dirsDropdownDisabled = !this.dirs;
     this.divsDropdownDisabled = !this.properties.directorate || !this.divs;
 
-    if (this.dirs) {
+    if (this.properties.propertyCheckbox && this.properties.ContactsListId && this.columnOptions.length === 0) {
+      this.loadListColumns(this.properties.ContactsListId).then((options: IPropertyPaneDropdownOption[]): void => {
+        this.columnOptions = options;
+        this.context.propertyPane.refresh();
+      });
+    }
+
+    if (this.dirs || !this.properties.propertyCheckbox || !this.properties.ContactsListId ||
+      !this.properties.directorateField || !this.properties.divisionField) {
       return;
     }
 
@@ -264,6 +344,32 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
     }
     else {
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+    }
+
+    if (propertyPath === 'propertyCheckbox') {
+      this.context.propertyPane.refresh();
+    }
+
+    if (propertyPath === 'listSourceMode' && oldValue !== newValue) {
+      this.properties.ContactsListId = '';
+      this.columnOptions = [];
+      this.dirs = undefined;
+      this.divs = undefined;
+      this.properties.directorate = '';
+      this.properties.division = '';
+      this.provisionListStatus = '';
+      this.context.propertyPane.refresh();
+      this.render();
+    }
+
+    if (propertyPath === 'ContactsListId') {
+      this.columnOptions = newValue ? await this.loadListColumns(String(newValue)) : [];
+      this.dirs = undefined;
+      this.divs = undefined;
+      this.properties.directorate = '';
+      this.properties.division = '';
+      this.context.propertyPane.refresh();
+      this.render();
     }
 
     //if (propertyPath === 'ContactsListId' && newValue) {
@@ -458,6 +564,29 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
     }
   }
 
+  private async loadListColumns(listId: string): Promise<IPropertyPaneDropdownOption[]> {
+    if (!listId) {
+      return [];
+    }
+    const url = "/_api/web/lists/GetById('" + listId + "')/fields?$select=Title,InternalName,Hidden,ReadOnlyField&$filter=Hidden eq false";
+    const response = await this.fetchLists(url);
+    const options: IPropertyPaneDropdownOption[] = [];
+    if (response && response.value) {
+      response.value.forEach((field: any): void => {
+        if (field.InternalName && field.ReadOnlyField !== true) {
+          options.push({
+            key: field.InternalName,
+            text: String(field.Title || field.InternalName) + ' (' + String(field.InternalName) + ')'
+          });
+        }
+      });
+    }
+    options.sort((left: IPropertyPaneDropdownOption, right: IPropertyPaneDropdownOption): number => {
+      return String(left.text).localeCompare(String(right.text));
+    });
+    return options;
+  }
+
   private GetNewRecSvc(): RecordService {
     // const getUrl = window.location;
     // const aUrl = getUrl.protocol + "//" + getUrl.host + "/" ;
@@ -470,6 +599,7 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
         personnelShowDefaultImg: this.properties.personnelShowDefaultImg,
         directorateField: this.properties.directorateField,
         divisionField: this.properties.divisionField,
+        titleField: this.properties.titleField,
         groupField: this.properties.groupField,
         branchField: this.properties.branchField,
         groupHeiarchyField: this.properties.groupHeiarchyField,
@@ -493,6 +623,97 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
         relUrl: decodeURI(this.context.pageContext.web.serverRelativeUrl)
       }
     );
+  }
+
+  private async provisionContactList(): Promise<void> {
+    const listTitle = String(this.properties.provisionListName || '').trim();
+    if (!listTitle) {
+      this.provisionListStatus = 'Enter a list name before creating the list.';
+      this.context.propertyPane.refresh();
+      return;
+    }
+
+    this.isProvisioningList = true;
+    this.provisionListStatus = 'Creating list and contact fields...';
+    this.context.propertyPane.refresh();
+
+    try {
+      const result: any = await pnp.sp.web.lists.ensure(
+        listTitle,
+        'Contact directory data for the SPS Contacts web part.',
+        100,
+        false
+      );
+      const list: any = result.list;
+      const listData: any = await list.select('Id').get();
+      const listId = String(listData.Id || listData.ID || listData.id || '').replace(/[{}]/g, '');
+
+      await list.fields.getByInternalNameOrTitle('Title').update({ Title: 'Job Title' });
+      await this.ensureContactField(list, 'directorate', '<Field Type="Text" Name="directorate" StaticName="directorate" DisplayName="Directorate" MaxLength="255" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'division', '<Field Type="Text" Name="division" StaticName="division" DisplayName="Division" MaxLength="255" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'branch', '<Field Type="Text" Name="branch" StaticName="branch" DisplayName="Branch" MaxLength="255" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'Group', '<Field Type="Choice" Name="Group" StaticName="Group" DisplayName="Group" FillInChoice="TRUE" Format="Dropdown" Group="SPS Contacts"><CHOICES><CHOICE>Group 1</CHOICE><CHOICE>Group 2</CHOICE><CHOICE>Group 3</CHOICE></CHOICES></Field>');
+      await this.ensureContactField(list, 'groupHeiarchyValue', '<Field Type="Number" Name="groupHeiarchyValue" StaticName="groupHeiarchyValue" DisplayName="Display Order" Min="0" Decimals="0" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'name', '<Field Type="Text" Name="name" StaticName="name" DisplayName="Person Name" MaxLength="255" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'eMail', '<Field Type="Text" Name="eMail" StaticName="eMail" DisplayName="Email" MaxLength="255" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'phoneNumber', '<Field Type="Text" Name="phoneNumber" StaticName="phoneNumber" DisplayName="Phone Number" MaxLength="255" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'bioLink', '<Field Type="Note" Name="bioLink" StaticName="bioLink" DisplayName="Biography Link" NumLines="3" RichText="FALSE" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'displayPhoto', '<Field Type="Boolean" Name="displayPhoto" StaticName="displayPhoto" DisplayName="Display Photo" Group="SPS Contacts"><Default>1</Default></Field>');
+      await this.ensureContactField(list, 'imageLink', '<Field Type="Note" Name="imageLink" StaticName="imageLink" DisplayName="Image Link" NumLines="3" RichText="FALSE" Group="SPS Contacts" />');
+      await this.ensureContactField(list, 'sVoip', '<Field Type="Text" Name="sVoip" StaticName="sVoip" DisplayName="VOIP" MaxLength="255" Group="SPS Contacts" />');
+
+      if (!listId) {
+        throw new Error('SharePoint created the list but did not return its ID. Select it manually from the list picker.');
+      }
+
+      this.properties.propertyCheckbox = true;
+      this.properties.listSourceMode = 'create';
+      this.properties.ContactsListId = listId;
+      this.properties.idField = 'Id';
+      this.properties.titleField = 'Title';
+      this.properties.directorateField = 'directorate';
+      this.properties.divisionField = 'division';
+      this.properties.branchField = 'branch';
+      this.properties.groupField = 'Group';
+      this.properties.groupHeiarchyField = 'groupHeiarchyValue';
+      this.properties.nameField = 'name';
+      this.properties.eMailField = 'eMail';
+      this.properties.phoneNumberField = 'phoneNumber';
+      this.properties.bioLinkField = 'bioLink';
+      this.properties.displayPhotoField = 'displayPhoto';
+      this.properties.imageLinkField = 'imageLink';
+      this.properties.sVoipField = 'sVoip';
+      this.properties.directorate = '';
+      this.properties.division = '';
+      this.dirs = undefined;
+      this.divs = undefined;
+      this.columnOptions = await this.loadListColumns(listId);
+      this.provisionListStatus = 'Created "' + listTitle + '" and connected it to this web part.';
+      this.render();
+    } catch (error) {
+      const message = error && (error as any).message ? (error as any).message : String(error);
+      this.provisionListStatus = 'Unable to create the contact list: ' + message;
+      console.error(LOG_SOURCE + this.provisionListStatus, error);
+    } finally {
+      this.isProvisioningList = false;
+      this.context.propertyPane.refresh();
+    }
+  }
+
+  private async ensureContactField(list: any, internalName: string, schemaXml: string): Promise<void> {
+    try {
+      await list.fields.getByInternalNameOrTitle(internalName).select('Id').get();
+      return;
+    } catch (fieldNotFoundError) {
+      try {
+        await list.fields.createFieldAsXml(schemaXml);
+      } catch (createError) {
+        const message = createError && (createError as any).message
+          ? (createError as any).message
+          : String(createError);
+        throw new Error('Failed to create field "' + internalName + '": ' + message);
+      }
+    }
   }
 
   
@@ -559,10 +780,10 @@ public onInit(): Promise<void> {
 
     const conditionalGroupFields: IPropertyPaneGroup["groupFields"] = [
       PropertyPaneCheckbox("propertyCheckbox", {
-        text: 'Use Existing List',
-        checked: false,
+        text: 'Use a List',
+        checked: this.properties.propertyCheckbox === true,
         disabled: false
-      }),
+      })
     ];
 
     const configGroupFields: IPropertyPaneGroup["groupFields"] = [];
@@ -570,36 +791,38 @@ public onInit(): Promise<void> {
     // if (this.properties.propertyCheckbox===false) {
 
     
- customListControl = PropertyFieldCustomList('customList', {
+ customListControl = PropertyFieldCollectionData('customList', {
   label: 'Enter Contacts data with BIO Links and Pictures',
-  headerText: 'Contacts',
+  panelHeader: 'Contacts',
+  manageBtnLabel: 'Manage Contacts',
   key: 'customListFieldId',
   disabled: false,
+  enableSorting: true,
   fields: [
-    { id: 'Title', title: 'Job Title', required: true, type: CustomListFieldType.string },
-    { id: 'name', title: 'Full Name and Rank', required: true, type: CustomListFieldType.string },
-    { id: 'email', title: 'EMail', required: true, type: CustomListFieldType.string },
-    { id: 'phoneNumber', title: 'Phone Number', required: true, type: CustomListFieldType.string },
+    { id: 'Title', title: 'Job Title', required: true, type: CustomCollectionFieldType.string },
+    { id: 'name', title: 'Full Name and Rank', required: true, type: CustomCollectionFieldType.string },
+    { id: 'email', title: 'EMail', required: true, type: CustomCollectionFieldType.string },
+    { id: 'phoneNumber', title: 'Phone Number', required: true, type: CustomCollectionFieldType.string },
     {
       id: 'bioLink',
       title: 'Link to Biography',
-      type: CustomListFieldType.picture,
+      required: false,
+      type: CustomCollectionFieldType.custom,
+      onCustomRender: this.renderBiographyPicker.bind(this)
     },
     {
       id: 'imageLink',
       title: 'Link to Image',
-      type: CustomListFieldType.picture,
+      required: false,
+      type: CustomCollectionFieldType.custom,
+      onCustomRender: this.renderImagePicker.bind(this)
     },
-    { id: 'displayPhoto', title: 'Display Photo?', required: true, type: CustomListFieldType.boolean },
-    { id: 'sVoip', title: 'VOIP', required: false, type: CustomListFieldType.string },
-    { id: 'group', title: 'Group', required: true, type: CustomListFieldType.string },
-    { id: 'groupHeiarchyValue', title: 'Display Order', required: true, type: CustomListFieldType.number }
+    { id: 'displayPhoto', title: 'Display Photo?', required: false, type: CustomCollectionFieldType.boolean, defaultValue: false },
+    { id: 'sVoip', title: 'VOIP', required: false, type: CustomCollectionFieldType.string },
+    { id: 'group', title: 'Group', required: true, type: CustomCollectionFieldType.string },
+    { id: 'groupHeiarchyValue', title: 'Display Order', required: true, type: CustomCollectionFieldType.number }
   ],
-  value: this.properties.customList,
-  context: this.context,
-  properties: this.properties,
-  onPropertyChange: this.onPropertyPaneFieldChanged,
-  render: this.render.bind(this)
+  value: this.getNormalizedCustomList()
 });
 
 
@@ -767,18 +990,59 @@ infoControl = PropertyPaneLabel('webPartInfoId', {
 
 
     if (this.properties.propertyCheckbox) {
-  conditionalGroupFields.push(splist);
+      conditionalGroupFields.push(PropertyPaneDropdown('listSourceMode', {
+        label: 'List Source',
+        selectedKey: this.properties.listSourceMode || 'existing',
+        options: [
+          { key: 'existing', text: 'Use an Existing List' },
+          { key: 'create', text: 'Create a New List' }
+        ]
+      }));
 
-  configGroupFields.push(
-    infoControl,
-    PropertyPaneDropdown('titleField', { label: 'Select Job Title Column', options: this.columnOptions, selectedKey: this.properties.titleField }),
-    PropertyPaneDropdown('directorateField', { label: 'Select Directorate Column', options: this.columnOptions, selectedKey: this.properties.directorateField }),
-    PropertyPaneDropdown('divisionField', { label: 'Select Division Column', options: this.columnOptions, selectedKey: this.properties.divisionField }),
-    // ... repeat for other fields
-  );
-} else {
-  conditionalGroupFields.push(customListControl);
-}
+      if ((this.properties.listSourceMode || 'existing') === 'existing') {
+        conditionalGroupFields.push(splist);
+      } else {
+        conditionalGroupFields.push(
+          PropertyPaneTextField('provisionListName', {
+            label: 'New Contact List Name',
+            placeholder: 'Contacts'
+          }),
+          PropertyPaneButton('provisionContactList', {
+            text: this.isProvisioningList ? 'Creating...' : 'Create Contact List',
+            buttonType: PropertyPaneButtonType.Primary,
+            disabled: this.isProvisioningList,
+            onClick: this.provisionContactList.bind(this)
+          }),
+          PropertyPaneLabel('provisionContactListStatus', {
+            text: this.provisionListStatus || 'Creates the required columns and connects the new list automatically. Requires permission to manage lists.'
+          })
+        );
+      }
+
+      if (this.properties.ContactsListId) {
+        configGroupFields.push(
+          PropertyPaneDropdown('titleField', { label: 'Job Title Column', options: this.columnOptions, selectedKey: this.properties.titleField }),
+          PropertyPaneDropdown('directorateField', { label: 'Directorate Column', options: this.columnOptions, selectedKey: this.properties.directorateField }),
+          PropertyPaneDropdown('divisionField', { label: 'Division Column', options: this.columnOptions, selectedKey: this.properties.divisionField }),
+          PropertyPaneDropdown('branchField', { label: 'Branch Column', options: this.columnOptions, selectedKey: this.properties.branchField }),
+          PropertyPaneDropdown('groupField', { label: 'Group Column', options: this.columnOptions, selectedKey: this.properties.groupField }),
+          PropertyPaneDropdown('groupHeiarchyField', { label: 'Display Order Column', options: this.columnOptions, selectedKey: this.properties.groupHeiarchyField }),
+          PropertyPaneDropdown('nameField', { label: 'Person Name Column', options: this.columnOptions, selectedKey: this.properties.nameField }),
+          PropertyPaneDropdown('eMailField', { label: 'Email Column', options: this.columnOptions, selectedKey: this.properties.eMailField }),
+          PropertyPaneDropdown('phoneNumberField', { label: 'Phone Number Column', options: this.columnOptions, selectedKey: this.properties.phoneNumberField }),
+          PropertyPaneDropdown('bioLinkField', { label: 'Biography Link Column', options: this.columnOptions, selectedKey: this.properties.bioLinkField }),
+          PropertyPaneDropdown('displayPhotoField', { label: 'Display Photo Column', options: this.columnOptions, selectedKey: this.properties.displayPhotoField }),
+          PropertyPaneDropdown('imageLinkField', { label: 'Image Link Column', options: this.columnOptions, selectedKey: this.properties.imageLinkField }),
+          PropertyPaneDropdown('sVoipField', { label: 'VOIP Column', options: this.columnOptions, selectedKey: this.properties.sVoipField })
+        );
+      } else {
+        configGroupFields.push(PropertyPaneLabel('selectListBeforeColumns', {
+          text: 'Select an existing list or create a new list to configure columns.'
+        }));
+      }
+    } else {
+      conditionalGroupFields.push(customListControl);
+    }
     //non conditional
     // conditionalGroupFields.push(
     //   colorHeaderControl,
@@ -786,38 +1050,39 @@ infoControl = PropertyPaneLabel('webPartInfoId', {
     //   imgWidthControl
     // );
 
-    return {
-      pages: [
+    const propertyPaneGroups: IPropertyPaneGroup[] = [
+      {
+        groupName: 'Version: ' + this.getWebPartVersion(),
+        groupFields: [
+          PropertyPaneLabel('propertyPaneVersionInfo', {
+            text: ' '
+          })
+        ]
+      },
+      {
+        groupName: strings.BasicGroupName,
+        groupFields: conditionalGroupFields
+      }
+    ];
+
+    if (this.properties.propertyCheckbox) {
+      propertyPaneGroups.push(
         {
-          displayGroupsAsAccordion: true,
-          header: {
-            description: ''
-          },
-          groups: [
-            {
-              groupName: 'Version: ' + this.getWebPartVersion(),
-              groupFields: [
-                PropertyPaneLabel('propertyPaneVersionInfo', {
-                  text: ' '
-                })
-              ]
-            },
-            {
-              groupName: strings.BasicGroupName,
-              groupFields: conditionalGroupFields
-            },
-            {
-              groupName: strings.ListConfigGroupName,
-              groupFields: configGroupFields
-            },
-            {
-              groupName: strings.ListChoicesGroupName,
-              groupFields: [
-                directorateControl,
-                divisionControl
-              ]
-            },
-            {
+          groupName: strings.ListConfigGroupName,
+          groupFields: configGroupFields
+        },
+        {
+          groupName: strings.ListChoicesGroupName,
+          groupFields: [
+            directorateControl,
+            divisionControl
+          ]
+        }
+      );
+    }
+
+    propertyPaneGroups.push(
+      {
               groupName: strings.HeaderStyleGroupName,
               groupFields: [
                 colorHeaderControl,
@@ -828,8 +1093,8 @@ infoControl = PropertyPaneLabel('webPartInfoId', {
                 headerAlignmentControl,
                 headerTopCornersControl
               ]
-            },
-            {
+          },
+          {
               groupName: strings.TitleStyleGroupName,
               groupFields: [
                 tileTitleColorControl,
@@ -844,14 +1109,23 @@ infoControl = PropertyPaneLabel('webPartInfoId', {
                   validateOnFocusOut: true,
                 }),
               ]
-            },
-            {
+          },
+          {
               groupName: 'Diagnostics',
               groupFields: [
                 diagnosticsControl
               ]
-            }
-          ]
+      }
+    );
+
+    return {
+      pages: [
+        {
+          displayGroupsAsAccordion: true,
+          header: {
+            description: ''
+          },
+          groups: propertyPaneGroups
         }
       ]
     };

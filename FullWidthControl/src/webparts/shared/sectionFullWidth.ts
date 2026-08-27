@@ -1,0 +1,192 @@
+const OWNER_ATTRIBUTE = 'data-sps-section-full-width-owners';
+const BREAKOUT_ATTRIBUTE = 'data-sps-section-full-width-breakout';
+const ADDED_NATIVE_CLASS_ATTRIBUTE = 'data-sps-section-full-width-native-class';
+const ORIGINAL_PREFIX = 'data-sps-section-full-width-';
+
+interface IResponsiveMonitor {
+  observer: any;
+  timer: number;
+  resizeHandler: () => void;
+}
+
+const RESPONSIVE_MONITORS: { [ownerId: string]: IResponsiveMonitor } = {};
+
+function hasLayoutName(element: HTMLElement, name: string): boolean {
+  const automationId = String(element.getAttribute('data-automation-id') || '');
+  if (automationId === name) { return true; }
+  const classes = String(element.className || '').split(/\s+/);
+  return classes.some((className: string) => className === name || className.indexOf(name + '-') === 0 || className.indexOf(name + '_') === 0);
+}
+
+function getOwners(element: HTMLElement): string[] {
+  return String(element.getAttribute(OWNER_ATTRIBUTE) || '').split(',').filter((owner: string) => !!owner);
+}
+
+function saveStyle(element: HTMLElement, propertyName: string): void {
+  element.setAttribute(ORIGINAL_PREFIX + propertyName, element.style.getPropertyValue(propertyName) || '');
+  element.setAttribute(ORIGINAL_PREFIX + propertyName + '-priority', element.style.getPropertyPriority(propertyName) || '');
+}
+
+function restoreStyle(element: HTMLElement, propertyName: string): void {
+  const value = element.getAttribute(ORIGINAL_PREFIX + propertyName) || '';
+  const priority = element.getAttribute(ORIGINAL_PREFIX + propertyName + '-priority') || '';
+  element.style.setProperty(propertyName, value, priority);
+  element.removeAttribute(ORIGINAL_PREFIX + propertyName);
+  element.removeAttribute(ORIGINAL_PREFIX + propertyName + '-priority');
+}
+
+function addOwner(element: HTMLElement, ownerId: string, isBreakout: boolean): void {
+  const owners = getOwners(element);
+  if (owners.length === 0) {
+    ['width', 'min-width', 'max-width', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid-column', 'box-sizing', 'margin-left', 'margin-right', 'overflow-x', 'overflow-y'].forEach((propertyName: string) => saveStyle(element, propertyName));
+    if (hasLayoutName(element, 'CanvasZone') && !element.classList.contains('CanvasZone--fullWidth')) {
+      element.classList.add('CanvasZone--fullWidth');
+      element.setAttribute(ADDED_NATIVE_CLASS_ATTRIBUTE, 'true');
+    }
+  }
+  if (owners.indexOf(ownerId) < 0) {
+    owners.push(ownerId);
+    element.setAttribute(OWNER_ATTRIBUTE, owners.join(','));
+  }
+
+  element.style.setProperty('width', '100%', 'important');
+  element.style.setProperty('min-width', '0', 'important');
+  element.style.setProperty('max-width', 'none', 'important');
+  element.style.setProperty('flex-basis', '100%', 'important');
+  element.style.setProperty('flex-grow', '1', 'important');
+  element.style.setProperty('flex-shrink', '1', 'important');
+  element.style.setProperty('grid-column', '1 / -1', 'important');
+  element.style.setProperty('box-sizing', 'border-box', 'important');
+  element.style.setProperty('overflow-x', 'visible', 'important');
+  if (isBreakout) {
+    element.setAttribute(BREAKOUT_ATTRIBUTE, ownerId);
+    element.style.setProperty('margin-left', '10px', 'important');
+    element.style.setProperty('margin-right', '0', 'important');
+  }
+}
+
+function removeOwner(element: HTMLElement, ownerId: string): void {
+  const owners = getOwners(element).filter((owner: string) => owner !== ownerId);
+  if (owners.length > 0) {
+    element.setAttribute(OWNER_ATTRIBUTE, owners.join(','));
+    if (element.getAttribute(BREAKOUT_ATTRIBUTE) === ownerId) { element.removeAttribute(BREAKOUT_ATTRIBUTE); }
+    return;
+  }
+  ['width', 'min-width', 'max-width', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid-column', 'box-sizing', 'margin-left', 'margin-right', 'overflow-x', 'overflow-y'].forEach((propertyName: string) => restoreStyle(element, propertyName));
+  if (element.getAttribute(ADDED_NATIVE_CLASS_ATTRIBUTE) === 'true') {
+    element.classList.remove('CanvasZone--fullWidth');
+  }
+  element.removeAttribute(OWNER_ATTRIBUTE);
+  element.removeAttribute(BREAKOUT_ATTRIBUTE);
+  element.removeAttribute(ADDED_NATIVE_CLASS_ATTRIBUTE);
+}
+
+function getVisiblePropertyPaneLeft(documentRef: Document, viewportWidth: number): number {
+  const pane = documentRef.querySelector('#spPropertyPaneContainer, .spPropertyPaneContainer, [data-automation-id="propertyPane"]') as HTMLElement;
+  if (!pane) { return 0; }
+  const paneRect = pane.getBoundingClientRect();
+  return paneRect.width > 0 && paneRect.left > 0 && paneRect.left < viewportWidth ? paneRect.left : 0;
+}
+
+function findNearestPathIndex(path: HTMLElement[], names: string[]): number {
+  for (let pathIndex = 0; pathIndex < path.length; pathIndex += 1) {
+    for (let nameIndex = 0; nameIndex < names.length; nameIndex += 1) {
+      if (hasLayoutName(path[pathIndex], names[nameIndex])) { return pathIndex; }
+    }
+  }
+  return -1;
+}
+
+function findOutermostPathIndex(path: HTMLElement[], names: string[], minimumIndex: number): number {
+  for (let pathIndex = path.length - 1; pathIndex >= minimumIndex; pathIndex -= 1) {
+    for (let nameIndex = 0; nameIndex < names.length; nameIndex += 1) {
+      if (hasLayoutName(path[pathIndex], names[nameIndex])) { return pathIndex; }
+    }
+  }
+  return minimumIndex;
+}
+
+function applyAvailableWidth(domElement: HTMLElement, ownerId: string): void {
+  const documentRef = domElement.ownerDocument;
+  const viewportWidth = documentRef.documentElement.clientWidth;
+  const paneLeft = getVisiblePropertyPaneLeft(documentRef, viewportWidth);
+  const hostname = String(documentRef.location && documentRef.location.hostname || '').toLowerCase();
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+  const isSharePointOnline = /\.sharepoint(?:-mil)?\.[a-z.]+$/.test(hostname);
+  const rightGutter = !isLocal && !isSharePointOnline ? 20 : 0;
+  const availableRight = paneLeft > 0 ? paneLeft : viewportWidth;
+  const ownedElements = documentRef.querySelectorAll('[' + OWNER_ATTRIBUTE + ']');
+  for (let index = 0; index < ownedElements.length; index += 1) {
+    const element = ownedElements[index] as HTMLElement;
+    if (getOwners(element).indexOf(ownerId) < 0 || element.getAttribute(BREAKOUT_ATTRIBUTE) !== ownerId) { continue; }
+    const targetWidth = Math.max(1, Math.floor(availableRight - element.getBoundingClientRect().left - rightGutter));
+    const width = String(targetWidth) + 'px';
+    element.style.setProperty('width', width, 'important');
+    element.style.setProperty('min-width', width, 'important');
+    element.style.setProperty('max-width', width, 'important');
+  }
+}
+
+function scheduleUpdate(domElement: HTMLElement, ownerId: string): void {
+  const monitor = RESPONSIVE_MONITORS[ownerId];
+  if (!monitor) { return; }
+  if (monitor.timer) { window.clearTimeout(monitor.timer); }
+  monitor.timer = window.setTimeout(() => updateResponsiveSectionFullWidth(domElement, ownerId), 350);
+}
+
+export function updateResponsiveSectionFullWidth(domElement: HTMLElement, ownerId: string): void {
+  releaseSectionFullWidth(domElement.ownerDocument, ownerId);
+
+  const path: HTMLElement[] = [];
+  let ancestor = domElement.parentElement;
+  let depth = 0;
+  while (ancestor && ancestor !== domElement.ownerDocument.body && depth < 32) {
+    path.push(ancestor);
+    ancestor = ancestor.parentElement;
+    depth += 1;
+  }
+
+  let sectionIndex = findNearestPathIndex(path, ['CanvasSection']);
+  if (sectionIndex < 0) {
+    sectionIndex = findNearestPathIndex(path, ['CanvasZoneSectionContainer', 'CanvasZone']);
+  }
+  if (sectionIndex < 0) { return; }
+
+  const breakoutIndex = findOutermostPathIndex(path, ['CanvasZone', 'CanvasZoneContainer', 'CanvasZoneSectionContainer', 'CanvasSection'], sectionIndex);
+  path.slice(sectionIndex, breakoutIndex + 1).forEach((element: HTMLElement) => addOwner(element, ownerId, path.indexOf(element) === breakoutIndex));
+  applyAvailableWidth(domElement, ownerId);
+
+  const documentRef = domElement.ownerDocument;
+  const MutationObserverConstructor: any = documentRef.defaultView && (documentRef.defaultView as any).MutationObserver;
+  const monitor: IResponsiveMonitor = {
+    observer: undefined,
+    timer: 0,
+    resizeHandler: () => scheduleUpdate(domElement, ownerId)
+  };
+  if (MutationObserverConstructor && documentRef.body) {
+    monitor.observer = new MutationObserverConstructor(() => scheduleUpdate(domElement, ownerId));
+    monitor.observer.observe(documentRef.body, { childList: true, subtree: true });
+    const propertyPane = documentRef.querySelector('#spPropertyPaneContainer, .spPropertyPaneContainer, [data-automation-id="propertyPane"]');
+    if (propertyPane) {
+      monitor.observer.observe(propertyPane, { attributes: true, attributeFilter: ['class', 'style', 'aria-hidden'] });
+    }
+  }
+  if (documentRef.defaultView) {
+    documentRef.defaultView.addEventListener('resize', monitor.resizeHandler);
+  }
+  RESPONSIVE_MONITORS[ownerId] = monitor;
+}
+
+export function releaseSectionFullWidth(documentRef: Document, ownerId: string): void {
+  const monitor = RESPONSIVE_MONITORS[ownerId];
+  if (monitor) {
+    if (monitor.timer) { window.clearTimeout(monitor.timer); }
+    if (monitor.observer) { monitor.observer.disconnect(); }
+    if (documentRef.defaultView) { documentRef.defaultView.removeEventListener('resize', monitor.resizeHandler); }
+    delete RESPONSIVE_MONITORS[ownerId];
+  }
+  const ownedElements = documentRef.querySelectorAll('[' + OWNER_ATTRIBUTE + ']');
+  for (let index = 0; index < ownedElements.length; index += 1) {
+    removeOwner(ownedElements[index] as HTMLElement, ownerId);
+  }
+}

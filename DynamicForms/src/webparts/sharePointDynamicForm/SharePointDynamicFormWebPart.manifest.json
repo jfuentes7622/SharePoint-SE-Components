@@ -7,15 +7,18 @@
   "version": "*",
   "manifestVersion": 2,
   "requiresCustomScript": false,
+  "supportsFullBleed": true,
 
   "preconfiguredEntries": [{
     "groupId": "5c03119e-3074-46fd-976b-c60198311f70", 
     "group": { "default": "Advanced" },
-    "title": { "default": "Dynamic Forms" },
+    "title": { "default": "SPS Dynamic Forms" },
     "description": { "default": "Build and run dynamic forms in SharePoint." },
-    "officeFabricIconFontName": "Page",
+    "officeFabricIconFontName": "FormLibrary",
     "properties": {
       "description": "DynamicForms",
+      "forceFullWidth": false,
+      "fixedWidth": 800,
       "listName": "",
       "mode": "new",
       "dynamicItemId": "",

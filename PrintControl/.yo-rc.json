@@ -1,0 +1,18 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "version": "1.5.1",
+    "libraryName": "PrintControl",
+    "libraryId": "4c0493b0-e9b2-4ea0-b036-85509faf5526",
+    "environment": "onprem",
+       "isCreatingSolution": true,
+    "nodeVersion": "10.24.1",
+     "packageManager": "npm",
+    "solutionName": "SPS-PrintControl",
+    "solutionShortDescription": "PrintControl description",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "componentType": "webpart"
+  }
+}
+
+

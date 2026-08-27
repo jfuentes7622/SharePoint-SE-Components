@@ -10,7 +10,7 @@ import {
 } from "@microsoft/sp-webpart-base";
 import { IScriptEditorProps } from './components/IScriptEditorProps';
 import { IScriptEditorWebPartProps } from './components/IScriptEditorWebpartProps';
-import PropertyPaneLogo from './PropertyPaneLogo';
+import PropertyPaneContentFilePicker from './PropertyPaneContentFilePicker';
 
 export default class ScriptEditorWebPart extends BaseClientSideWebPart<IScriptEditorWebPartProps> {
   private _unqiueId: string;
@@ -52,6 +52,10 @@ private async renderEditor(): Promise<void> {
     ReactDom.render(element, this.domElement);
   }
 
+  protected onDispose(): void {
+    ReactDom.unmountComponentAtNode(this.domElement);
+  }
+
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
     return {
@@ -61,32 +65,45 @@ private async renderEditor(): Promise<void> {
             {
               groupFields: [
                 PropertyPaneTextField("title", {
-                  label: "Title to show in edit mode"
+                  label: "Title to Show in Edit Mode"
                 }),
                 PropertyPaneToggle("removePadding", {
-                  label: "Remove top/bottom padding of web part container",
-                  onText: "Remove padding",
-                  offText: "Keep padding"
+                  label: "Remove Top/Bottom Padding of Web Part Container",
+                  onText: "Remove Padding",
+                  offText: "Keep Padding"
                 }),
                 PropertyPaneToggle("spPageContextInfo", {
-                  label: "Enable classic _spPageContextInfo",
+                  label: "Enable Classic _spPageContextInfo",
                   onText: "Enabled",
                   offText: "Disabled"
                 }),
+                new PropertyPaneContentFilePicker({
+                  label: "Load HTML Code from File",
+                  buttonText: "Choose file",
+                  accept: ".html,.htm,.txt,.js,text/html,text/plain,application/javascript,text/javascript",
+                  onFileLoaded: this.onContentFileLoaded.bind(this)
+                }),
                 PropertyPaneTextField("script", {
-                  label: "HTML code",
+                  label: "HTML Code",
                   multiline: true,
                   resizable: true,
                   rows: 12,
                   description: "Paste HTML markup to render in the web part."
-                }),
-                new PropertyPaneLogo()
+                })
               ]
             }
           ]
         }
       ]
     };
+  }
+
+  private onContentFileLoaded(fileName: string, content: string): void {
+    const oldValue = this.properties.script;
+    this.properties.script = content;
+    this.onPropertyPaneFieldChanged('script', oldValue, content);
+    this.context.propertyPane.refresh();
+    this.render();
   }
 
   private evalScript(elem: HTMLScriptElement): void {

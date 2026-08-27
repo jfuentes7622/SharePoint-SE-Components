@@ -423,6 +423,19 @@
       color: inherit !important;
     }
 
+    .monthEventDetails,
+    .monthEventDetails :global(.fc-event-main),
+    .monthEventDetails :global(.fc-event-main-frame),
+    .monthEventDetails :global(.fc-event-title) {
+      overflow: visible;
+      text-overflow: clip;
+      white-space: normal !important;
+    }
+
+    .monthEventDetails :global(.fc-event-title) {
+      overflow-wrap: anywhere;
+    }
+
     :global(.fc-toolbar-title) {
       color: var(--calendar-toolbar-title-color, #323130);
       font-family: var(--calendar-toolbar-title-font-family, inherit);

@@ -30,6 +30,8 @@ declare interface ICalendarWebPartStrings {
   ViewDayLabel: string;
   ViewListLabel: string;
   ShowWeekendsFieldLabel: string;
+  ShowMonthEventStartTimeLabel: string;
+  ShowMonthEventDurationLabel: string;
   CalendarHeightFieldLabel: string;
   EnableSwimlanesLabel: string;
   SwimlaneFieldLabel: string;

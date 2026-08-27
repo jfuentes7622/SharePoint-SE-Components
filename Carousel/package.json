@@ -1,6 +1,6 @@
 {
   "name": "carousel",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "private": true,
   "engines": {
     "node": ">=0.10.0"
@@ -24,6 +24,7 @@
     "@microsoft/sp-office-ui-fabric-core": "~1.5.1",
     "@types/webpack-env": "1.13.1",
     "@pnp/spfx-property-controls": "1.1.0",
+    "dompurify": "2.5.8",
     "sp-pnp-js": "3.0.10",
     "react-slick": "0.14.11",
     "slick-carousel": "1.8.1",

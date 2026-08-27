@@ -2,8 +2,8 @@
     "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
     "solution": {
         "name": "SPS Tabs",
-        "id": "cc08101c-fefa-497c-a261-421366ed9acc",
-        "version": "3.1.0.7",
+        "id": "ac958149-0754-4f94-9398-49f615c2bd62",
+        "version": "3.1.0.33",
         "includeClientSideAssets": true,
         "skipFeatureDeployment": true,
         "features": [
@@ -11,7 +11,7 @@
                 "title": "sps-tabs Feature",
                 "description": "The feature that activates elements of the sps-tabs solution.",
                 "id": "72f670ad-cd9a-472c-9fa6-acb0f76e598d",
-                "version": "3.1.0.7"
+                "version": "3.1.0.33"
             }
         ]
     },

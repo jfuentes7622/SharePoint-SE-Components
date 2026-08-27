@@ -117,6 +117,7 @@ The deployable package is generated under `sharepoint/solution/`.
 ## Properties and common configuration
 
 - **Data:** `listName`, `viewId`, and fallback `viewColumns` define the source and initial columns.
+- **Selected views:** Grid Control executes the selected view's native CAML filter, sort, scope, and row limit first, then loads Grid Designer field values only for the item IDs returned by that view.
 - **Grid design:** `gridSchemaJson` stores the visual designer output and is authoritative once saved. Use the designer for field compatibility and validation rather than hand-editing it.
 - **Behavior:** page size, view selector, refresh, add/delete, item links, filtering, and target-page properties control grid operation.
 - **Editors and validation:** text, multiline, number, Boolean, choice, multi-choice, date/time, URL, lookup, and person fields receive compatible controls; list-required fields remain required.

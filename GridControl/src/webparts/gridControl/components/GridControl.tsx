@@ -1553,7 +1553,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     return filtered;
   }
 
-  private async loadRowsFromItemsEndpoint(viewFieldNames: string[]): Promise<{ rows: any[]; fields: IListFieldDefinition[] }> {
+  private async loadRowsFromItemsEndpoint(viewFieldNames: string[], itemIds?: number[]): Promise<{ rows: any[]; fields: IListFieldDefinition[] }> {
     var fieldTypeMap = await this.loadListFieldTypeMap(viewFieldNames);
     var selectFields = ['ID'];
     var expandFields: string[] = [];
@@ -1580,6 +1580,11 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     }
 
     var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items?$top=200";
+    if (itemIds && itemIds.length > 0) {
+      endpoint += '&$filter=' + encodeURIComponent(itemIds.map(function(itemId: number) {
+        return 'ID eq ' + String(itemId);
+      }).join(' or '));
+    }
     if (selectFields.length > 0) {
       endpoint += '&$select=' + encodeURIComponent(selectFields.join(','));
     }
@@ -1598,6 +1603,13 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     var rows = toArray(data.value);
     if (rows.length === 0) {
       rows = toArray(data && data.d && data.d.results);
+    }
+
+    if (itemIds && itemIds.length > 0 && rows.length > 1) {
+      rows.sort(function(left: any, right: any) {
+        return itemIds.indexOf(toPositiveInt(left.ID || left.Id || left.id))
+          - itemIds.indexOf(toPositiveInt(right.ID || right.Id || right.id));
+      });
     }
 
     var fields: IListFieldDefinition[] = [];
@@ -1643,13 +1655,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         return String(field.fieldName);
       });
       var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
-      var requestFieldNames = viewFieldNames.slice();
-      for (var schemaFieldIndex = 0; schemaFieldIndex < schemaFieldNames.length; schemaFieldIndex += 1) {
-        if (requestFieldNames.indexOf(schemaFieldNames[schemaFieldIndex]) < 0) {
-          requestFieldNames.push(schemaFieldNames[schemaFieldIndex]);
-        }
-      }
-      var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, requestFieldNames);
+      var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, viewFieldNames);
 
       var body: any = {
         parameters: {
@@ -1708,7 +1714,19 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
       if (schemaFields.length > 0) {
         viewFieldNames = schemaFieldNames;
-        if (!selectedViewId && rows.length === 0) {
+        if (selectedViewId && rows.length > 0) {
+          var filteredItemIds = rows.map((row: any) => this.getRowItemId(row)).filter(function(itemId: number, index: number, values: number[]) {
+            return itemId > 0 && values.indexOf(itemId) === index;
+          });
+          if (filteredItemIds.length > 0) {
+            var filteredSchemaItems = await this.loadRowsFromItemsEndpoint(schemaFieldNames, filteredItemIds);
+            if (filteredSchemaItems.rows.length > 0) {
+              rows = filteredSchemaItems.rows;
+              fields = filteredSchemaItems.fields;
+              this.logDiagnostic('Hydrated selected view rows with grid schema fields. rows=' + String(rows.length));
+            }
+          }
+        } else if (!selectedViewId && rows.length === 0) {
           var schemaItems = await this.loadRowsFromItemsEndpoint(schemaFieldNames);
           rows = schemaItems.rows;
           fields = schemaItems.fields;

@@ -3,7 +3,7 @@
   "solution": {
     "name": "SPS Grid Control",
     "id": "73a74d5b-d868-4652-bdf8-f1cedba93af5",
-    "version": "1.0.0.38",
+    "version": "1.0.0.39",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "features": [
@@ -11,7 +11,7 @@
         "title": "SPS Grid Control Feature",
         "description": "The feature that activates elements of the SPS Grid Control solution.",
         "id": "30f37a48-db59-45df-b8f0-8f14379b0890",
-        "version": "1.0.0.38"
+        "version": "1.0.0.39"
       }
     ]
   },

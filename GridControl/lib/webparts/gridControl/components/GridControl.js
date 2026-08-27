@@ -1458,7 +1458,7 @@ var GridControl = (function (_super) {
         }
         return filtered;
     };
-    GridControl.prototype.loadRowsFromItemsEndpoint = function (viewFieldNames) {
+    GridControl.prototype.loadRowsFromItemsEndpoint = function (viewFieldNames, itemIds) {
         return __awaiter(this, void 0, void 0, function () {
             var fieldTypeMap, selectFields, expandFields, i, fieldName, fieldType, endpoint, response, data, rows, fields, v, viewFieldName, firstRow, key;
             return __generator(this, function (_a) {
@@ -1490,6 +1490,11 @@ var GridControl = (function (_super) {
                             }
                         }
                         endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items?$top=200";
+                        if (itemIds && itemIds.length > 0) {
+                            endpoint += '&$filter=' + encodeURIComponent(itemIds.map(function (itemId) {
+                                return 'ID eq ' + String(itemId);
+                            }).join(' or '));
+                        }
                         if (selectFields.length > 0) {
                             endpoint += '&$select=' + encodeURIComponent(selectFields.join(','));
                         }
@@ -1509,6 +1514,12 @@ var GridControl = (function (_super) {
                         rows = toArray(data.value);
                         if (rows.length === 0) {
                             rows = toArray(data && data.d && data.d.results);
+                        }
+                        if (itemIds && itemIds.length > 0 && rows.length > 1) {
+                            rows.sort(function (left, right) {
+                                return itemIds.indexOf(toPositiveInt(left.ID || left.Id || left.id))
+                                    - itemIds.indexOf(toPositiveInt(right.ID || right.Id || right.id));
+                            });
                         }
                         fields = [];
                         if (viewFieldNames.length > 0) {
@@ -1538,7 +1549,7 @@ var GridControl = (function (_super) {
     GridControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, viewFieldNames, requestFieldNames, schemaFieldIndex, selectedViewXml, body, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, schemaItems, itemsFallback, visibleFields, fieldTitleMap, fieldMetadataByName, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, error_5, loadError;
+            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, viewFieldNames, selectedViewXml, body, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, visibleFields, fieldTitleMap, fieldMetadataByName, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, error_5, loadError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -1551,7 +1562,7 @@ var GridControl = (function (_super) {
                         this.setState({ loading: true, error: null });
                         _a.label = 1;
                     case 1:
-                        _a.trys.push([1, 22, , 23]);
+                        _a.trys.push([1, 25, , 26]);
                         baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
                         selectedViewId = this.state.selectedViewId;
                         schemaFields = this.getGridSchemaFields();
@@ -1563,13 +1574,7 @@ var GridControl = (function (_super) {
                         return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
                     case 2:
                         viewFieldNames = _a.sent();
-                        requestFieldNames = viewFieldNames.slice();
-                        for (schemaFieldIndex = 0; schemaFieldIndex < schemaFieldNames.length; schemaFieldIndex += 1) {
-                            if (requestFieldNames.indexOf(schemaFieldNames[schemaFieldIndex]) < 0) {
-                                requestFieldNames.push(schemaFieldNames[schemaFieldIndex]);
-                            }
-                        }
-                        return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, requestFieldNames)];
+                        return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, viewFieldNames)];
                     case 3:
                         selectedViewXml = _a.sent();
                         body = {
@@ -1635,36 +1640,52 @@ var GridControl = (function (_super) {
                         }
                         rows = selectedRows;
                         fields = selectedFields;
-                        if (!(schemaFields.length > 0)) return [3 /*break*/, 16];
+                        if (!(schemaFields.length > 0)) return [3 /*break*/, 19];
                         viewFieldNames = schemaFieldNames;
-                        if (!(!selectedViewId && rows.length === 0)) return [3 /*break*/, 15];
-                        return [4 /*yield*/, this.loadRowsFromItemsEndpoint(schemaFieldNames)];
+                        if (!(selectedViewId && rows.length > 0)) return [3 /*break*/, 16];
+                        filteredItemIds = rows.map(function (row) { return _this.getRowItemId(row); }).filter(function (itemId, index, values) {
+                            return itemId > 0 && values.indexOf(itemId) === index;
+                        });
+                        if (!(filteredItemIds.length > 0)) return [3 /*break*/, 15];
+                        return [4 /*yield*/, this.loadRowsFromItemsEndpoint(schemaFieldNames, filteredItemIds)];
                     case 14:
-                        schemaItems = _a.sent();
-                        rows = schemaItems.rows;
-                        fields = schemaItems.fields;
+                        filteredSchemaItems = _a.sent();
+                        if (filteredSchemaItems.rows.length > 0) {
+                            rows = filteredSchemaItems.rows;
+                            fields = filteredSchemaItems.fields;
+                            this.logDiagnostic('Hydrated selected view rows with grid schema fields. rows=' + String(rows.length));
+                        }
                         _a.label = 15;
                     case 15: return [3 /*break*/, 18];
                     case 16:
-                        if (!(rows.length === 0 && !selectedViewId)) return [3 /*break*/, 18];
-                        return [4 /*yield*/, this.loadRowsFromItemsEndpoint(viewFieldNames)];
+                        if (!(!selectedViewId && rows.length === 0)) return [3 /*break*/, 18];
+                        return [4 /*yield*/, this.loadRowsFromItemsEndpoint(schemaFieldNames)];
                     case 17:
+                        schemaItems = _a.sent();
+                        rows = schemaItems.rows;
+                        fields = schemaItems.fields;
+                        _a.label = 18;
+                    case 18: return [3 /*break*/, 21];
+                    case 19:
+                        if (!(rows.length === 0 && !selectedViewId)) return [3 /*break*/, 21];
+                        return [4 /*yield*/, this.loadRowsFromItemsEndpoint(viewFieldNames)];
+                    case 20:
                         itemsFallback = _a.sent();
                         rows = itemsFallback.rows;
                         if (fields.length === 0) {
                             fields = itemsFallback.fields;
                         }
-                        _a.label = 18;
-                    case 18:
+                        _a.label = 21;
+                    case 21:
                         visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
                         return [4 /*yield*/, this.loadListFieldTitleMap()];
-                    case 19:
+                    case 22:
                         fieldTitleMap = _a.sent();
                         return [4 /*yield*/, this.loadGridFieldMetadata()];
-                    case 20:
+                    case 23:
                         fieldMetadataByName = _a.sent();
                         return [4 /*yield*/, this.loadLookupOptionsByField(fieldMetadataByName)];
-                    case 21:
+                    case 24:
                         lookupOptionsByField = _a.sent();
                         visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
                         visibleFields = this.applyFieldTypes(visibleFields, fieldMetadataByName);
@@ -1687,8 +1708,8 @@ var GridControl = (function (_super) {
                             error: null
                         });
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
-                        return [3 /*break*/, 23];
-                    case 22:
+                        return [3 /*break*/, 26];
+                    case 25:
                         error_5 = _a.sent();
                         loadError = error_5;
                         if (requestId !== this._loadRowsRequestId) {
@@ -1704,8 +1725,8 @@ var GridControl = (function (_super) {
                             rows: []
                         });
                         this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
-                        return [3 /*break*/, 23];
-                    case 23: return [2 /*return*/];
+                        return [3 /*break*/, 26];
+                    case 26: return [2 /*return*/];
                 }
             });
         });

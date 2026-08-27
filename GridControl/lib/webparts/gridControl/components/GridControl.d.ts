@@ -197,7 +197,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private formatDateCellValue(value, field);
     private isMeaningfulCellValue(value);
     private filterRenderableRows(rows, visibleFields);
-    private loadRowsFromItemsEndpoint(viewFieldNames);
+    private loadRowsFromItemsEndpoint(viewFieldNames, itemIds?);
     private loadRows();
     private getRowItemId(row);
     private selectRow(row);

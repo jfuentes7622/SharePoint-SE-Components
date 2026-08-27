@@ -63,3 +63,26 @@ The deployable package is generated under `sharepoint/solution/`.
 ## Disclaimer
 
 This code is provided as-is without warranty of any kind, either express or implied.
+
+## Usage
+
+1. Add **SPS Marquee** to a page and choose either static text or a SharePoint list source.
+2. For list-driven announcements, select the list and message column and set how long each message remains active.
+3. Configure active state, direction, speed, height, colors, and typography.
+4. Preview the page long enough to verify cycling, readability, and motion before publishing.
+
+## Properties and common configuration
+
+- **Content:** `description` provides static text. `listName` and `messageField` load a rotating set of plain-text announcements.
+- **Behavior:** `marqueeActive` shows or hides the bar, `messageDuration` controls list-message rotation, and scroll speed/direction control movement.
+- **Appearance:** background/text colors, font family/size/style/weight, and marquee height define the announcement band.
+- **Advanced:** the override stylesheet supports site-specific placement or styling; `enableDiagnostics` logs message loading and rendering.
+
+Keep announcements concise. Long messages combined with slow scrolling can prevent visitors from seeing important content during a normal page visit.
+
+## Common scenarios
+
+- Service interruption or maintenance announcements.
+- Rotating organizational news maintained in a SharePoint list.
+- Safety, deadline, or event reminders at the top of a frequently used page.
+- A static high-visibility message that can be disabled without removing the web part.

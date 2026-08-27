@@ -44,3 +44,27 @@ gulp package-solution --ship
 ```
 
 The deployable package is generated under `sharepoint/solution/`.
+
+## Usage
+
+1. Add **SPS Contacts** to a page and choose an existing SharePoint list or inline contact entries.
+2. For a list source, map the organization, identity, contact, photo, and biography columns used by the cards.
+3. Select any directorate/division filters and configure image, header, and tile appearance.
+4. Verify cards with missing photos or optional contact values before publishing.
+
+## Properties and common configuration
+
+- **Data:** `ContactsListId` and the mapped field properties connect an existing directory. Inline mode uses `customList` for records maintained with the web part.
+- **Hierarchy:** directorate, division, branch, and group mappings provide organization and cascading filters when those columns contain consistent values.
+- **Cards:** title, name, email, phone, biography, VOIP, display-photo, and image-link fields determine the information shown for each person.
+- **Appearance:** image size/shape, default image, panel header, title, tile background, typography, alignment, and corners control the card design.
+- **Advanced:** the provisioning action can create the expected list schema. `overridecss` loads site-specific CSS and `enableDiagnostics` logs list, record, and image operations.
+
+Provisioning creates the list structure, not contact records. Visitors need read access to the selected list and any image locations.
+
+## Common scenarios
+
+- An employee directory filtered by directorate and division.
+- A leadership or command roster with photographs and biography links.
+- A support directory organized by region, service, or escalation team.
+- A small page-specific contact list maintained inline without a separate SharePoint list.

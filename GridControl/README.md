@@ -105,3 +105,30 @@ gulp package-solution --ship
 ```
 
 The deployable package is generated under `sharepoint/solution/`.
+
+## Usage
+
+1. Add **SPS Grid Control**, select a SharePoint list and view, and open **Grid Designer**.
+2. Add and order fields, then configure each column's label, width, editor, visibility, required/read-only state, default, and validation.
+3. Configure page size, filters, row actions, target-page behavior, and conditional styles.
+4. Test add, edit, cancel, validation, and multi-row deletion with realistic field types and permissions before publishing.
+5. Optionally connect the published selected item ID/mode to Dynamic Forms or Report Forms.
+
+## Properties and common configuration
+
+- **Data:** `listName`, `viewId`, and fallback `viewColumns` define the source and initial columns.
+- **Grid design:** `gridSchemaJson` stores the visual designer output and is authoritative once saved. Use the designer for field compatibility and validation rather than hand-editing it.
+- **Behavior:** page size, view selector, refresh, add/delete, item links, filtering, and target-page properties control grid operation.
+- **Editors and validation:** text, multiline, number, Boolean, choice, multi-choice, date/time, URL, lookup, and person fields receive compatible controls; list-required fields remain required.
+- **Appearance:** body/header/selected-row, borders, alternate rows, buttons, date/time formats, web-part surface, and conditional-rule designers control display.
+- **Advanced:** `forceFullWidth` uses the available page width. `enableDiagnostics` records metadata, REST fallback, mutation, and rendering details.
+
+The current user needs SharePoint permissions for each enabled action. Unsupported custom field types can be displayed but should remain read-only.
+
+## Common scenarios
+
+- Inline maintenance of tasks, inventory, contacts, or issue records.
+- Parent/child line-item editing inside Dynamic Forms after the parent item is saved.
+- Bulk selection and deletion for a controlled operational list.
+- Conditional highlighting of overdue, high-priority, invalid, or completed rows.
+- A selector/editor paired with a read-only Report Form on the same page.

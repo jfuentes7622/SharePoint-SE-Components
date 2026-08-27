@@ -45,3 +45,27 @@ gulp package-solution --ship
 ```
 
 The deployable package is generated under `sharepoint/solution/`.
+
+## Usage
+
+1. Add **SPS Tiles** and use the tile collection editor to create and order destinations.
+2. Give each tile a title, URL, target, and optional normal/hover image and color overrides.
+3. Choose stacked, fixed-column, or responsive flow layout, then set tile dimensions and gaps.
+4. Configure shape, typography, colors, hover transition, and web-part appearance; test keyboard and narrow-width behavior before publishing.
+
+## Properties and common configuration
+
+- **Content:** `collectionData` stores per-tile title, destination, target, colors, image URLs, image positions, opacity, and image-only/background modes.
+- **Navigation:** each tile opens its URL in the configured current or new browser context.
+- **Layout:** tile width/height, stacked/columns/flow mode, column count, and gap determine wrapping and density.
+- **Appearance:** global and per-tile colors, shape, typography, normal/hover imagery, hover transition, title, surface, border, and padding control presentation.
+- **Advanced:** `forceFullWidth` gives large tile sets more room and `enableDiagnostics` logs collection and rendering details.
+
+Use flow layout when responsive wrapping is more important than a fixed column count. Keep titles short and ensure image URLs are readable by the page audience.
+
+## Common scenarios
+
+- A quick-links portal for common applications and team sites.
+- A department directory with branded images and per-tile colors.
+- A product, service, or resource catalog with hover imagery.
+- A full-width navigation band combined with Tabs or Full Width Control.

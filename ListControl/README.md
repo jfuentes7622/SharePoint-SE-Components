@@ -50,3 +50,30 @@ gulp package-solution --ship
 ```
 
 The deployable package is generated under `sharepoint/solution/`.
+
+## Usage
+
+1. Add **SPS List Control**, select the source list and default view, and review the generated view-column collection.
+2. Reorder columns, rename labels, and assign widths only where automatic sizing is insufficient.
+3. Configure page size, preset filters, visible actions, item links, and conditional styles.
+4. Optionally connect the selected item ID and requested New/Edit/View mode to Dynamic Forms or Report Forms.
+5. Test every visible action with representative users before publishing.
+
+## Properties and common configuration
+
+- **Data:** `instanceName`, `listName`, `viewId`, `viewColumns`, and `pageSize` define the source, identity, columns, and paging.
+- **Navigation:** view-selector, item-link, target-page, item-ID parameter, and return-URL properties control how users move between views and records.
+- **Actions:** refresh, add, edit, view, and delete toggles simplify the toolbar for the intended workflow; permissions still come from SharePoint.
+- **Rules:** filter and conditional-style designers store JSON definitions with field operators, date/current-user expressions, and row/column scopes.
+- **Appearance:** body/header/selected/alternate rows, table borders, web-part surface, buttons, typography, alignment, and date/time formats are configurable.
+- **Advanced:** `forceFullWidth` expands the available workspace and `enableDiagnostics` logs list, view, filter, dynamic-data, and action details.
+
+Selecting a different list or view can rebuild the column collection. Review custom labels, ordering, and widths after changing either source setting.
+
+## Common scenarios
+
+- A searchable operational list with only View and Refresh actions.
+- A record selector that drives Dynamic Forms in New, Edit, or View mode.
+- A dashboard table that highlights status, deadlines, ownership, or exceptions.
+- A paged list linked to a custom details/report page through an item ID query parameter.
+- A wide, read-only results table paired with Full Width Control.

@@ -42,3 +42,26 @@ gulp package-solution --ship
 ```
 
 The deployable package is generated under `sharepoint/solution/`.
+
+## Usage
+
+1. Deploy the package and register the application customizer at the required web or site scope.
+2. Set `rootUrl` to the site that hosts the shared configuration assets.
+3. Create the configured SharePoint list with `Title` and `Timezone` columns and add one row per location.
+4. Place the settings and optional header/footer assets in Site Assets, then verify classic, modern team, and communication pages that are in scope.
+
+## Properties and common configuration
+
+- **Extension property:** `rootUrl` is the base site used to resolve shared settings, assets, and list data.
+- **Settings file:** `spList`, `digitalOnly`, `hour12`, and `displayDay` control the source list and clock format.
+- **Placeholders:** the classic, communication-site, and team-site banner/footer element IDs determine where content is injected.
+- **Diagnostics:** `enableDiagnostics` enables browser-console lifecycle, configuration, and data-loading messages.
+
+This is an application customizer rather than a page web part. Administrators configure it centrally; page authors do not receive a property pane on each page.
+
+## Common scenarios
+
+- A global operations banner showing the local time for regional offices.
+- A service desk page showing support-center time zones and current business hours.
+- A centrally managed header or footer shared across many sites.
+- A 12-hour executive display or 24-hour operations display controlled from one settings file.

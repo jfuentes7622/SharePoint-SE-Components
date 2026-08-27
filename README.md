@@ -6,20 +6,24 @@ All web-part property panes display the deployed solution version. Components wi
 
 ## Components
 
-| Component | Type | Summary |
-|---|---|---|
-| [Accordion](#accordion) | Web Part | Collapsible accordion sections sourced from a SharePoint list |
-| [BannerClock](#bannerclock) | Application Customizer | World-clock banner injected above/below the page chrome |
-| [Calendar](#calendar) | Web Part | Multi-source SharePoint calendar with recurrence, filters, swim lanes, details, and dynamic data |
-| [Carousel](#carousel) | Web Part | Auto-playing image carousel from a picture library |
-| [Contact](#contact) | Web Part | Filterable staff/contact directory cards |
-| [LinkButton](#linkbutton) | Web Part | Styled hyperlink button |
-| [GridControl](#gridcontrol) | Web Part | Designer-configured editable SharePoint grid with inline validation and row actions |
-| [ListControl](#listcontrol) | Web Part | Sortable/filterable list table with conditional styling and dynamic data |
-| [Marquee](#marquee) | Web Part | Scrolling announcement ticker |
-| [SharePointDForm (Dynamic Forms)](#sharepointdform-dynamic-forms) | Web Part | No-code visual form designer/runtime bound to a SharePoint list |
-| [Tab](#tab) | Web Part | Tabbed content control for Sections/Web Parts |
-| [Tiles](#tiles) | Web Part | Grid of clickable navigation tile cards |
+| Component | Type | Summary | Detailed guide |
+|---|---|---|---|
+| [Accordion](#accordion) | Web Part | Collapsible list-driven content sections | [Accordion/README.md](Accordion/README.md) |
+| [BannerClock](#bannerclock) | Application Customizer | Centrally configured world-clock banner | [BannerClock/README.md](BannerClock/README.md) |
+| [Calendar](#calendar) | Web Part | Multi-source calendar with recurrence, rules, details, and dynamic data | [Calendar/README.md](Calendar/README.md) |
+| [Carousel](#carousel) | Web Part | Auto-playing image carousel from a library | [Carousel/README.md](Carousel/README.md) |
+| [Contact](#contact) | Web Part | Filterable staff/contact directory cards | [Contact/README.md](Contact/README.md) |
+| [Dynamic Forms](#sharepointdform-dynamic-forms) | Web Part | No-code list form designer and runtime | [DynamicForms/README.md](DynamicForms/README.md) |
+| [Full Width Control](#full-width-control) | Web Part | Expands the containing page section | [FullWidthControl/README.md](FullWidthControl/README.md) |
+| [GridControl](#gridcontrol) | Web Part | Designer-configured editable list grid | [GridControl/README.md](GridControl/README.md) |
+| [LinkButton](#linkbutton) | Web Part | Styled hyperlink button with optional image | [LinkButton/README.md](LinkButton/README.md) |
+| [ListControl](#listcontrol) | Web Part | Sortable/filterable list table and item selector | [ListControl/README.md](ListControl/README.md) |
+| [Marquee](#marquee) | Web Part | Static or list-driven scrolling announcements | [Marquee/README.md](Marquee/README.md) |
+| [PrintControl](#print-control) | Web Part | Prints page content without SharePoint chrome | [PrintControl/README.md](PrintControl/README.md) |
+| [Report Forms](#report-forms) | Web Part | Read-only report for a selected list item | [ReportForms/README.md](ReportForms/README.md) |
+| [ScriptEditor](#script-editor) | Web Part | Trusted custom HTML and JavaScript host | [ScriptEditor/README.md](ScriptEditor/README.md) |
+| [Tab](#tab) | Web Part | Tabbed organization for sections or web parts | [Tab/README.md](Tab/README.md) |
+| [Tiles](#tiles) | Web Part | Responsive clickable navigation tiles | [Tiles/README.md](Tiles/README.md) |
 
 ---
 
@@ -610,6 +614,112 @@ Displays a responsive grid of clickable navigation tile cards (**SPS Tiles**). T
 | `fontFamily` / `fontStyle` / `fontBold` / `fontSize` | Typography | Global tile text settings |
 | `tileWidth` / `tileHeight` | Tile dimensions | Width and height in pixels (defaults: 140 × 140) |
 | `enableDiagnostics` | Enable diagnostics logging | Enables browser-console tile rendering details |
+
+---
+
+## Full Width Control
+
+**SPS Full Width Control** is a layout-only web part that expands its containing SharePoint section to the available page width. It has no configurable properties. The control displays a selectable marker while the page is being edited and collapses to an invisible, zero-height host in read mode.
+
+### Usage and configuration
+
+1. Place the control in the same section as the content that needs additional width.
+2. Publish or preview the page and verify the section with and without the property pane visible.
+3. Add one control to each section that should expand; neighboring sections remain unchanged.
+
+Common uses include wide calendars, grids, list tables, reports, tile navigation, and carousels. See [FullWidthControl/README.md](FullWidthControl/README.md) for section behavior and limitations.
+
+---
+
+## Print Control
+
+**SPS Print Control** creates a printable snapshot of the SharePoint page content area without site navigation or chrome. It automatically discovers the page canvas or accepts a custom CSS selector for a specific printable region.
+
+### Key properties
+
+| Property | Purpose |
+|---|---|
+| `contentSelector` | Optional CSS selector for the printable region |
+| `buttonLabel` / `alignment` | Print command text and placement |
+| Button color, font, border, and corner properties | Visual presentation of the print command |
+| `enableDiagnostics` | Logs content discovery and print preparation |
+
+Use it with Report Forms for individual records or with composed Calendar, List Control, and Grid Control report pages. Always verify browser print preview. See [PrintControl/README.md](PrintControl/README.md).
+
+---
+
+## Report Forms
+
+**Report Forms** renders a SharePoint list item through the Dynamic Forms schema in a permanently read-only mode. The item can be fixed, supplied through a URL parameter, resolved by a filter, or received dynamically from Calendar, List Control, or Grid Control.
+
+### Key properties
+
+| Property | Purpose |
+|---|---|
+| `listName` | SharePoint list containing report records |
+| `formSchemaJson` | Visual designer output for fields and layout |
+| Item ID, query parameter, dynamic reference, and filter settings | Resolve the record displayed by the report |
+| Full/fixed width and diagnostic settings | Control layout and troubleshooting |
+
+An embedded List Control can display related records. Report Forms does not submit changes or transition into edit mode. See [ReportForms/README.md](ReportForms/README.md).
+
+---
+
+## Script Editor
+
+**SPS Script Editor** hosts trusted custom HTML, CSS, and JavaScript on a page. Authors may enter code directly or load supported text/script files. Optional settings expose classic SharePoint page context and remove container padding for embedded layouts.
+
+### Security and usage
+
+- The manifest requires custom script and the web part executes unsanitized code.
+- Restrict page editing and web-part configuration to trusted authors.
+- Review scripts as code, never place secrets in page content, and use only trusted external assets.
+- Test read/edit mode, navigation, and repeated rendering before publishing.
+
+Use this control for approved legacy integrations or small internal embeds when a dedicated SPFx component is not available. See [ScriptEditor/README.md](ScriptEditor/README.md).
+
+---
+
+## Common configuration
+
+- **List access:** list-backed controls require visitors to have read access to every configured list, library, view, field, lookup source, and image location. Create/update/delete actions additionally require the corresponding SharePoint permissions.
+- **Internal field names:** designers and JSON-backed rules refer to SharePoint internal names. Recheck mappings after changing a list, view, or schema.
+- **Designer-managed JSON:** use the Calendar, Dynamic Forms, Grid Control, and List Control designers for filters, styles, schemas, defaults, and validation. Hand-edit JSON only when migrating a reviewed advanced configuration.
+- **Dynamic data:** give List Control instances meaningful names, then connect their selected item ID/mode to Dynamic Forms or Report Forms. Calendar and Grid Control can participate in the same selection workflow.
+- **Width:** use a control's `forceFullWidth` property when it should expand independently. Use Full Width Control when all web parts in a shared section should expand together.
+- **CSS overrides:** host override stylesheets in a stable location readable by the audience. Treat them as versioned code and avoid selectors that affect unrelated page elements.
+- **Diagnostics:** enable diagnostic logging temporarily while configuring or troubleshooting, then review the browser console for source discovery, request, rule, and dynamic-data details.
+
+## Common scenarios
+
+### Record selection and editing
+
+Place List Control or Grid Control beside Dynamic Forms. The selector publishes the item ID and New/Edit/View mode; Dynamic Forms loads the corresponding record and workflow.
+
+### Read-only report workspace
+
+Use List Control, Grid Control, or Calendar as the selector, Report Forms as the detail surface, and Print Control for a clean browser/PDF output. Add Full Width Control when the complete section needs more room.
+
+### Event operations
+
+Combine multiple Events lists in Calendar, apply filters and conditional styles, and connect selected events to Dynamic Forms for updates or Report Forms for read-only details.
+
+### Portal navigation
+
+Use Tabs to organize page sections and Tiles or Link Button for navigation. Full Width Control can expand the section into a wide navigation band.
+
+### Communications
+
+Use BannerClock for centrally managed page chrome, Marquee for urgent or rotating announcements, Carousel for visual campaigns, and Accordion for longer supporting information.
+
+## Deployment checklist
+
+1. Build and package each project independently from its folder.
+2. Upload the generated `.sppkg` from `sharepoint/solution/` to the SharePoint app catalog and deploy it according to the target scope.
+3. Add the app to the target site where required and activate extension features such as BannerClock at the intended scope.
+4. Confirm list/library permissions, custom-script policy for Script Editor, Site Assets configuration for BannerClock, and external CSS/image accessibility.
+5. Add the component to a test page, configure it, test with representative user permissions, and inspect the browser console when diagnostics are enabled.
+6. Publish the page and repeat key workflows in read mode, including property-pane/full-width behavior, dynamic connections, printing, and target-page navigation.
 
 ---
 

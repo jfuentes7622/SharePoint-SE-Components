@@ -62,3 +62,28 @@ The deployable package is generated at `sharepoint/solution/sps-report-forms.spp
 ## License
 
 See the repository-level `LICENSE` file.
+
+## Usage
+
+1. Add **Report Forms** to a page, select the SharePoint list, and use the visual designer to arrange the fields and read-only layout.
+2. Choose how the report resolves an item: fixed ID, URL query parameter, filter, or dynamic selection from Calendar, List Control, or Grid Control.
+3. Optionally add an embedded List Control field for related records.
+4. Test the empty-selection, valid-item, missing-item, and permission-denied states before publishing.
+
+## Properties and common configuration
+
+- **Data:** `listName` identifies the report list and `formSchemaJson` stores the visual designer layout.
+- **Item resolution:** fixed item ID, `itemIdQueryParam`, dynamic item references, and `filterJson` support direct links and same-page selection workflows.
+- **Runtime:** the web part is intentionally read-only and does not expose submit or edit transitions.
+- **Embedded content:** a designer-configured List Control can show records related to the current parent item.
+- **Layout and diagnostics:** full-width/fixed-width settings adapt the report to the page; dynamic diagnostics log item resolution, data loading, and embedded-control discovery.
+
+Maintain the schema through the designer and use SharePoint permissions to secure report data. Hiding a field in the layout does not change list or item access.
+
+## Common scenarios
+
+- Select an incident, request, or case in List Control and show a formatted detail report beside it.
+- Select a Calendar event and display a richer read-only event record.
+- Open a report page directly with an item ID query parameter.
+- Show a parent record with an embedded list of related actions, notes, or child items.
+- Combine Report Forms with Print Control for a clean printable record.

@@ -404,3 +404,31 @@ MIT License
   <strong>SharePoint Dynamic Form</strong> - Build dynamic forms without code<br><br>
   Made with ❤️ for SharePoint developers
 </p>
+
+## Usage
+
+1. Add **SPS Dynamic Forms** to a page, select the target SharePoint list, and choose New, Edit, or View mode.
+2. Open the visual form designer to add, order, and configure fields, containers, steps, validation, and conditional behavior.
+3. Choose how an existing item is resolved: fixed ID, URL parameter, filter, or a dynamic connection from Calendar, List Control, or Grid Control.
+4. Configure permissions, submit/cancel behavior, labels, and buttons; test each supported mode with an account that matches the intended permissions.
+5. Publish only after lookup, person, attachment, date/time, validation, and redirect behavior have been exercised against the target list.
+
+## Properties and common configuration
+
+- **List and mode:** `listName` identifies the target; `mode` controls create, update, or read-only behavior.
+- **Designer schema:** `formSchemaJson` stores the complete visual design. Maintain it through the designer unless an advanced migration requires reviewed JSON changes.
+- **Item resolution:** fixed item ID, `itemIdQueryParam`, dynamic ID/mode references, target lookup fields, and `filterJson` support direct and connected workflows.
+- **Rules and defaults:** visual designers maintain filters, default values, conditional state, required rules, and advanced cross-field validation expressions.
+- **Permissions:** list- or item-level checks and optional lookup-based scope control whether a user may load or submit the form.
+- **Actions and appearance:** mode-specific submit labels, cancel/redirect behavior, success messages, label position, field descriptions, and button styling control the runtime experience.
+- **Layout:** `forceFullWidth` or fixed-width settings adapt the form to the page. Diagnostic settings expose dynamic-source, load, validation, and submission details in the console.
+
+Field internal names and data types must match the SharePoint list. Client-side visibility is a user-experience rule, not a replacement for SharePoint permissions or list validation.
+
+## Common scenarios
+
+- A multi-step onboarding, request, or approval form with conditional sections.
+- A List Control or Grid Control selection that opens the chosen record in Edit or View mode.
+- A Calendar selection that displays or updates the selected event without leaving the page.
+- A parent form with embedded Grid Control line items or an embedded read-only List Control.
+- A URL-driven report/edit page using `itemid` plus return and post-submit navigation.

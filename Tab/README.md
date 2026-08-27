@@ -73,3 +73,27 @@ The deployable package is generated under `sharepoint/solution/`.
 ## Disclaimer
 
 This code is provided as-is without warranty of any kind, either express or implied.
+
+## Usage
+
+1. Add **SPS Tabs** before the content it will organize and choose Sections or Web Parts mode.
+2. Add tab definitions in the same order as their target content, including optional images and text/image positioning.
+3. Configure width strategy, height, shape, colors, typography, and inactive-image fade.
+4. Verify every tab in edit and read modes; section targeting depends on the surrounding SharePoint canvas order.
+
+## Properties and common configuration
+
+- **Tabs:** `collectionData` stores ordered labels, alignment, image URLs/positions, and image-only choices.
+- **Target:** `TabType` determines whether tabs control neighboring SharePoint sections or represent web-part content.
+- **Layout:** auto width or fixed width, tab height, shape, border/line, and content spacing control the frame.
+- **Appearance:** active/inactive colors, font settings, title, web-part border, and image fade control visual hierarchy.
+- **Advanced:** external or global CSS options support shared branding. `forceFullWidth` expands the control, and `enableDiagnostics` logs target discovery and selection.
+
+In Sections mode, tab order must match section order. Recheck the configuration after authors insert, remove, or rearrange page sections.
+
+## Common scenarios
+
+- Group dashboard sections into Overview, Metrics, Risks, and Actions tabs.
+- Organize multiple list/report areas without forcing visitors down a long page.
+- Build icon-assisted tabs for a project or department hub.
+- Combine Tabs, Tiles, and Full Width Control for a wide portal navigation experience.

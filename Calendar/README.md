@@ -125,3 +125,29 @@ gulp package-solution --ship
 ```
 
 The deployable package is generated under `sharepoint/solution/`.
+
+## Usage
+
+1. Add **SPS Calendar** to a page and open **Manage data sources**.
+2. Add one or more Events lists or lists that contain calendar views, then verify the start/end field mappings for each source.
+3. Choose the default view, weekend visibility, height, and optional swim-lane grouping.
+4. Use the filter, conditional-style, and event-details designers as needed; avoid hand-editing their stored JSON unless maintaining an existing advanced configuration.
+5. Optionally connect the calendar's selected item and `view` mode to Dynamic Forms or Report Forms on the same page.
+
+## Properties and common configuration
+
+- **Data:** `dataSources` stores ordered list sources, field mappings, colors, and target pages. `listName` remains a legacy single-list fallback.
+- **Behavior:** `defaultView`, `showWeekends`, `calendarHeight`, swim-lane settings, event details, target-page settings, and return-URL handling control interaction.
+- **Rules:** `filterJson` and `conditionalStyleJson` are maintained by visual designers and support field comparisons plus current-user/date expressions.
+- **Appearance:** calendar surface, title, toolbar, event, selected-event, details-panel, typography, border, and spacing groups can be configured independently.
+- **Advanced:** `forceFullWidth` expands the web part to available page width. `enableDiagnostics` records source discovery, recurrence, filter, and rendering details.
+
+Recurring-event expansion is intended for SharePoint Events lists. Users must have read access to every configured source and to fields used by filters, details, or style rules.
+
+## Common scenarios
+
+- Combine departmental Events lists into one color-coded organizational calendar.
+- Use swim lanes to compare rooms, teams, resources, or event categories over 7, 14, or 30 days.
+- Highlight urgent, overdue, or executive events with priority-based conditional styles.
+- Show an in-page read-only report or form when a visitor selects an event.
+- Link events to a custom details page while preserving a return URL to the calendar.

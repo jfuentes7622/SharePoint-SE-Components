@@ -70,6 +70,15 @@ export interface ICalendarProps {
   toolbarButtonFontBold: boolean;
   toolbarButtonBorderWidth: number;
   toolbarButtonCornerRadius: number;
+  dayHeaderBackgroundColor: string;
+  dayHeaderTextColor: string;
+  dayHeaderFontFamily: string;
+  dayHeaderFontSize: string;
+  dayHeaderFontStyle: string;
+  dayHeaderFontBold: boolean;
+  dayHeaderBorderColor: string;
+  dayHeaderBorderWidth: number;
+  dayHeaderPadding: number;
   eventBackgroundColor: string;
   eventTextColor: string;
   eventBorderColor: string;

@@ -225,6 +225,10 @@ declare interface ISharePointDynamicFormWebPartStrings {
   DesignerStepDefaultTitle: string;
   DesignerAddStep: string;
   DesignerDeleteStep: string;
+  DesignerMoveStepLeft: string;
+  DesignerMoveStepRight: string;
+  DesignerMoveStepLeftLabel: string;
+  DesignerMoveStepRightLabel: string;
   DesignerStepTitlePlaceholder: string;
   DesignerStepDescriptionPlaceholder: string;
   DesignerShowStep: string;

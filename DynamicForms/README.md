@@ -109,6 +109,8 @@ Detailed permission-source diagnostics remain in the browser console and are not
 - Progress indicator
 - Per-step validation
 - Custom step titles and descriptions
+- Move container left/right controls reorder wizard steps without deleting or recreating them.
+- Form-level and per-container themes can independently set description font size, family, weight, and color.
 
 ### SharePoint Integration
 
@@ -198,6 +200,7 @@ The solution package (`.sppkg`) will be generated in `sharepoint/solution/`.
 3. Click `+` to add fields to the form
 4. Configure field properties (label, required, visible)
 5. Arrange fields in grid layout
+6. For multi-step forms, use the left/right controls beside the selected container to change step order.
 
 ### Step 4: Configure Buttons and Actions
 

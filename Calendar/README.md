@@ -16,6 +16,7 @@ SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCale
 - Open an animated in-place event details panel with configurable fields and ordering.
 - Publish the selected event ID and `view` mode for Dynamic Form connections.
 - Enable diagnostic console logging for list and event loading.
+- Reuse a rolling three-month event cache so nearby date navigation avoids redundant SharePoint requests.
 
 ## Configuration
 
@@ -41,6 +42,8 @@ SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCale
 | `conditionalStyleJson` | Data-driven event appearance rules. | Empty |
 | `enableDiagnostics` | Writes calendar lifecycle and data-loading details to the browser console. | Enabled |
 
+The **Day header** appearance group independently controls weekday-header background, text, and border colors; font family, size, style, and weight; border width; and padding. Defaults are a light gray background (`#f3f2f1`), dark text (`#323130`), a 1-pixel border, and 8 pixels of padding.
+
 The dedicated **Appearance** property page separates styling for the calendar surface, web-part header, calendar date title, toolbar buttons, events, selected event, and expanded event details panel. The optional description appears directly below the editable title. It has independent text color, font family, size, style, and weight, while title alignment, header background color, and minimum height apply to the entire title/description/legend header. Set the minimum height to `0` to let the header grow automatically with its content. The data-source legend icon is anchored in the header and appears only when more than one source is configured. Selected-event controls include background, text, and border colors; font family, size, style, and weight; border width; and corner radius. The selected style overrides normal and conditional event styling in both the standard calendar and swim lanes, remains visible after the details panel closes, and moves when another event is selected. The details panel controls include overlay color and opacity; panel background, border, radius, width, padding, and shadow; independent title, field-label, and field-value typography; row dividers; and close-button colors and radius.
 
 Use **Manage data sources** to add and order Events lists or generic lists that contain a SharePoint calendar view. Each row selects its source list, start and end DateTime columns, and target page. **Defaults** resolves to `EventDate` and `EndDate` for classic Events lists and to the start/end fields configured in a modern calendar view. Explicit column selections override those defaults. The target dropdown includes **Display List Default Form** plus `.aspx` pages discovered from the current site's Site Pages and publishing Pages libraries, so no URL needs to be typed. Events from all rows are merged into the same calendar. Filters and conditional style entries can apply to all data sources or one selected source; selecting a source loads that list's fields into the designer. Existing filter and style entries without `sourceListName` remain global. SharePoint recurrence expansion is available for Events lists using the built-in date columns; generic calendar-view lists render non-recurring items.
@@ -53,7 +56,7 @@ Recurring events automatically include a **Repeats** information row in the deta
 
 The current user needs read access to the selected Events list. Calendar reads the item fields so filters and style rules can use standard or custom field internal names.
 
-Calendar queries events that overlap the currently visible month, week, day, list, or swim-lane range. Navigating to another range reloads that range from SharePoint, avoiding the previous oldest-500-item limit on large Events lists. Blank event end dates are supported, and the item Title is displayed on its calendar day.
+Calendar queries events that overlap the currently visible month, week, day, list, or swim-lane range. Each source caches the previous, current, and next month around the requested range; navigation inside that window reuses cached events, while moving outside it loads a new window from SharePoint. This avoids the previous oldest-500-item limit on large Events lists without repeating requests for nearby dates. Blank event end dates are supported, and the item Title is displayed on its calendar day.
 
 ## Event Details Panel
 
@@ -137,9 +140,9 @@ The deployable package is generated under `sharepoint/solution/`.
 ## Properties and common configuration
 
 - **Data:** `dataSources` stores ordered list sources, field mappings, colors, and target pages. `listName` remains a legacy single-list fallback.
-- **Behavior:** `defaultView`, `showWeekends`, `calendarHeight`, swim-lane settings, event details, target-page settings, and return-URL handling control interaction.
+- **Behavior:** `defaultView`, `showWeekends`, `calendarHeight`, swim-lane settings, event details, target-page settings, return-URL handling, and rolling event caching control interaction and loading.
 - **Rules:** `filterJson` and `conditionalStyleJson` are maintained by visual designers and support field comparisons plus current-user/date expressions.
-- **Appearance:** calendar surface, title, toolbar, event, selected-event, details-panel, typography, border, and spacing groups can be configured independently.
+- **Appearance:** calendar surface, title, weekday headers, toolbar, event, selected-event, details-panel, typography, border, and spacing groups can be configured independently.
 - **Advanced:** `forceFullWidth` expands the web part to available page width. `enableDiagnostics` records source discovery, recurrence, filter, and rendering details.
 
 Recurring-event expansion is intended for SharePoint Events lists. Users must have read access to every configured source and to fields used by filters, details, or style rules.

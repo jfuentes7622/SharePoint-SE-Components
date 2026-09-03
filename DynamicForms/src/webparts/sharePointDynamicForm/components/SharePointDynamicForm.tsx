@@ -167,6 +167,10 @@ function toPositiveInt(value: any): number {
   return !isNaN(parsed) && parsed > 0 ? parsed : 0;
 }
 
+// Fallback used whenever a level (web part/form/container/field) does not customize its own font,
+// so styling never silently cascades in from a different (unrelated) level's explicit setting.
+var DEFAULT_THEME_FONT_FAMILY = "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif";
+
 function escapeODataText(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -935,6 +939,22 @@ function normalizeDefaultForField(field: FormField, value: any): FieldValue {
         : lookupId;
     default:
       return String(value);
+  }
+}
+
+// Blank/empty representation used when a field's raw value is null/undefined on a newly loaded
+// record, so navigating records never leaves a previous record's value showing for a blank field.
+function getBlankValueForField(field: FormField): FieldValue {
+  switch (field.type) {
+    case 'multiselect':
+      return [];
+    case 'lookup':
+    case 'person':
+      return field.config && field.config.allowMultiple === true ? [] : '';
+    case 'boolean':
+      return false;
+    default:
+      return '';
   }
 }
 
@@ -2661,6 +2681,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         rawValue = rawIdValue;
       }
       if (rawValue === undefined || rawValue === null) {
+        // Explicitly reset to a blank value for this field's type instead of skipping, so a blank
+        // field on the newly loaded record does not keep showing the previous record's value.
+        values[field.id] = getBlankValueForField(field);
+        if (field.type === 'url') {
+          this._urlFieldDescriptions[field.id] = '';
+        }
         continue;
       }
 
@@ -2669,6 +2695,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           values[field.id] = rawValue.results;
         } else if (rawValue.length && typeof rawValue !== 'string') {
           values[field.id] = rawValue;
+        } else {
+          values[field.id] = [];
         }
       } else if (field.type === 'lookup' && field.config && field.config.allowMultiple === true) {
         if (rawValue.results && rawValue.results.length) {
@@ -2679,6 +2707,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           values[field.id] = rawValue.map(function(result: any) {
             return String(result && result.Id !== undefined ? result.Id : result);
           });
+        } else {
+          values[field.id] = [];
         }
       } else if (field.type === 'person' && field.config && field.config.allowMultiple === true) {
         if (rawValue.results && rawValue.results.length) {
@@ -2689,18 +2719,27 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           values[field.id] = rawValue.map(function(result: any) {
             return String(result && result.Id !== undefined ? result.Id : result);
           });
+        } else {
+          values[field.id] = [];
         }
       } else if (field.type === 'boolean') {
         values[field.id] = rawValue === true;
       } else if (field.type === 'lookup' && typeof rawValue === 'object' && rawValue !== null && rawValue.Id) {
         values[field.id] = String(rawValue.Id);
+      } else if (field.type === 'lookup') {
+        values[field.id] = '';
       } else if (field.type === 'person' && typeof rawValue === 'object' && rawValue !== null && rawValue.Id) {
         values[field.id] = String(rawValue.Id);
       } else if (field.type === 'person' && (typeof rawValue === 'number' || (typeof rawValue === 'string' && rawValue !== ''))) {
         values[field.id] = String(rawValue);
+      } else if (field.type === 'person') {
+        values[field.id] = '';
       } else if (field.type === 'url' && typeof rawValue === 'object' && rawValue !== null && rawValue.Url) {
         values[field.id] = rawValue.Url;
         this._urlFieldDescriptions[field.id] = rawValue.Description || '';
+      } else if (field.type === 'url') {
+        values[field.id] = '';
+        this._urlFieldDescriptions[field.id] = '';
       } else if (field.type === 'datetime') {
         var loadedTimeZone = field.config && field.config.timeZone;
         var loadedFormat = field.config && field.config.displayFormat;
@@ -3144,12 +3183,14 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     var placeholder = field.config && field.config.placeholder ? field.config.placeholder : undefined;
     var description = this.props.showFieldDescription ? (field.description || (field.config && field.config.helpText) || '') : '';
 
-    // Build label styles with field-specific font settings
-    var labelStyle: React.CSSProperties = {};
-    if (field.labelFontSize) { labelStyle.fontSize = field.labelFontSize; }
-    if (field.labelFontFamily) { labelStyle.fontFamily = field.labelFontFamily; }
-    if (field.labelFontWeight) { labelStyle.fontWeight = field.labelFontWeight as any; }
-    if (field.labelColor) { labelStyle.color = field.labelColor; }
+    // Build label styles with field-specific font settings; always resolved (own default when unset)
+    // so a field's label never inherits font styling meant for its surrounding container.
+    var labelStyle: React.CSSProperties = {
+      fontSize: field.labelFontSize || 14,
+      fontFamily: field.labelFontFamily || DEFAULT_THEME_FONT_FAMILY,
+      fontWeight: (field.labelFontWeight || 'normal') as any,
+      color: field.labelColor || '#000000',
+    };
 
     // Build field wrapper styles with background and border
     var fieldWrapperStyle: React.CSSProperties = { padding: '12px', marginBottom: '16px' };
@@ -3172,12 +3213,15 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       fieldWrapperStyle.borderRadius = String(field.fieldBorderRadius || 8) + 'px';
     }
 
-    // Build input styles with field-specific font settings
-    var inputStyle: React.CSSProperties = { width: '100%', padding: '8px', boxSizing: 'border-box' };
-    if (field.inputFontSize) { inputStyle.fontSize = field.inputFontSize; }
-    if (field.inputFontFamily) { inputStyle.fontFamily = field.inputFontFamily; }
-    if (field.inputFontWeight) { inputStyle.fontWeight = field.inputFontWeight as any; }
-    if (field.inputColor) { inputStyle.color = field.inputColor; }
+    // Build input styles with field-specific font settings; always resolved (own default when unset)
+    // so a field's input never inherits font styling meant for its surrounding container.
+    var inputStyle: React.CSSProperties = {
+      width: '100%', padding: '8px', boxSizing: 'border-box',
+      fontSize: field.inputFontSize || 14,
+      fontFamily: field.inputFontFamily || DEFAULT_THEME_FONT_FAMILY,
+      fontWeight: (field.inputFontWeight || 'normal') as any,
+      color: field.inputColor || '#000000',
+    };
 
     if (isLinkedField) {
       console.log('[SharePointDynamicForm] Rendering linked field as READONLY: ' + field.fieldName + ' (ID: ' + field.id + '), Value: ' + value + ', Mode: ' + effectiveMode);
@@ -3288,11 +3332,13 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       case 'richtext':
         // Custom richtext fields render as content divs, not form inputs
         // Always visible, never editable, for informational purposes
-        var richTextStyle: React.CSSProperties = { padding: '12px', marginBottom: '16px', wordBreak: 'break-word', lineHeight: '1.6' };
-        if (field.inputFontSize) { richTextStyle.fontSize = field.inputFontSize; }
-        if (field.inputFontFamily) { richTextStyle.fontFamily = field.inputFontFamily; }
-        if (field.inputFontWeight) { richTextStyle.fontWeight = field.inputFontWeight as any; }
-        if (field.inputColor) { richTextStyle.color = field.inputColor; }
+        var richTextStyle: React.CSSProperties = {
+          padding: '12px', marginBottom: '16px', wordBreak: 'break-word', lineHeight: '1.6',
+          fontSize: field.inputFontSize || 14,
+          fontFamily: field.inputFontFamily || DEFAULT_THEME_FONT_FAMILY,
+          fontWeight: (field.inputFontWeight || 'normal') as any,
+          color: field.inputColor || '#000000',
+        };
         if (field.fieldBackgroundColor) { richTextStyle.backgroundColor = field.fieldBackgroundColor; }
         if (field.fieldBorderColor || field.fieldBorderWidth) {
           richTextStyle.border = (field.fieldBorderWidth || 1) + 'px solid ' + (field.fieldBorderColor || '#cccccc');
@@ -3413,11 +3459,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           gap: '6px',
           width: 'fit-content',
         };
-        var booleanTextStyle: React.CSSProperties = {};
-        if (field.inputFontSize) { booleanTextStyle.fontSize = field.inputFontSize; }
-        if (field.inputFontFamily) { booleanTextStyle.fontFamily = field.inputFontFamily; }
-        if (field.inputFontWeight) { booleanTextStyle.fontWeight = field.inputFontWeight as any; }
-        if (field.inputColor) { booleanTextStyle.color = field.inputColor; }
+        var booleanTextStyle: React.CSSProperties = {
+          fontSize: field.inputFontSize || 14,
+          fontFamily: field.inputFontFamily || DEFAULT_THEME_FONT_FAMILY,
+          fontWeight: (field.inputFontWeight || 'normal') as any,
+          color: field.inputColor || '#000000',
+        };
         return (
           <div style={fieldWrapperStyle}>
             <div style={booleanLayoutStyle}>
@@ -3870,7 +3917,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     if (buttonBorderWidth < 0) {
       buttonBorderWidth = 0;
     }
-    var buttonFontFamily = this.props.buttonFontFamily || 'inherit';
+    var buttonFontFamily = this.props.buttonFontFamily || DEFAULT_THEME_FONT_FAMILY;
     var buttonFontSize = toPositiveInt(this.props.buttonFontSize) || 14;
     var buttonFontStyle = this.props.buttonFontStyle || 'normal';
     var buttonFontWeight = this.props.buttonFontBold ? 'bold' : 'normal';
@@ -3937,12 +3984,13 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
     // Build container styles from theme
     var containerStyle: React.CSSProperties = this.getContainerWidthStyle();
+    // Font settings for form wrapper: always resolved (own default when unset) so a form never
+    // silently inherits font styling meant for the web part chrome around it.
+    containerStyle.fontSize = (schema.theme && schema.theme.fontSize) || 14;
+    containerStyle.fontFamily = (schema.theme && schema.theme.fontFamily) || DEFAULT_THEME_FONT_FAMILY;
+    containerStyle.fontWeight = ((schema.theme && schema.theme.fontWeight) || 'normal') as any;
+    containerStyle.color = (schema.theme && schema.theme.color) || '#000000';
     if (schema.theme) {
-      // Font settings for form wrapper
-      if (schema.theme.fontSize) { containerStyle.fontSize = schema.theme.fontSize; }
-      if (schema.theme.fontFamily) { containerStyle.fontFamily = schema.theme.fontFamily; }
-      if (schema.theme.fontWeight) { containerStyle.fontWeight = schema.theme.fontWeight as any; }
-      if (schema.theme.color) { containerStyle.color = schema.theme.color; }
       // Background and border settings for form wrapper
       if (schema.theme.backgroundColor) { containerStyle.backgroundColor = schema.theme.backgroundColor; }
       if (schema.theme.borderColor || schema.theme.borderWidth) {
@@ -3985,13 +4033,20 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
         {schema.showTitle !== false && (schema.name || schema.description || schema.logoUrl) && <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', width: '100%' }}>
           <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-            {schema.name && <h1 style={{ textAlign: schema.nameAlignment || 'left' }}>{schema.name}</h1>}
-            {schema.description && <p style={Object.assign({}, schema.theme ? {
-              fontSize: schema.theme.descriptionFontSize,
-              fontFamily: schema.theme.descriptionFontFamily,
-              fontWeight: schema.theme.descriptionFontWeight as any,
-              color: schema.theme.descriptionColor
-            } : {}, { textAlign: schema.descriptionAlignment || 'left' })}>{schema.description}</p>}
+            {schema.name && <h1 style={{
+              fontSize: containerStyle.fontSize,
+              fontFamily: containerStyle.fontFamily,
+              fontWeight: containerStyle.fontWeight,
+              color: containerStyle.color,
+              textAlign: schema.nameAlignment || 'left'
+            }}>{schema.name}</h1>}
+            {schema.description && <p style={{
+              fontSize: (schema.theme && schema.theme.descriptionFontSize) || 14,
+              fontFamily: (schema.theme && schema.theme.descriptionFontFamily) || DEFAULT_THEME_FONT_FAMILY,
+              fontWeight: ((schema.theme && schema.theme.descriptionFontWeight) || 'normal') as any,
+              color: (schema.theme && schema.theme.descriptionColor) || '#666666',
+              textAlign: schema.descriptionAlignment || 'left'
+            }}>{schema.description}</p>}
           </div>
           {schema.logoUrl && <img src={schema.logoUrl} alt={schema.logoAltText || ''} style={{ flex: '0 0 auto', maxWidth: '160px', maxHeight: '80px', objectFit: 'contain' }} />}
         </div>}
@@ -4017,13 +4072,13 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
             }
             : { marginBottom: '24px' };
 
-          // Apply step theme styling
+          // Apply step theme styling. Font settings always resolve to their own default when unset
+          // so a container never inherits form-level font styling meant for the surrounding form.
+          stepContainerStyle.fontSize = (step.theme && step.theme.fontSize) || 14;
+          stepContainerStyle.fontFamily = (step.theme && step.theme.fontFamily) || DEFAULT_THEME_FONT_FAMILY;
+          stepContainerStyle.fontWeight = ((step.theme && step.theme.fontWeight) || 'normal') as any;
+          stepContainerStyle.color = (step.theme && step.theme.color) || '#000000';
           if (step.theme) {
-            // Font settings for step container
-            if (step.theme.fontSize) { stepContainerStyle.fontSize = step.theme.fontSize; }
-            if (step.theme.fontFamily) { stepContainerStyle.fontFamily = step.theme.fontFamily; }
-            if (step.theme.fontWeight) { stepContainerStyle.fontWeight = step.theme.fontWeight as any; }
-            if (step.theme.color) { stepContainerStyle.color = step.theme.color; }
             // Background and border settings for step container
             if (step.theme.backgroundColor) { stepContainerStyle.backgroundColor = step.theme.backgroundColor; }
             if (step.theme.borderColor || step.theme.borderWidth) {
@@ -4039,10 +4094,31 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
             stepContainerStyle.padding = '16px';
           }
 
+          // Container description has its own independent font settings, separate from the
+          // container's title/field styling above.
+          var stepDescriptionStyle: React.CSSProperties = {
+            fontSize: (step.theme && step.theme.descriptionFontSize) || 14,
+            fontFamily: (step.theme && step.theme.descriptionFontFamily) || DEFAULT_THEME_FONT_FAMILY,
+            fontWeight: ((step.theme && step.theme.descriptionFontWeight) || 'normal') as any,
+            color: (step.theme && step.theme.descriptionColor) || '#666666',
+          };
+
           return (
           <div key={step.id}>
-            {step.showTitle !== false && step.title && <h2 style={{ textAlign: step.titleAlignment || 'left' }}>{step.title}</h2>}
-            {step.showTitle !== false && step.description && <p style={{ textAlign: step.descriptionAlignment || 'left' }}>{step.description}</p>}
+            {step.showTitle !== false && step.title && <h2 style={{
+              fontSize: stepContainerStyle.fontSize,
+              fontFamily: stepContainerStyle.fontFamily,
+              fontWeight: stepContainerStyle.fontWeight,
+              color: stepContainerStyle.color,
+              textAlign: step.titleAlignment || 'left'
+            }}>{step.title}</h2>}
+            {step.showTitle !== false && step.description && <p style={{
+              fontSize: stepDescriptionStyle.fontSize,
+              fontFamily: stepDescriptionStyle.fontFamily,
+              fontWeight: stepDescriptionStyle.fontWeight,
+              color: stepDescriptionStyle.color,
+              textAlign: step.descriptionAlignment || 'left'
+            }}>{step.description}</p>}
             <div style={stepContainerStyle}>
             {step.fields.map((field) => {
               if (!field) {

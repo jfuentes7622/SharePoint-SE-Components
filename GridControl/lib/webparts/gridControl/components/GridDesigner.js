@@ -51,10 +51,6 @@ var GridValidation_1 = require("./GridValidation");
 require("./GridDesigner.css");
 var SYSTEM_FIELDS = {
     ID: true,
-    Created: true,
-    Modified: true,
-    Author: true,
-    Editor: true,
     GUID: true,
     ContentType: true,
     AppAuthor: true,
@@ -69,6 +65,51 @@ function createId() {
 }
 function escapeODataText(value) {
     return value.replace(/'/g, "''");
+}
+function trimGuidBraces(value) {
+    return String(value || '').replace(/^[{]/, '').replace(/[}]$/, '');
+}
+function buildViewIdCandidates(selectedViewId) {
+    var normalized = trimGuidBraces(selectedViewId);
+    var candidates = [String(selectedViewId || ''), normalized, '{' + normalized + '}'];
+    var unique = [];
+    for (var i = 0; i < candidates.length; i += 1) {
+        var value = String(candidates[i] || '');
+        if (value && unique.indexOf(value) < 0) {
+            unique.push(value);
+        }
+    }
+    return unique;
+}
+function parseGroupByFieldNames(viewQuery) {
+    var queryText = String(viewQuery || '').trim();
+    if (!queryText) {
+        return { fieldNames: [], collapsed: false };
+    }
+    try {
+        var xmlDocument = new DOMParser().parseFromString(/^<Query(?:\s|>)/i.test(queryText) ? queryText : '<Query>' + queryText + '</Query>', 'text/xml');
+        if (xmlDocument.getElementsByTagName('parsererror').length > 0) {
+            return { fieldNames: [], collapsed: false };
+        }
+        var groupByElements = xmlDocument.getElementsByTagName('GroupBy');
+        if (groupByElements.length === 0) {
+            return { fieldNames: [], collapsed: false };
+        }
+        var groupByElement = groupByElements[0];
+        var fieldRefs = groupByElement.getElementsByTagName('FieldRef');
+        var fieldNames = [];
+        for (var i = 0; i < fieldRefs.length && fieldNames.length < 2; i += 1) {
+            var name = fieldRefs[i].getAttribute('Name');
+            if (name) {
+                fieldNames.push(name);
+            }
+        }
+        var collapsed = String(groupByElement.getAttribute('Collapse') || '').toUpperCase() === 'TRUE';
+        return { fieldNames: fieldNames, collapsed: collapsed };
+    }
+    catch (_error) {
+        return { fieldNames: [], collapsed: false };
+    }
 }
 function copyFields(fields) {
     return JSON.parse(JSON.stringify(fields || []));
@@ -176,6 +217,28 @@ function parseSchemaFields(schemaJson) {
         return [];
     }
 }
+function parseGrouping(schemaJson) {
+    var defaultGrouping = { field1: '', field2: '', collapsedByDefault: false, showCount: true };
+    if (!String(schemaJson || '').trim()) {
+        return defaultGrouping;
+    }
+    try {
+        var schema = JSON.parse(schemaJson);
+        var grouping = schema && schema.grouping;
+        if (!grouping) {
+            return defaultGrouping;
+        }
+        return {
+            field1: String(grouping.field1 || ''),
+            field2: String(grouping.field2 || ''),
+            collapsedByDefault: grouping.collapsedByDefault === true,
+            showCount: grouping.showCount !== false
+        };
+    }
+    catch (_error) {
+        return defaultGrouping;
+    }
+}
 function parseAdvancedValidation(schemaJson) {
     if (!String(schemaJson || '').trim()) {
         return { enabled: false, rules: [] };
@@ -204,6 +267,9 @@ var GridDesigner = (function (_super) {
             selectedFieldId: initialFields.length > 0 ? initialFields[0].id : '',
             loading: false,
             error: '',
+            grouping: parseGrouping(props.schemaJson),
+            viewLoading: false,
+            viewLoadMessage: '',
             advancedValidationEnabled: initialAdvancedValidation.enabled,
             advancedValidationRules: initialAdvancedValidation.rules,
             validationExpression: '',
@@ -287,8 +353,10 @@ var GridDesigner = (function (_super) {
                         sourceFields = toArray(data && data.value).length > 0 ? toArray(data.value) : toArray(data && data.d && data.d.results);
                         fields = sourceFields.filter(function (field) {
                             var isAttachment = field.InternalName === 'Attachments';
+                            var isCommonSystemField = field.InternalName === 'Author' || field.InternalName === 'Editor'
+                                || field.InternalName === 'Created' || field.InternalName === 'Modified';
                             return !field.Hidden && !SYSTEM_FIELDS[field.InternalName]
-                                && (!field.FromBaseType || field.InternalName === 'Title' || isAttachment);
+                                && (!field.FromBaseType || field.InternalName === 'Title' || isAttachment || isCommonSystemField);
                         }).map(function (field) {
                             return {
                                 internalName: String(field.InternalName || ''),
@@ -327,6 +395,173 @@ var GridDesigner = (function (_super) {
                         this.setState({ loading: false, error: error_1 && error_1.message ? error_1.message : 'SharePoint fields could not be loaded.' });
                         return [3 /*break*/, 7];
                     case 7: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    GridDesigner.prototype.loadFromView = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var webUrl, listPath, viewIds, viewQuery, viewFieldNames, i, encoded, normalized, queryUrls, q, queryResponse, queryData, queryContainer, fieldsUrls, f, fieldsResponse, fieldsData, names, groupByResult, nextFields, addedFieldNames, v, viewFieldName, matchedSharePointField, s, config, groupField1, groupField2, error_2;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        if (!this.props.listName || !this.props.viewId) {
+                            this.setState({ viewLoadMessage: 'Select a SharePoint view in the web part properties first.' });
+                            return [2 /*return*/];
+                        }
+                        if (this.state.fields.length > 0 && typeof window !== 'undefined'
+                            && !window.confirm('Replace the current grid columns and grouping with the selected view\'s fields and grouping?')) {
+                            return [2 /*return*/];
+                        }
+                        this.setState({ viewLoading: true, viewLoadMessage: '' });
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 14, , 15]);
+                        webUrl = this.getWebUrl();
+                        listPath = "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')";
+                        viewIds = buildViewIdCandidates(this.props.viewId);
+                        viewQuery = '';
+                        viewFieldNames = [];
+                        i = 0;
+                        _a.label = 2;
+                    case 2:
+                        if (!(i < viewIds.length && !viewQuery)) return [3 /*break*/, 13];
+                        encoded = encodeURIComponent(viewIds[i]);
+                        normalized = encodeURIComponent(trimGuidBraces(viewIds[i]));
+                        queryUrls = [
+                            webUrl + listPath + "/views/getById('" + encoded + "')?$select=ViewQuery",
+                            webUrl + listPath + "/views(guid'" + normalized + "')?$select=ViewQuery"
+                        ];
+                        q = 0;
+                        _a.label = 3;
+                    case 3:
+                        if (!(q < queryUrls.length && !viewQuery)) return [3 /*break*/, 7];
+                        return [4 /*yield*/, this.getFieldsResponse(queryUrls[q])];
+                    case 4:
+                        queryResponse = _a.sent();
+                        if (!queryResponse.ok) {
+                            return [3 /*break*/, 6];
+                        }
+                        return [4 /*yield*/, queryResponse.json()];
+                    case 5:
+                        queryData = _a.sent();
+                        queryContainer = queryData && queryData.d ? queryData.d : queryData;
+                        if (queryContainer && queryContainer.ViewQuery !== undefined && queryContainer.ViewQuery !== null) {
+                            viewQuery = String(queryContainer.ViewQuery);
+                        }
+                        _a.label = 6;
+                    case 6:
+                        q += 1;
+                        return [3 /*break*/, 3];
+                    case 7:
+                        fieldsUrls = [
+                            webUrl + listPath + "/views/getById('" + encoded + "')/ViewFields",
+                            webUrl + listPath + "/views(guid'" + normalized + "')/ViewFields"
+                        ];
+                        f = 0;
+                        _a.label = 8;
+                    case 8:
+                        if (!(f < fieldsUrls.length && viewFieldNames.length === 0)) return [3 /*break*/, 12];
+                        return [4 /*yield*/, this.getFieldsResponse(fieldsUrls[f])];
+                    case 9:
+                        fieldsResponse = _a.sent();
+                        if (!fieldsResponse.ok) {
+                            return [3 /*break*/, 11];
+                        }
+                        return [4 /*yield*/, fieldsResponse.json()];
+                    case 10:
+                        fieldsData = _a.sent();
+                        names = toArray(fieldsData.value);
+                        if (names.length === 0) {
+                            names = toArray(fieldsData.Items);
+                        }
+                        if (names.length === 0) {
+                            names = toArray(fieldsData && fieldsData.d && fieldsData.d.Items);
+                        }
+                        if (names.length > 0) {
+                            viewFieldNames = names.map(function (name) { return String(name || ''); }).filter(function (name) { return !!name; });
+                        }
+                        _a.label = 11;
+                    case 11:
+                        f += 1;
+                        return [3 /*break*/, 8];
+                    case 12:
+                        i += 1;
+                        return [3 /*break*/, 2];
+                    case 13:
+                        groupByResult = parseGroupByFieldNames(viewQuery);
+                        // Only replace columns when the view actually returned an ordered field list; grouping is always applied.
+                        if (viewFieldNames.length > 0) {
+                            nextFields = [];
+                            addedFieldNames = {};
+                            for (v = 0; v < viewFieldNames.length; v += 1) {
+                                viewFieldName = viewFieldNames[v];
+                                if (SYSTEM_FIELDS[viewFieldName]) {
+                                    continue;
+                                }
+                                for (s = 0; s < this.state.sharePointFields.length; s += 1) {
+                                    if (this.state.sharePointFields[s].internalName.toLowerCase() === viewFieldName.toLowerCase()) {
+                                        matchedSharePointField = this.state.sharePointFields[s];
+                                        break;
+                                    }
+                                }
+                                if (!matchedSharePointField) {
+                                    continue;
+                                }
+                                // A SharePoint view can list the same field more than once; only add it once.
+                                if (addedFieldNames[matchedSharePointField.internalName.toLowerCase()]) {
+                                    continue;
+                                }
+                                addedFieldNames[matchedSharePointField.internalName.toLowerCase()] = true;
+                                config = {};
+                                if (matchedSharePointField.choices.length > 0) {
+                                    config.choices = matchedSharePointField.choices.slice();
+                                }
+                                if (matchedSharePointField.maxLength) {
+                                    config.maxLength = matchedSharePointField.maxLength;
+                                }
+                                if (matchedSharePointField.type === 'DateTime') {
+                                    config.displayFormat = matchedSharePointField.displayFormat || 'dateTime';
+                                }
+                                nextFields.push({
+                                    id: createId(),
+                                    fieldName: matchedSharePointField.internalName,
+                                    sharePointType: matchedSharePointField.type,
+                                    sharePointRequired: matchedSharePointField.required,
+                                    sharePointDescription: matchedSharePointField.description,
+                                    type: mapFieldType(matchedSharePointField.type),
+                                    label: matchedSharePointField.title,
+                                    description: '',
+                                    visible: true,
+                                    required: matchedSharePointField.required,
+                                    readOnly: matchedSharePointField.readOnly,
+                                    config: config
+                                });
+                            }
+                            if (nextFields.length > 0) {
+                                this.setState({ fields: nextFields, selectedFieldId: nextFields[0].id });
+                            }
+                        }
+                        groupField1 = groupByResult.fieldNames.length > 0 ? groupByResult.fieldNames[0] : '';
+                        groupField2 = groupByResult.fieldNames.length > 1 ? groupByResult.fieldNames[1] : '';
+                        this.setState({
+                            viewLoading: false,
+                            grouping: {
+                                field1: groupField1,
+                                field2: groupField2,
+                                collapsedByDefault: groupByResult.collapsed,
+                                showCount: this.state.grouping.showCount
+                            },
+                            viewLoadMessage: viewFieldNames.length > 0
+                                ? (groupField1 ? 'Loaded columns and grouping from the selected view.' : 'Loaded columns from the selected view. The view has no grouping configured.')
+                                : (groupField1 ? 'Loaded grouping from the selected view.' : 'The selected view has no fields or grouping to load.')
+                        });
+                        return [3 /*break*/, 15];
+                    case 14:
+                        error_2 = _a.sent();
+                        this.setState({ viewLoading: false, viewLoadMessage: error_2 && error_2.message ? error_2.message : 'Failed to load the selected view.' });
+                        return [3 /*break*/, 15];
+                    case 15: return [2 /*return*/];
                 }
             });
         });
@@ -413,6 +648,19 @@ var GridDesigner = (function (_super) {
             field.config = field.config || {};
             field.config[name] = value;
         });
+    };
+    GridDesigner.prototype.updateGrouping = function (mutator) {
+        var grouping = {
+            field1: this.state.grouping.field1,
+            field2: this.state.grouping.field2,
+            collapsedByDefault: this.state.grouping.collapsedByDefault,
+            showCount: this.state.grouping.showCount
+        };
+        mutator(grouping);
+        if (!grouping.field1) {
+            grouping.field2 = '';
+        }
+        this.setState({ grouping: grouping });
     };
     GridDesigner.prototype.changeSelectedControlType = function (controlType) {
         this.updateSelectedField(function (field) {
@@ -595,6 +843,13 @@ var GridDesigner = (function (_super) {
             name: this.props.listName + ' Grid',
             mode: 'edit',
             listName: this.props.listName,
+            grouping: {
+                enabled: !!this.state.grouping.field1,
+                field1: this.state.grouping.field1,
+                field2: this.state.grouping.field1 ? this.state.grouping.field2 : '',
+                collapsedByDefault: this.state.grouping.collapsedByDefault,
+                showCount: this.state.grouping.showCount
+            },
             advancedValidation: {
                 enabled: this.state.advancedValidationEnabled && this.state.advancedValidationRules.length > 0,
                 rules: this.state.advancedValidationRules
@@ -616,16 +871,54 @@ var GridDesigner = (function (_super) {
                 React.createElement("span", null, field.title),
                 React.createElement("small", null, getTypeLabel(mapFieldType(field.type))))); })));
     };
-    GridDesigner.prototype.renderCanvas = function () {
+    GridDesigner.prototype.getFieldLabel = function (fieldName) {
+        if (!fieldName) {
+            return '';
+        }
+        for (var i = 0; i < this.state.fields.length; i += 1) {
+            if (this.state.fields[i].fieldName.toLowerCase() === fieldName.toLowerCase()) {
+                return this.state.fields[i].label || this.state.fields[i].fieldName;
+            }
+        }
+        for (var j = 0; j < this.state.sharePointFields.length; j += 1) {
+            if (this.state.sharePointFields[j].internalName.toLowerCase() === fieldName.toLowerCase()) {
+                return this.state.sharePointFields[j].title || fieldName;
+            }
+        }
+        return fieldName;
+    };
+    GridDesigner.prototype.renderGroupingSettings = function () {
         var _this = this;
-        return (React.createElement("main", { className: "gd-canvas" },
+        var grouping = this.state.grouping;
+        return (React.createElement("div", { className: "gd-group-settings" },
             React.createElement("div", { className: "gd-canvas-header" },
                 React.createElement("div", null,
-                    React.createElement("h3", null, "Grid columns"),
-                    React.createElement("p", null, "Column order follows this list from top to bottom.")),
-                React.createElement("span", null,
-                    this.state.fields.length,
-                    " columns")),
+                    React.createElement("h3", null, "Grouping"),
+                    React.createElement("p", null, "Group grid rows by up to two columns, similar to a SharePoint view's Group By."))),
+            this.props.viewId && (React.createElement("div", { className: "gd-group-view-load" },
+                React.createElement("button", { type: "button", disabled: this.state.viewLoading, onClick: function () { return _this.loadFromView(); } }, this.state.viewLoading ? 'Loading from view…' : 'Load columns & grouping from selected view'),
+                this.state.viewLoadMessage && React.createElement("div", { className: "gd-hint" }, this.state.viewLoadMessage))),
+            React.createElement("div", { className: "gd-inline-fields gd-inline-fields-two" },
+                React.createElement("label", null,
+                    "Group by",
+                    React.createElement("select", { value: grouping.field1, onChange: function (ev) { var value = ev.currentTarget.value; _this.updateGrouping(function (next) { next.field1 = value; }); } },
+                        React.createElement("option", { value: "" }, "None"),
+                        this.state.fields.map(function (field) { return React.createElement("option", { key: field.id, value: field.fieldName }, field.label || field.fieldName); }))),
+                React.createElement("label", null,
+                    "Then by",
+                    React.createElement("select", { value: grouping.field2, disabled: !grouping.field1, onChange: function (ev) { var value = ev.currentTarget.value; _this.updateGrouping(function (next) { next.field2 = value; }); } },
+                        React.createElement("option", { value: "" }, "None"),
+                        this.state.fields.filter(function (field) { return field.fieldName !== grouping.field1; }).map(function (field) { return React.createElement("option", { key: field.id, value: field.fieldName }, field.label || field.fieldName); })))),
+            React.createElement("label", { className: "gd-check" },
+                React.createElement("input", { type: "checkbox", checked: grouping.collapsedByDefault, disabled: !grouping.field1, onChange: function (ev) { var checked = ev.currentTarget.checked; _this.updateGrouping(function (next) { next.collapsedByDefault = checked; }); } }),
+                " Collapse groups by default"),
+            React.createElement("label", { className: "gd-check" },
+                React.createElement("input", { type: "checkbox", checked: grouping.showCount, disabled: !grouping.field1, onChange: function (ev) { var checked = ev.currentTarget.checked; _this.updateGrouping(function (next) { next.showCount = checked; }); } }),
+                " Show item count per group")));
+    };
+    GridDesigner.prototype.renderColumnsList = function () {
+        var _this = this;
+        return (React.createElement("div", null,
             this.state.fields.length === 0 && React.createElement("div", { className: "gd-empty gd-empty-canvas" }, "Add SharePoint fields from the left panel."),
             this.state.fields.map(function (field, index) { return (React.createElement("div", { key: field.id, className: 'gd-column ' + (field.id === _this.state.selectedFieldId ? 'gd-column-selected' : ''), onClick: function () { return _this.setState({ selectedFieldId: field.id }); } },
                 React.createElement("div", { className: "gd-column-order" }, index + 1),
@@ -643,6 +936,42 @@ var GridDesigner = (function (_super) {
                     React.createElement("button", { type: "button", title: "Move up", disabled: index === 0, onClick: function (ev) { ev.stopPropagation(); _this.moveField(field.id, -1); } }, "\u2191"),
                     React.createElement("button", { type: "button", title: "Move down", disabled: index === _this.state.fields.length - 1, onClick: function (ev) { ev.stopPropagation(); _this.moveField(field.id, 1); } }, "\u2193"),
                     React.createElement("button", { type: "button", title: "Remove column", onClick: function (ev) { ev.stopPropagation(); _this.removeField(field.id); } }, "\u00D7")))); })));
+    };
+    GridDesigner.prototype.renderCanvas = function () {
+        var grouping = this.state.grouping;
+        var columnsPreview = this.renderColumnsList();
+        if (grouping.field1) {
+            var innerPreview = grouping.field2 ? (React.createElement("div", { className: "gd-group-container gd-group-container-nested" },
+                React.createElement("div", { className: "gd-group-container-header" },
+                    React.createElement("span", { className: "gd-group-container-icon" }, "\u25BE"),
+                    React.createElement("span", null,
+                        "Then by: ",
+                        this.getFieldLabel(grouping.field2),
+                        " = ",
+                        React.createElement("em", null, "(example value)")),
+                    grouping.showCount && React.createElement("span", { className: "gd-group-container-count" }, "3 items")),
+                React.createElement("div", { className: "gd-group-container-body" }, columnsPreview))) : columnsPreview;
+            columnsPreview = (React.createElement("div", { className: "gd-group-container" },
+                React.createElement("div", { className: "gd-group-container-header" },
+                    React.createElement("span", { className: "gd-group-container-icon" }, grouping.collapsedByDefault ? '▸' : '▾'),
+                    React.createElement("span", null,
+                        "Grouped by: ",
+                        this.getFieldLabel(grouping.field1),
+                        " = ",
+                        React.createElement("em", null, "(example value)")),
+                    grouping.showCount && React.createElement("span", { className: "gd-group-container-count" }, grouping.field2 ? '' : '5 items')),
+                React.createElement("div", { className: "gd-group-container-body" }, innerPreview)));
+        }
+        return (React.createElement("main", { className: "gd-canvas" },
+            this.renderGroupingSettings(),
+            React.createElement("div", { className: "gd-canvas-header" },
+                React.createElement("div", null,
+                    React.createElement("h3", null, "Grid columns"),
+                    React.createElement("p", null, "Column order follows this list from top to bottom.")),
+                React.createElement("span", null,
+                    this.state.fields.length,
+                    " columns")),
+            columnsPreview));
     };
     GridDesigner.prototype.renderFieldEditor = function () {
         var _this = this;

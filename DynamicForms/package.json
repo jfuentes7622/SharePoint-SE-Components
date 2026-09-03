@@ -1,6 +1,6 @@
 {
   "name": "dynamic-form",
-  "version": "1.0.10",
+  "version": "1.0.17",
   "private": true,
   "main": "lib/index.js",
   "engines": {

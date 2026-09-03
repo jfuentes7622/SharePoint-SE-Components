@@ -7,7 +7,9 @@ SPFx 1.5.1 web part for grouping modern SharePoint page sections or individual w
 - Build and reorder tabs in a property-pane collection editor.
 - Target page sections or individual web parts.
 - Configure each tab's title, text alignment, image, image position, and image-only mode.
-- Customize tab shape, dimensions, typography, active color, and inactive color.
+- Customize tab shape, dimensions, typography, active/inactive colors, borders, and the tab-strip line.
+- Fade images on inactive tabs without changing label or border opacity.
+- Style the outer web-part border and corners independently from individual tabs.
 - Automatically size tab widths or use a fixed width.
 - Load an optional custom stylesheet.
 - Keep all target content visible while the page is in edit mode.
@@ -42,6 +44,18 @@ The `collectionData` editor defines tabs in display order. Use its Move up and M
 | `tabWidth` | Fixed width from 60 to 400 pixels when auto sizing is disabled. | `120` |
 | `selectedColor` | Active tab color, including optional alpha transparency. | `#8A1717` |
 | `disableColor` | Inactive tab color, including optional alpha transparency. | `#393939` |
+| `inactiveImageFade` | Percentage opacity reduction applied only to inactive tab images; active images remain fully opaque. | `45` |
+| `tabBorderColor` | Border color for individual tabs. | `#000000` |
+| `tabBorderWidth` | Individual tab border width from 0 to 20 pixels. | `0` |
+| `tabBorderStyle` | Individual tab border type: none, solid, dashed, dotted, or double. | `solid` |
+| `tabCornerRadius` | Rounded-tab corner radius from 0 to 40 pixels. | `10` |
+| `tabLineColor` | Independent color of the line below the tab strip. | `#8A1717` |
+| `tabLineWidth` | Tab-strip line width from 0 to 20 pixels. | `3` |
+| `webPartBorderColor` | Border color for the outer web-part wrapper. | `#cccccc` |
+| `webPartBorderWidth` | Outer wrapper border width from 0 to 20 pixels. | `0` |
+| `webPartBorderStyle` | Outer wrapper border type: none, solid, dashed, dotted, or double. | `solid` |
+| `webPartCornerStyle` | Uses square or rounded outer wrapper corners. | `square` |
+| `webPartCornerRadius` | Outer wrapper radius from 0 to 40 pixels when rounded corners are selected. | `8` |
 | `enableDiagnostics` | Writes tab discovery and configuration details to the browser console. | Enabled |
 
 ### Custom CSS

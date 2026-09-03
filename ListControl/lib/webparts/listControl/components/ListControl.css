@@ -15,7 +15,7 @@
   --lc-selected-font-style: normal;
   --lc-selected-font-weight: normal;
   --lc-header-text-color: inherit;
-  --lc-header-bg-color: transparent;
+  --lc-header-bg-color: #ffffff;
   --lc-header-font-family: inherit;
   --lc-header-font-size: 14px;
   --lc-header-font-style: normal;
@@ -48,6 +48,10 @@
   align-items: center;
 }
 
+.gc-view-static-label {
+  font-weight: 600;
+}
+
 .lc-toolbar button {
   color: var(--lc-button-text-color);
   background-color: var(--lc-button-bg-color);
@@ -76,10 +80,58 @@
 }
 
 .lc-table-wrap {
+  position: relative;
   overflow-x: auto;
   background-color: var(--lc-table-bg-color);
   border: var(--lc-table-border-width) solid var(--lc-table-border-color);
   border-radius: var(--lc-table-corner-radius);
+}
+
+.lc-sticky-header-viewport {
+  display: none;
+  position: fixed;
+  overflow: hidden;
+  z-index: 1000;
+  background-color: var(--lc-header-bg-color);
+}
+
+.lc-sticky-header-table {
+  position: relative;
+  table-layout: fixed;
+}
+
+.lc-scroll-arrow {
+  position: fixed;
+  z-index: 1000;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.92);
+  color: #201f1e;
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.lc-table-wrap:hover .lc-scroll-arrow,
+.lc-table-wrap:focus-within .lc-scroll-arrow {
+  opacity: 0.35;
+  pointer-events: auto;
+}
+
+.lc-scroll-arrow:hover,
+.lc-scroll-arrow:focus {
+  opacity: 1 !important;
+  background-color: #ffffff;
 }
 
 .lc-table {
@@ -88,6 +140,12 @@
   border-spacing: 0;
   background-color: transparent;
   border: none;
+}
+
+.lc-table thead {
+  position: relative;
+  z-index: 3;
+  background-color: var(--lc-header-bg-color);
 }
 
 .lc-table th {
@@ -157,6 +215,7 @@
   border: 1px solid #d0d0d0;
   border-radius: 6px;
   background-color: #ffffff;
+  color: #201f1e;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   padding: 10px;
 }
@@ -285,12 +344,22 @@
   background-color: var(--lc-alternate-row-color);
 }
 
+.lc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.lc-total-items {
+  color: var(--lc-body-text-color);
+}
+
 .lc-pagination {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 12px;
-  margin-top: 12px;
 }
 
 .lc-pagination button {
@@ -365,3 +434,99 @@
 .lc-form-dialog-message,
 .lc-form-dialog-error { padding: 48px 16px 16px; }
 .lc-form-dialog-error { color: #a80000; }
+
+.gc-command-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+}
+
+.gc-command-content .ms-Icon {
+  font-size: 16px;
+}
+
+.gc-command-button-icon-only {
+  box-sizing: border-box;
+  width: 36px;
+  min-width: 36px !important;
+  height: 36px;
+  padding: 0 !important;
+}
+
+.gc-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.lc-pagination .gc-command-button-icon-only {
+  min-width: 36px !important;
+}
+
+.gc-compact-icon-button {
+  box-sizing: border-box;
+  min-width: 28px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gc-group-row td {
+  padding: 7px 10px;
+  background-color: #f3f2f1;
+  border-bottom: 1px solid #d2d0ce;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gc-group-row-level-1 td {
+  background-color: #f9f9f9;
+}
+
+.gc-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  margin-right: 8px;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid #8a8886;
+  border-radius: var(--lc-button-corner-radius);
+  background-color: var(--lc-button-bg-color);
+  color: var(--lc-button-text-color);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.gc-group-toggle.gc-command-button-icon-only {
+  padding: 0 !important;
+}
+
+.gc-group-toggle .gc-command-content {
+  line-height: 1;
+}
+
+.gc-group-label {
+  vertical-align: middle;
+}
+
+.gc-group-count {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background-color: #e1dfdd;
+  color: #323130;
+  font-size: 11px;
+  font-weight: 400;
+  vertical-align: middle;
+}

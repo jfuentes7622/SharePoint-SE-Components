@@ -58,10 +58,6 @@ interface ISPFieldResponse {
 
 var SYSTEM_FIELDS: { [key: string]: boolean } = {
   ID: true,
-  Created: true,
-  Modified: true,
-  Author: true,
-  Editor: true,
   OData__UIVersionString: true,
   GUID: true,
   ContentType: true,
@@ -80,6 +76,10 @@ function createId(prefix: string): string {
 function escapeODataText(value: string): string {
   return value.replace(/'/g, "''");
 }
+
+// Fallback used whenever a level (form/container/field) does not customize its own font, so the
+// designer preview never silently cascades styling in from a different (unrelated) level's setting.
+var DEFAULT_THEME_FONT_FAMILY = "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif";
 
 function copySchema(schema: FormSchema): FormSchema {
   return JSON.parse(JSON.stringify(schema));
@@ -346,10 +346,12 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       var mapped = fields
         .filter(function(field) {
           var isAttachmentField = field.InternalName === 'Attachments';
+          var isCommonSystemField = field.InternalName === 'Author' || field.InternalName === 'Editor'
+            || field.InternalName === 'Created' || field.InternalName === 'Modified';
           if (field.Hidden) {
             return false;
           }
-          if (field.FromBaseType && field.InternalName !== 'Title' && !isAttachmentField) {
+          if (field.FromBaseType && field.InternalName !== 'Title' && !isAttachmentField && !isCommonSystemField) {
             return false;
           }
           return !SYSTEM_FIELDS[field.InternalName];
@@ -609,6 +611,22 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     });
   }
 
+  private moveStep(direction: number): void {
+    var nextSchema = copySchema(this.props.schema);
+    var steps = nextSchema.steps;
+    var index = this.state.selectedStepIndex;
+    var targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= steps.length) {
+      return;
+    }
+
+    var temp = steps[index];
+    steps[index] = steps[targetIndex];
+    steps[targetIndex] = temp;
+    this.props.onChange(nextSchema);
+    this.setState({ selectedStepIndex: targetIndex });
+  }
+
   private addFieldFromSPField(spField: SPFieldInfo): void {
     var currentStep = this.getCurrentStep();
     if (!currentStep) {
@@ -768,13 +786,14 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
   private renderPreview(): JSX.Element {
     var schema = this.props.schema;
 
-    // Form-level wrapper style
+    // Form-level wrapper style; font settings always resolve to their own default when unset so the
+    // preview never shows a container/field silently inheriting the form's font styling.
     var formWrapperStyle: React.CSSProperties = { padding: '12px' };
+    formWrapperStyle.fontSize = (schema.theme && schema.theme.fontSize) || 14;
+    formWrapperStyle.fontFamily = (schema.theme && schema.theme.fontFamily) || DEFAULT_THEME_FONT_FAMILY;
+    formWrapperStyle.fontWeight = ((schema.theme && schema.theme.fontWeight) || 'normal') as any;
+    formWrapperStyle.color = (schema.theme && schema.theme.color) || '#000000';
     if (schema.theme) {
-      if (schema.theme.fontSize) { formWrapperStyle.fontSize = schema.theme.fontSize; }
-      if (schema.theme.fontFamily) { formWrapperStyle.fontFamily = schema.theme.fontFamily; }
-      if (schema.theme.fontWeight) { formWrapperStyle.fontWeight = schema.theme.fontWeight as any; }
-      if (schema.theme.color) { formWrapperStyle.color = schema.theme.color; }
       if (schema.theme.backgroundColor) { formWrapperStyle.backgroundColor = schema.theme.backgroundColor; }
       if (schema.theme.borderColor || schema.theme.borderWidth) {
         formWrapperStyle.border = (schema.theme.borderWidth || 1) + 'px solid ' + (schema.theme.borderColor || '#cccccc');
@@ -794,15 +813,13 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
     var visibleSteps = schema.steps.filter(function(step) { return step.visible !== false; });
 
-    // Build description style with separate font settings
+    // Build description style with separate font settings; always resolved (own default when unset)
     var descriptionStyle: React.CSSProperties = { marginBottom: '16px' };
     descriptionStyle.textAlign = schema.descriptionAlignment || 'left';
-    if (schema.theme) {
-      if (schema.theme.descriptionFontSize) { descriptionStyle.fontSize = schema.theme.descriptionFontSize; }
-      if (schema.theme.descriptionFontFamily) { descriptionStyle.fontFamily = schema.theme.descriptionFontFamily; }
-      if (schema.theme.descriptionFontWeight) { descriptionStyle.fontWeight = schema.theme.descriptionFontWeight as any; }
-      if (schema.theme.descriptionColor) { descriptionStyle.color = schema.theme.descriptionColor; }
-    }
+    descriptionStyle.fontSize = (schema.theme && schema.theme.descriptionFontSize) || 14;
+    descriptionStyle.fontFamily = (schema.theme && schema.theme.descriptionFontFamily) || DEFAULT_THEME_FONT_FAMILY;
+    descriptionStyle.fontWeight = ((schema.theme && schema.theme.descriptionFontWeight) || 'normal') as any;
+    descriptionStyle.color = (schema.theme && schema.theme.descriptionColor) || '#666666';
 
     return (
       <div className={styles.designerPreviewSection}>
@@ -810,7 +827,13 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
         <div style={formWrapperStyle}>
           {schema.showTitle !== false && (schema.name || schema.description || schema.logoUrl) && <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', width: '100%' }}>
             <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-              {schema.name && <h2 className={styles.designerPreviewFormName} style={{ textAlign: schema.nameAlignment || 'left' }}>{schema.name}</h2>}
+              {schema.name && <h2 className={styles.designerPreviewFormName} style={{
+                fontSize: formWrapperStyle.fontSize,
+                fontFamily: formWrapperStyle.fontFamily,
+                fontWeight: formWrapperStyle.fontWeight,
+                color: formWrapperStyle.color,
+                textAlign: schema.nameAlignment || 'left'
+              }}>{schema.name}</h2>}
               {schema.description && <div style={descriptionStyle}>{schema.description}</div>}
             </div>
             {schema.logoUrl && <img src={schema.logoUrl} alt={schema.logoAltText || ''} style={{ flex: '0 0 auto', maxWidth: '160px', maxHeight: '80px', objectFit: 'contain' }} />}
@@ -824,11 +847,14 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                 ? { display: 'grid', gridTemplateColumns: 'repeat(' + String(stepTheme.columns) + ', minmax(0, 1fr))', gap: '12px' }
                 : {};
 
+              // Font settings always resolve to their own default when unset so the preview never
+              // shows a container silently inheriting the form's font styling.
+              stepContainerStyle.fontSize = (step.theme && step.theme.fontSize) || 14;
+              stepContainerStyle.fontFamily = (step.theme && step.theme.fontFamily) || DEFAULT_THEME_FONT_FAMILY;
+              stepContainerStyle.fontWeight = ((step.theme && step.theme.fontWeight) || 'normal') as any;
+              stepContainerStyle.color = (step.theme && step.theme.color) || '#000000';
+
               if (step.theme) {
-                if (step.theme.fontSize) { stepContainerStyle.fontSize = step.theme.fontSize; }
-                if (step.theme.fontFamily) { stepContainerStyle.fontFamily = step.theme.fontFamily; }
-                if (step.theme.fontWeight) { stepContainerStyle.fontWeight = step.theme.fontWeight as any; }
-                if (step.theme.color) { stepContainerStyle.color = step.theme.color; }
                 if (step.theme.backgroundColor) { stepContainerStyle.backgroundColor = step.theme.backgroundColor; }
                 if (step.theme.borderColor || step.theme.borderWidth) {
                   stepContainerStyle.border = (step.theme.borderWidth || 1) + 'px solid ' + (step.theme.borderColor || '#cccccc');
@@ -841,10 +867,31 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                 }
               }
 
+              // Container description has its own independent font settings, separate from the
+              // container's title/field styling above.
+              var stepDescriptionStyle: React.CSSProperties = {
+                fontSize: (step.theme && step.theme.descriptionFontSize) || 14,
+                fontFamily: (step.theme && step.theme.descriptionFontFamily) || DEFAULT_THEME_FONT_FAMILY,
+                fontWeight: ((step.theme && step.theme.descriptionFontWeight) || 'normal') as any,
+                color: (step.theme && step.theme.descriptionColor) || '#666666',
+              };
+
               return (
                 <div key={step.id} style={{ marginBottom: formGridLayout ? '0' : '20px' }}>
-                  {step.showTitle !== false && step.title && <div className={styles.designerPreviewStepTitle} style={{ textAlign: step.titleAlignment || 'left' }}>{step.title}</div>}
-                  {step.showTitle !== false && step.description && <div className={styles.designerPreviewStepDescription} style={{ textAlign: step.descriptionAlignment || 'left' }}>{step.description}</div>}
+                  {step.showTitle !== false && step.title && <div className={styles.designerPreviewStepTitle} style={{
+                    fontSize: stepContainerStyle.fontSize,
+                    fontFamily: stepContainerStyle.fontFamily,
+                    fontWeight: stepContainerStyle.fontWeight,
+                    color: stepContainerStyle.color,
+                    textAlign: step.titleAlignment || 'left'
+                  }}>{step.title}</div>}
+                  {step.showTitle !== false && step.description && <div className={styles.designerPreviewStepDescription} style={{
+                    fontSize: stepDescriptionStyle.fontSize,
+                    fontFamily: stepDescriptionStyle.fontFamily,
+                    fontWeight: stepDescriptionStyle.fontWeight,
+                    color: stepDescriptionStyle.color,
+                    textAlign: step.descriptionAlignment || 'left'
+                  }}>{step.description}</div>}
                   <div style={stepContainerStyle}>
                     {step.fields.map((field) => {
                       if (!field || field.visible === false) {
@@ -866,6 +913,8 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                           wordBreak: 'break-word',
                           lineHeight: '1.6',
                           fontSize: '12px',
+                          fontFamily: DEFAULT_THEME_FONT_FAMILY,
+                          fontWeight: 'normal',
                           color: '#605e5c'
                         };
                         if (field.inputFontSize) { richTextStyle.fontSize = field.inputFontSize; }
@@ -946,15 +995,16 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                         fieldWrapperStyle.borderRadius = String(field.fieldBorderRadius || 8) + 'px';
                       }
 
-                      // Label style
-                      var labelStyle: React.CSSProperties = { fontWeight: 600 };
+                      // Label style: always resolved (own default when unset) so the preview label
+                      // never inherits the container's font styling.
+                      var labelStyle: React.CSSProperties = { fontWeight: 600, fontSize: 14, fontFamily: DEFAULT_THEME_FONT_FAMILY, color: '#000000' };
                       if (field.labelFontSize) { labelStyle.fontSize = field.labelFontSize; }
                       if (field.labelFontFamily) { labelStyle.fontFamily = field.labelFontFamily; }
                       if (field.labelFontWeight) { labelStyle.fontWeight = field.labelFontWeight as any; }
                       if (field.labelColor) { labelStyle.color = field.labelColor; }
 
-                      // Input/value style
-                      var inputStyle: React.CSSProperties = { fontSize: '12px', color: '#605e5c', marginTop: '4px' };
+                      // Input/value style: always resolved (own default when unset)
+                      var inputStyle: React.CSSProperties = { fontSize: '12px', fontFamily: DEFAULT_THEME_FONT_FAMILY, fontWeight: 'normal', color: '#605e5c', marginTop: '4px' };
                       if (field.inputFontSize) { inputStyle.fontSize = field.inputFontSize; }
                       if (field.inputFontFamily) { inputStyle.fontFamily = field.inputFontFamily; }
                       if (field.inputFontWeight) { inputStyle.fontWeight = field.inputFontWeight as any; }
@@ -1084,6 +1134,26 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
             </button>
           ))}
           <button type="button" className={styles.designerActionButton} onClick={() => this.addStep()}>{strings.DesignerAddStep}</button>
+          <button
+            type="button"
+            className={styles.designerInlineButton}
+            title={strings.DesignerMoveStepLeft}
+            aria-label={strings.DesignerMoveStepLeft}
+            onClick={() => this.moveStep(-1)}
+            disabled={this.state.selectedStepIndex <= 0}
+          >
+            {strings.DesignerMoveStepLeftLabel}
+          </button>
+          <button
+            type="button"
+            className={styles.designerInlineButton}
+            title={strings.DesignerMoveStepRight}
+            aria-label={strings.DesignerMoveStepRight}
+            onClick={() => this.moveStep(1)}
+            disabled={this.state.selectedStepIndex >= this.props.schema.steps.length - 1}
+          >
+            {strings.DesignerMoveStepRightLabel}
+          </button>
           {this.props.schema.steps.length > 1 && (
             <button type="button" className={styles.designerDeleteButton} onClick={() => this.deleteCurrentStep()}>{strings.DesignerDeleteStep}</button>
           )}
@@ -2584,6 +2654,87 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
               onChange={(ev) => this.updateCurrentStep(function(nextStep) {
                 if (!nextStep.theme) nextStep.theme = {};
                 nextStep.theme.color = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
+        </div>
+
+        <div className={styles.designerPanelSection}>
+          <div className={styles.designerPanelTitle}>Container Description Font Settings</div>
+
+          <label className={styles.designerFormLabel}>Font Size (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={8}
+            max={72}
+            value={String(theme.descriptionFontSize || 14)}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              nextStep.theme.descriptionFontSize = isNaN(parsed) ? undefined : parsed;
+              return nextStep;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Font Family</label>
+          <select
+            className={styles.designerInput}
+            value={theme.descriptionFontFamily || 'inherit'}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              nextStep.theme.descriptionFontFamily = ev.currentTarget.value === 'inherit' ? undefined : ev.currentTarget.value;
+              return nextStep;
+            })}
+          >
+            <option value="inherit">Inherit</option>
+            <option value="Arial">Arial</option>
+            <option value="'Segoe UI'">Segoe UI</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Weight</label>
+          <select
+            className={styles.designerInput}
+            value={theme.descriptionFontWeight || 'normal'}
+            onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+              if (!nextStep.theme) nextStep.theme = {};
+              nextStep.theme.descriptionFontWeight = ev.currentTarget.value as 'normal' | 'bold' | '500' | '600' | '700' || undefined;
+              return nextStep;
+            })}
+          >
+            <option value="normal">Normal</option>
+            <option value="500">Medium (500)</option>
+            <option value="600">Semi-Bold (600)</option>
+            <option value="bold">Bold</option>
+            <option value="700">Bold (700)</option>
+          </select>
+
+          <label className={styles.designerFormLabel}>Font Color</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="color"
+              value={theme.descriptionColor || '#666666'}
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.descriptionColor = ev.currentTarget.value || undefined;
+                return nextStep;
+              })}
+              style={{ width: '50px', height: '40px', cursor: 'pointer', border: '1px solid #ccc' }}
+            />
+            <input
+              className={styles.designerInput}
+              type="text"
+              value={theme.descriptionColor || ''}
+              placeholder="#666666"
+              onChange={(ev) => this.updateCurrentStep(function(nextStep) {
+                if (!nextStep.theme) nextStep.theme = {};
+                nextStep.theme.descriptionColor = ev.currentTarget.value || undefined;
                 return nextStep;
               })}
               style={{ flex: 1 }}

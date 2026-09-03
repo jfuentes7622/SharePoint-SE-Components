@@ -136,6 +136,7 @@ declare interface ICalendarWebPartStrings {
   CalendarTitleAppearanceGroupName: string;
   ToolbarButtonAppearanceGroupName: string;
   EventAppearanceGroupName: string;
+  DayHeaderAppearanceGroupName: string;
   SelectedEventAppearanceGroupName: string;
   EventDetailsAppearanceGroupName: string;
   CalendarBackgroundColorLabel: string;
@@ -169,6 +170,15 @@ declare interface ICalendarWebPartStrings {
   ToolbarButtonFontBoldLabel: string;
   ToolbarButtonBorderWidthLabel: string;
   ToolbarButtonCornerRadiusLabel: string;
+  DayHeaderBackgroundColorLabel: string;
+  DayHeaderTextColorLabel: string;
+  DayHeaderBorderColorLabel: string;
+  DayHeaderFontFamilyLabel: string;
+  DayHeaderFontSizeLabel: string;
+  DayHeaderFontStyleLabel: string;
+  DayHeaderFontBoldLabel: string;
+  DayHeaderBorderWidthLabel: string;
+  DayHeaderPaddingLabel: string;
   EventBackgroundColorLabel: string;
   EventTextColorLabel: string;
   EventBorderColorLabel: string;

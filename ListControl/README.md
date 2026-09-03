@@ -28,11 +28,14 @@ If the collection is empty, ListControl falls back to the selected SharePoint vi
 
 ## Display And Actions
 
-- `pageSize` controls client-side pagination; `0` or blank displays all rows.
+- `pageSize` controls client-side pagination; `0` or blank uses Automatic (50), and the maximum is 100 rows per page.
+- SharePoint rows are cached progressively using paged batches (500 by default, configurable from 100 to 2000). The next batch is prefetched near the cache boundary, page totals show `+` while more rows exist, and client-only filtering, sorting, or grouping completes the cache before totals become final.
+- The interactive column header follows page scrolling while the list is visible, stops at the bottom of the table, and keeps open filter dialogs anchored to their header buttons; horizontal scrolling remains synchronized with the columns.
+- When the table is wider than its viewport, left/right navigation arrows appear on hover or keyboard focus and move with the visible portion of the list.
 - The view selector, Refresh, Add, Edit, View, Delete, and Link to Item controls can be shown or hidden independently.
 - Link to Item can navigate to the list's default display form or an `.aspx` page discovered from the current site's Site Pages and publishing Pages libraries. It passes the selected ID through a configurable query parameter and can optionally include a return URL. Previously saved custom target URLs remain available in the dropdown.
 - Body, header, selected-row, alternating-row, table, button, and web-part-container styles are configurable in the property pane.
-- Preset filters and conditional formatting rules can be built in their property-pane designers and stored as JSON.
+- Preset filters and conditional formatting rules can be built in their property-pane designers and stored as JSON. Conditional overrides include background, foreground, font, alignment, border color/type/thickness, and square or rounded corners with a configurable radius.
 - Diagnostic logging can be enabled for data loading and runtime troubleshooting.
 
 ## Integration with SharePointDynamicForm
@@ -61,7 +64,7 @@ The deployable package is generated under `sharepoint/solution/`.
 
 ## Properties and common configuration
 
-- **Data:** `instanceName`, `listName`, `viewId`, `viewColumns`, and `pageSize` define the source, identity, columns, and paging.
+- **Data:** `instanceName`, `listName`, `viewId`, `viewColumns`, `pageSize`, and `fetchBatchSize` define the source, identity, columns, visible page size, and progressive SharePoint cache. Blank page size means Automatic (50); fetch batches default to 500.
 - **Navigation:** view-selector, item-link, target-page, item-ID parameter, and return-URL properties control how users move between views and records.
 - **Actions:** refresh, add, edit, view, and delete toggles simplify the toolbar for the intended workflow; permissions still come from SharePoint.
 - **Rules:** filter and conditional-style designers store JSON definitions with field operators, date/current-user expressions, and row/column scopes.

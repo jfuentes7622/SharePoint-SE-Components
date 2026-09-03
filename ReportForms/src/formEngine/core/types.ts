@@ -171,7 +171,9 @@ export interface FieldConfig {
   min?: number;
   max?: number;
   decimals?: number;
-  displayFormat?: 'dateOnly' | 'dateTime' | 'timeOnly';
+  displayFormat?: 'dateOnly' | 'dateTime' | 'timeOnly' | 'custom';
+  customDateFormat?: string; // used when displayFormat is 'custom'; tokens: YYYY, YY, MMMM, MMM, MM, M, DD, D, dddd, ddd, HH, H, hh, h, mm, ss, tt
+  customDateFormatCase?: 'default' | 'upper' | 'lower'; // applies to the formatted output when displayFormat is 'custom'
   timeZone?: 'UTC' | 'local'; // applies to dateTime/timeOnly display formats; defaults to 'UTC' (Zulu)
   choices?: string[];
   choiceDisplay?: 'dropdown' | 'radio' | 'checkboxes';

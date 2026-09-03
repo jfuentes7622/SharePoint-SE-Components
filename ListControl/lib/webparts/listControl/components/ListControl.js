@@ -187,7 +187,8 @@ function extractRenderRowsAndFields(data) {
     }
     return {
         rows: rows,
-        fields: fields
+        fields: fields,
+        nextHref: String(listData.NextHref || responseData.NextHref || '')
     };
 }
 function isSystemItemKey(key) {
@@ -234,6 +235,24 @@ function formatLocalDate(value) {
     var day = String(value.getDate());
     return String(value.getFullYear()) + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
 }
+function padTwoDigits(value) {
+    var text = String(value);
+    return text.length < 2 ? '0' + text : text;
+}
+function applyDateFormatPattern(pattern, tokenValues) {
+    return pattern.replace(/YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd|HH|H|hh|h|mm|ss|tt/g, function (token) {
+        return tokenValues[token] !== undefined ? tokenValues[token] : token;
+    });
+}
+function applyTextCase(text, textCase) {
+    if (textCase === 'upper') {
+        return text.toUpperCase();
+    }
+    if (textCase === 'lower') {
+        return text.toLowerCase();
+    }
+    return text;
+}
 function toCssString(value) {
     return String(value === undefined || value === null ? '' : value).trim();
 }
@@ -265,6 +284,10 @@ var ListControl = (function (_super) {
         var _this = _super.call(this, props) || this;
         _this._fieldDisplayFormatMap = {};
         _this._loadRowsRequestId = 0;
+        _this._stickyHeaderSourceHtml = '';
+        _this._stickyHeaderVisible = false;
+        _this._pagingEndpoint = '';
+        _this._pagingRequestBody = undefined;
         _this.setDisplayFormFrameRef = function (frame) {
             if (!frame) {
                 return;
@@ -274,11 +297,57 @@ var ListControl = (function (_super) {
             dialogFrame.commitPopup = function () { return _this.closeDefaultDisplayForm(); };
             dialogFrame.commonModalDialogClose = function () { return _this.closeDefaultDisplayForm(); };
         };
+        _this._setTableWrapRef = function (el) {
+            _this._tableWrapEl = el;
+            _this.refreshTableViewport();
+        };
+        _this._setTableHeadRef = function (el) {
+            _this._tableHeadEl = el;
+            _this.updateStickyHeaderPosition();
+        };
+        _this._setStickyHeaderViewportRef = function (el) {
+            _this._stickyHeaderViewportEl = el;
+            if (el) {
+                el.onclick = _this.handleStickyHeaderClick;
+            }
+            _this.updateStickyHeaderPosition();
+        };
+        _this.handleStickyHeaderClick = function (event) {
+            if (!_this._stickyHeaderViewportEl || !_this._tableHeadEl) {
+                return;
+            }
+            var target = event.target;
+            while (target && target !== _this._stickyHeaderViewportEl && !target.getAttribute('data-lc-sticky-index')) {
+                target = target.parentElement;
+            }
+            if (!target || target === _this._stickyHeaderViewportEl) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            var sourceControls = _this.getStickyHeaderControls(_this._tableHeadEl);
+            var sourceIndex = parseInt(String(target.getAttribute('data-lc-sticky-index') || ''), 10);
+            var sourceControl = sourceControls[sourceIndex];
+            if (!sourceControl) {
+                return;
+            }
+            var isFilterButton = (' ' + String(target.className || '') + ' ').indexOf(' lc-header-action ') >= 0;
+            if (isFilterButton) {
+                _this._filterAnchorEl = target;
+            }
+            sourceControl.click();
+            if (isFilterButton && typeof window !== 'undefined') {
+                _this._filterAnchorEl = target;
+                window.setTimeout(function () { return _this.updateActiveFilterPosition(); }, 0);
+            }
+        };
         _this.state = {
             selectedViewId: props.defaultViewId || _this.getInitialViewId(props.views),
             fields: [],
             rows: [],
             loading: true,
+            loadingMore: false,
+            nextPageHref: '',
             error: null,
             selectedItemId: 0,
             selectedMode: 'view',
@@ -295,15 +364,23 @@ var ListControl = (function (_super) {
             datePickerMonth: '',
             columnFilters: {},
             currentPage: 0,
+            collapsedGroupKeys: {},
             displayFormUrl: '',
             displayFormLoading: false,
             displayFormError: '',
             embeddedByReportForms: false,
             runtimeFilterJson: '',
             runtimeConfigOwner: '',
+            attachmentCountsByItemId: {},
+            showScrollArrows: false,
+            scrollArrowTop: 0,
+            scrollArrowLeft: 0,
+            scrollArrowRight: 0,
         };
         _this._refreshEventHandler = _this.handleExternalRefresh.bind(_this);
         _this._runtimeConfigEventHandler = _this.handleRuntimeConfig.bind(_this);
+        _this._scrollArrowResizeHandler = _this.refreshTableViewport.bind(_this);
+        _this._scrollArrowScrollHandler = _this.refreshTableViewport.bind(_this);
         return _this;
     }
     ListControl.prototype.componentDidMount = function () {
@@ -311,6 +388,8 @@ var ListControl = (function (_super) {
         if (typeof window !== 'undefined' && window.addEventListener) {
             window.addEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
             window.addEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
+            window.addEventListener('resize', this._scrollArrowResizeHandler);
+            window.addEventListener('scroll', this._scrollArrowScrollHandler, true);
         }
         this.loadRows();
     };
@@ -319,6 +398,8 @@ var ListControl = (function (_super) {
         if (typeof window !== 'undefined' && window.removeEventListener) {
             window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
             window.removeEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
+            window.removeEventListener('resize', this._scrollArrowResizeHandler);
+            window.removeEventListener('scroll', this._scrollArrowScrollHandler, true);
         }
     };
     ListControl.prototype.openDefaultDisplayForm = function (row) {
@@ -388,6 +469,7 @@ var ListControl = (function (_super) {
                 draftFilterValue: '',
                 columnFilters: {},
                 currentPage: 0,
+                collapsedGroupKeys: {},
             }, function () {
                 _this.props.onSelectionChange(0, 'view');
                 if (!selectedViewWillChange) {
@@ -406,6 +488,222 @@ var ListControl = (function (_super) {
         if (prevProps.pageSize !== this.props.pageSize || prevProps.filterJson !== this.props.filterJson) {
             this.setState({ currentPage: 0 });
         }
+        if (prevProps.fetchBatchSize !== this.props.fetchBatchSize) {
+            this.loadRows();
+            return;
+        }
+        if ((prevState.sortFieldName !== this.state.sortFieldName
+            || prevState.sortDirection !== this.state.sortDirection
+            || prevState.columnFilters !== this.state.columnFilters
+            || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
+            || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref) {
+            this.loadAllRemainingRows();
+        }
+        if (typeof window !== 'undefined') {
+            this._stickyHeaderSourceHtml = '';
+            window.setTimeout(function () { return _this.refreshTableViewport(); }, 0);
+        }
+    };
+    ListControl.prototype.getStickyHeaderControls = function (root) {
+        var controls = root.querySelectorAll('button,input');
+        var result = [];
+        for (var index = 0; index < controls.length; index += 1) {
+            var control = controls[index];
+            var ancestor = control.parentElement;
+            var insideFilter = false;
+            while (ancestor && ancestor !== root) {
+                if ((' ' + String(ancestor.className || '') + ' ').indexOf(' lc-filter-popover ') >= 0) {
+                    insideFilter = true;
+                    break;
+                }
+                ancestor = ancestor.parentElement;
+            }
+            if (!insideFilter) {
+                result.push(control);
+            }
+        }
+        return result;
+    };
+    ListControl.prototype.refreshTableViewport = function () {
+        this.refreshScrollArrows();
+        this.updateStickyHeaderPosition();
+        this.updateActiveFilterPosition();
+    };
+    ListControl.prototype.refreshScrollArrows = function () {
+        this.updateScrollArrowVisibility();
+        this.updateScrollArrowPosition();
+    };
+    ListControl.prototype.updateScrollArrowVisibility = function () {
+        if (!this._tableWrapEl) {
+            return;
+        }
+        var overflowing = this._tableWrapEl.scrollWidth > this._tableWrapEl.clientWidth + 1;
+        if (overflowing !== this.state.showScrollArrows) {
+            this.setState({ showScrollArrows: overflowing });
+        }
+    };
+    // Positions the arrows via fixed coordinates centered on the currently visible slice of the
+    // table (intersection of its bounding rect with the viewport), so they stay reachable in the
+    // middle of the view regardless of vertical scroll position instead of drifting to the bottom.
+    ListControl.prototype.updateScrollArrowPosition = function () {
+        if (!this._tableWrapEl || typeof window === 'undefined') {
+            return;
+        }
+        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        var rect = this._tableWrapEl.getBoundingClientRect();
+        var visibleTop = Math.max(rect.top, 0);
+        var visibleBottom = Math.min(rect.bottom, viewportHeight);
+        var centerY = Math.round((visibleTop + visibleBottom) / 2);
+        var leftPx = Math.round(rect.left);
+        var rightPx = Math.round(viewportWidth - rect.right);
+        if (centerY !== this.state.scrollArrowTop || leftPx !== this.state.scrollArrowLeft || rightPx !== this.state.scrollArrowRight) {
+            this.setState({ scrollArrowTop: centerY, scrollArrowLeft: leftPx, scrollArrowRight: rightPx });
+        }
+    };
+    ListControl.prototype.updateStickyHeaderPosition = function () {
+        if (!this._tableWrapEl || !this._tableHeadEl || !this._stickyHeaderViewportEl) {
+            return;
+        }
+        var wrapRect = this._tableWrapEl.getBoundingClientRect();
+        var headerHeight = this._tableHeadEl.getBoundingClientRect().height;
+        var stickyTop = this.getStickyViewportTop(wrapRect);
+        var shouldStick = wrapRect.top < stickyTop && wrapRect.bottom > stickyTop + headerHeight;
+        if (shouldStick !== this._stickyHeaderVisible) {
+            this._stickyHeaderVisible = shouldStick;
+            this.logDiagnostic('Sticky header ' + (shouldStick ? 'shown' : 'hidden')
+                + '. tableTop=' + String(Math.round(wrapRect.top))
+                + ', tableBottom=' + String(Math.round(wrapRect.bottom))
+                + ', stickyTop=' + String(Math.round(stickyTop))
+                + ', headerHeight=' + String(Math.round(headerHeight)));
+        }
+        if (!shouldStick) {
+            this._stickyHeaderViewportEl.style.display = 'none';
+            return;
+        }
+        var sourceHtml = this._tableHeadEl.innerHTML;
+        if (sourceHtml !== this._stickyHeaderSourceHtml || this._stickyHeaderViewportEl.children.length === 0) {
+            var activeStickyIndex = this._filterAnchorEl && this._stickyHeaderViewportEl.contains(this._filterAnchorEl)
+                ? parseInt(String(this._filterAnchorEl.getAttribute('data-lc-sticky-index') || ''), 10) : -1;
+            this._stickyHeaderViewportEl.innerHTML = '';
+            var stickyTable = document.createElement('table');
+            stickyTable.className = 'lc-table lc-sticky-header-table';
+            var stickyHead = this._tableHeadEl.cloneNode(true);
+            var filterPopovers = stickyHead.querySelectorAll('.lc-filter-popover');
+            for (var popoverIndex = 0; popoverIndex < filterPopovers.length; popoverIndex += 1) {
+                var popover = filterPopovers[popoverIndex];
+                if (popover.parentElement) {
+                    popover.parentElement.removeChild(popover);
+                }
+            }
+            var stickyControls = this.getStickyHeaderControls(stickyHead);
+            for (var controlIndex = 0; controlIndex < stickyControls.length; controlIndex += 1) {
+                stickyControls[controlIndex].setAttribute('data-lc-sticky-index', String(controlIndex));
+            }
+            if (this.state.activeFilterFieldName && activeStickyIndex >= 0 && activeStickyIndex < stickyControls.length) {
+                this._filterAnchorEl = stickyControls[activeStickyIndex];
+            }
+            var stickyColGroup = document.createElement('colgroup');
+            var stickyHeaderCells = stickyHead.children.length > 0 ? stickyHead.children[0].children : [];
+            for (var colIndex = 0; colIndex < stickyHeaderCells.length; colIndex += 1) {
+                stickyColGroup.appendChild(document.createElement('col'));
+            }
+            stickyTable.appendChild(stickyColGroup);
+            stickyTable.appendChild(stickyHead);
+            this._stickyHeaderViewportEl.appendChild(stickyTable);
+            this._stickyHeaderSourceHtml = sourceHtml;
+        }
+        var tableElement = this._tableHeadEl.parentElement;
+        var clonedTable = this._stickyHeaderViewportEl.children[0];
+        var sourceCells = this._tableHeadEl.children.length > 0 ? this._tableHeadEl.children[0].children : [];
+        var clonedColGroup = clonedTable.children[0];
+        var clonedHead = clonedTable.children[1];
+        var clonedCells = clonedHead && clonedHead.children.length > 0 ? clonedHead.children[0].children : [];
+        var clonedColumns = clonedColGroup ? clonedColGroup.children : [];
+        var totalTableWidth = 0;
+        for (var cellIndex = 0; cellIndex < sourceCells.length && cellIndex < clonedCells.length; cellIndex += 1) {
+            var measuredCellWidth = sourceCells[cellIndex].getBoundingClientRect().width;
+            var cellWidth = measuredCellWidth.toFixed(2) + 'px';
+            var clonedCell = clonedCells[cellIndex];
+            clonedCell.style.width = '';
+            clonedCell.style.minWidth = '';
+            clonedCell.style.maxWidth = '';
+            if (cellIndex < clonedColumns.length) {
+                clonedColumns[cellIndex].style.width = cellWidth;
+            }
+            totalTableWidth += measuredCellWidth;
+        }
+        clonedTable.style.width = totalTableWidth.toFixed(2) + 'px';
+        clonedTable.style.left = Math.round(-this._tableWrapEl.scrollLeft) + 'px';
+        this._stickyHeaderViewportEl.style.display = 'block';
+        this._stickyHeaderViewportEl.style.top = Math.round(stickyTop) + 'px';
+        this._stickyHeaderViewportEl.style.left = Math.round(wrapRect.left + this._tableWrapEl.clientLeft) + 'px';
+        this._stickyHeaderViewportEl.style.width = Math.round(this._tableWrapEl.clientWidth) + 'px';
+        this._stickyHeaderViewportEl.style.height = Math.round(headerHeight) + 'px';
+    };
+    ListControl.prototype.getStickyViewportTop = function (wrapRect) {
+        if (typeof document === 'undefined' || typeof window === 'undefined' || !document.elementFromPoint) {
+            return 0;
+        }
+        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        var probeX = Math.max(1, Math.min((window.innerWidth || document.documentElement.clientWidth || 0) - 1, Math.round((wrapRect.left + wrapRect.right) / 2)));
+        var stickyTop = this.getScrollViewportTop(viewportHeight);
+        for (var probeCount = 0; probeCount < 6 && stickyTop < Math.min(240, viewportHeight); probeCount += 1) {
+            var probeY = Math.max(1, stickyTop + 1);
+            var element = document.elementFromPoint(probeX, probeY);
+            var chromeElement = undefined;
+            while (element && element !== document.body) {
+                var position = window.getComputedStyle(element).position;
+                var elementRect = element.getBoundingClientRect();
+                if (element !== this._stickyHeaderViewportEl && (position === 'fixed' || position === 'sticky') && elementRect.top <= probeY && elementRect.bottom > probeY) {
+                    chromeElement = element;
+                }
+                element = element.parentElement;
+            }
+            if (!chromeElement) {
+                break;
+            }
+            var chromeBottom = Math.round(chromeElement.getBoundingClientRect().bottom);
+            if (chromeBottom <= stickyTop) {
+                break;
+            }
+            stickyTop = chromeBottom;
+        }
+        return stickyTop;
+    };
+    ListControl.prototype.getScrollViewportTop = function (viewportHeight) {
+        if (!this._tableWrapEl || typeof window === 'undefined') {
+            return 0;
+        }
+        var stickyTop = 0;
+        var ancestor = this._tableWrapEl.parentElement;
+        while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+            var computedStyle = window.getComputedStyle(ancestor);
+            var overflowY = String(computedStyle.overflowY || '').toLowerCase();
+            var canScrollVertically = (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+                && ancestor.scrollHeight > ancestor.clientHeight + 1;
+            if (canScrollVertically) {
+                var ancestorRect = ancestor.getBoundingClientRect();
+                if (ancestorRect.bottom > 0 && ancestorRect.top < viewportHeight) {
+                    stickyTop = Math.max(stickyTop, Math.max(0, Math.round(ancestorRect.top)));
+                }
+            }
+            ancestor = ancestor.parentElement;
+        }
+        return stickyTop;
+    };
+    ListControl.prototype.scrollTableHorizontally = function (direction) {
+        if (!this._tableWrapEl) {
+            return;
+        }
+        var amount = Math.max(120, Math.round(this._tableWrapEl.clientWidth * 0.6));
+        var nextLeft = this._tableWrapEl.scrollLeft + (amount * direction);
+        if (this._tableWrapEl.scrollTo) {
+            this._tableWrapEl.scrollTo({ left: nextLeft, behavior: 'smooth' });
+        }
+        else {
+            this._tableWrapEl.scrollLeft = nextLeft;
+        }
     };
     ListControl.prototype.getInitialViewId = function (views) {
         for (var i = 0; i < views.length; i += 1) {
@@ -414,6 +712,15 @@ var ListControl = (function (_super) {
             }
         }
         return views.length > 0 ? String(views[0].key) : '';
+    };
+    ListControl.prototype.getSelectedViewLabel = function () {
+        var views = this.props.views || [];
+        for (var i = 0; i < views.length; i += 1) {
+            if (String(views[i].key) === String(this.state.selectedViewId)) {
+                return views[i].text;
+            }
+        }
+        return '';
     };
     ListControl.prototype.handleExternalRefresh = function (event) {
         var detail = event && event.detail ? event.detail : {};
@@ -732,10 +1039,18 @@ var ListControl = (function (_super) {
             }
         }
         var configured = [];
+        var addedFieldNames = {};
         for (var j = 0; j < this.props.viewColumns.length; j += 1) {
             var column = this.props.viewColumns[j];
-            var match = byName[String(column.fieldName || '').toLowerCase()];
+            var columnKey = String(column.fieldName || '').toLowerCase();
+            // Guard against a duplicate saved column (e.g. a SharePoint view listing the same field
+            // twice) rendering the same value twice with no visible separator between cells.
+            if (!columnKey || addedFieldNames[columnKey]) {
+                continue;
+            }
+            var match = byName[columnKey];
             if (match) {
+                addedFieldNames[columnKey] = true;
                 configured.push(Object.assign({}, match, {
                     DisplayName: column.displayName || match.DisplayName || match.Name,
                     ConfiguredWidth: column.width || ''
@@ -941,6 +1256,9 @@ var ListControl = (function (_super) {
         if (value === undefined || value === null || value === '') {
             return '';
         }
+        if (typeof value === 'boolean') {
+            return value ? strings.RuntimeBooleanYes : strings.RuntimeBooleanNo;
+        }
         if (Array.isArray(value)) {
             var listValues = [];
             for (var i = 0; i < value.length; i += 1) {
@@ -982,7 +1300,10 @@ var ListControl = (function (_super) {
         }
         return String(value);
     };
-    ListControl.prototype.formatDateCellValue = function (value, field) {
+    ListControl.prototype.formatDateCellValue = function (value, field, row) {
+        if (String(field.TypeAsString || '') === 'Attachments') {
+            return String(this.getAttachmentCountForRow(row, value));
+        }
         var rawValue = this.stringifyCellValue(value);
         if (String(field.TypeAsString || '').toLowerCase() !== 'datetime') {
             return rawValue;
@@ -995,24 +1316,54 @@ var ListControl = (function (_super) {
         var month = dateOnlyMatch ? dateOnlyMatch[2] : String(dateValue.getMonth() + 1);
         var day = dateOnlyMatch ? dateOnlyMatch[3] : String(dateValue.getDate());
         var year = dateOnlyMatch ? dateOnlyMatch[1] : String(dateValue.getFullYear());
-        month = month.length < 2 ? '0' + month : month;
-        day = day.length < 2 ? '0' + day : day;
-        var dateText = month + '/' + day + '/' + year;
-        if (this.props.dateDisplayFormat === 'dmy') {
-            dateText = day + '/' + month + '/' + year;
+        var monthPadded = padTwoDigits(Number(month));
+        var dayPadded = padTwoDigits(Number(day));
+        // Date-only fields build named tokens from the corrected local date to avoid a UTC day shift.
+        var namedTokenDate = dateOnlyMatch ? new Date(Number(year), Number(month) - 1, Number(day)) : dateValue;
+        var hours = dateValue.getHours();
+        var twelveHour = hours % 12 || 12;
+        var tokenValues = {
+            YYYY: year,
+            YY: year.length > 2 ? year.substring(year.length - 2) : year,
+            MMMM: namedTokenDate.toLocaleString(undefined, { month: 'long' }),
+            MMM: namedTokenDate.toLocaleString(undefined, { month: 'short' }),
+            MM: monthPadded,
+            M: String(Number(month)),
+            DD: dayPadded,
+            D: String(Number(day)),
+            dddd: namedTokenDate.toLocaleString(undefined, { weekday: 'long' }),
+            ddd: namedTokenDate.toLocaleString(undefined, { weekday: 'short' }),
+            HH: padTwoDigits(hours),
+            H: String(hours),
+            hh: padTwoDigits(twelveHour),
+            h: String(twelveHour),
+            mm: padTwoDigits(dateValue.getMinutes()),
+            ss: padTwoDigits(dateValue.getSeconds()),
+            tt: hours >= 12 ? 'PM' : 'AM'
+        };
+        var dateText;
+        if (this.props.dateDisplayFormat === 'custom') {
+            dateText = applyTextCase(applyDateFormatPattern(String(this.props.dateCustomFormat || '').trim() || 'MM/DD/YYYY', tokenValues), String(this.props.dateCustomFormatCase || ''));
+        }
+        else if (this.props.dateDisplayFormat === 'dmy') {
+            dateText = dayPadded + '/' + monthPadded + '/' + year;
         }
         else if (this.props.dateDisplayFormat === 'ymd') {
-            dateText = year + '-' + month + '-' + day;
+            dateText = year + '-' + monthPadded + '-' + dayPadded;
+        }
+        else {
+            dateText = monthPadded + '/' + dayPadded + '/' + year;
         }
         if (field.DisplayFormat === 0) {
             return dateText;
         }
-        var hours = dateValue.getHours();
-        var minutes = String(dateValue.getMinutes());
-        minutes = minutes.length < 2 ? '0' + minutes : minutes;
+        var minutes = padTwoDigits(dateValue.getMinutes());
+        if (this.props.timeDisplayFormat === 'custom') {
+            // Custom time format fully controls the combined output so date/time tokens can be freely interleaved.
+            return applyTextCase(applyDateFormatPattern(String(this.props.timeCustomFormat || '').trim() || 'MM/DD/YYYY HH:mm', tokenValues), String(this.props.timeCustomFormatCase || ''));
+        }
         if (this.props.timeDisplayFormat === '12hour') {
             var period = hours >= 12 ? 'PM' : 'AM';
-            var twelveHour = hours % 12 || 12;
             return dateText + ' ' + (twelveHour < 10 ? '0' : '') + String(twelveHour) + ':' + minutes + ' ' + period;
         }
         return dateText + ' ' + (hours < 10 ? '0' : '') + String(hours) + ':' + minutes;
@@ -1130,12 +1481,62 @@ var ListControl = (function (_super) {
             });
         });
     };
+    ListControl.prototype.loadAttachmentCounts = function (itemIds) {
+        return __awaiter(this, void 0, void 0, function () {
+            var counts, uniqueItemIds, endpoint, response, data, items, i, item, itemId, attachmentFiles, attachmentCountError_1;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        counts = {};
+                        uniqueItemIds = itemIds.filter(function (itemId, index) {
+                            return itemId > 0 && itemIds.indexOf(itemId) === index;
+                        });
+                        if (uniqueItemIds.length === 0) {
+                            return [2 /*return*/, counts];
+                        }
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 4, , 5]);
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items"
+                            + '?$top=200&$select=ID,AttachmentFiles&$expand=AttachmentFiles'
+                            + '&$filter=' + encodeURIComponent(uniqueItemIds.map(function (itemId) {
+                            return 'ID eq ' + String(itemId);
+                        }).join(' or '));
+                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                    case 2:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            return [2 /*return*/, counts];
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 3:
+                        data = _a.sent();
+                        items = toArray(data.value);
+                        if (items.length === 0) {
+                            items = toArray(data && data.d && data.d.results);
+                        }
+                        for (i = 0; i < items.length; i += 1) {
+                            item = items[i];
+                            itemId = toPositiveInt(item.ID || item.Id || item.id);
+                            attachmentFiles = item.AttachmentFiles && item.AttachmentFiles.results ? item.AttachmentFiles.results : item.AttachmentFiles;
+                            counts[itemId] = Array.isArray(attachmentFiles) ? attachmentFiles.length : 0;
+                        }
+                        return [3 /*break*/, 5];
+                    case 4:
+                        attachmentCountError_1 = _a.sent();
+                        this.logDiagnostic('loadAttachmentCounts failed: ' + (attachmentCountError_1 && attachmentCountError_1.message ? attachmentCountError_1.message : String(attachmentCountError_1)));
+                        return [3 /*break*/, 5];
+                    case 5: return [2 /*return*/, counts];
+                }
+            });
+        });
+    };
     ListControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, viewFieldNames, selectedViewXml, body, selectedRows, selectedFields, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, visibleFields, fieldTitleMap, visibleFieldNames, fieldTypeMap, renderableRows, error_4, loadError;
-            return __generator(this, function (_a) {
-                switch (_a.label) {
+            var requestId, baseEndpoint, selectedViewId, viewFieldNames, selectedViewXml, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, visibleFields, fieldTitleMap, visibleFieldNames, fieldTypeMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _a, error_4, loadError;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
                     case 0:
                         if (!this.props.listName) {
                             this.setState({ loading: false, error: null, fields: [], rows: [] });
@@ -1143,50 +1544,51 @@ var ListControl = (function (_super) {
                         }
                         requestId = ++this._loadRowsRequestId;
                         this.logDiagnostic('Starting loadRows. requestId=' + String(requestId) + ', listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
-                        this.setState({ loading: true, error: null });
-                        _a.label = 1;
+                        this.setState({ loading: true, loadingMore: false, nextPageHref: '', error: null });
+                        _b.label = 1;
                     case 1:
-                        _a.trys.push([1, 18, , 19]);
+                        _b.trys.push([1, 21, , 22]);
                         baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
                         selectedViewId = this.state.selectedViewId;
                         return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
                     case 2:
-                        viewFieldNames = _a.sent();
+                        viewFieldNames = _b.sent();
                         return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, viewFieldNames)];
                     case 3:
-                        selectedViewXml = _a.sent();
+                        selectedViewXml = _b.sent();
                         body = {
                             parameters: {
                                 RenderOptions: 7
                             }
                         };
-                        if (selectedViewXml) {
-                            body.parameters.ViewXml = selectedViewXml;
-                        }
+                        body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewXml || '<View></View>');
+                        this._pagingEndpoint = baseEndpoint;
+                        this._pagingRequestBody = body;
                         selectedRows = [];
                         selectedFields = [];
+                        nextPageHref = '';
                         lastError = '';
                         hadSuccessfulResponse = false;
                         requestUrls = [baseEndpoint];
                         requestIndex = 0;
-                        _a.label = 4;
+                        _b.label = 4;
                     case 4:
                         if (!(requestIndex < requestUrls.length)) return [3 /*break*/, 13];
                         requestUrl = requestUrls[requestIndex];
                         return [4 /*yield*/, this.postJsonWithFallback(requestUrl, body)];
                     case 5:
-                        response = _a.sent();
+                        response = _b.sent();
                         if (!!response.ok) return [3 /*break*/, 10];
                         errorText = '';
-                        _a.label = 6;
+                        _b.label = 6;
                     case 6:
-                        _a.trys.push([6, 8, , 9]);
+                        _b.trys.push([6, 8, , 9]);
                         return [4 /*yield*/, response.text()];
                     case 7:
-                        errorText = _a.sent();
+                        errorText = _b.sent();
                         return [3 /*break*/, 9];
                     case 8:
-                        _readError_1 = _a.sent();
+                        _readError_1 = _b.sent();
                         errorText = '';
                         return [3 /*break*/, 9];
                     case 9:
@@ -1196,8 +1598,9 @@ var ListControl = (function (_super) {
                         hadSuccessfulResponse = true;
                         return [4 /*yield*/, response.json()];
                     case 11:
-                        data = _a.sent();
+                        data = _b.sent();
                         extracted = extractRenderRowsAndFields(data);
+                        nextPageHref = extracted.nextHref;
                         this.logDiagnostic('RenderListDataAsStream parsed. rows=' + String(extracted.rows.length) + ', fields=' + String(extracted.fields.length));
                         if (selectedFields.length === 0 && extracted.fields.length > 0) {
                             selectedFields = extracted.fields;
@@ -1209,7 +1612,7 @@ var ListControl = (function (_super) {
                             }
                             return [3 /*break*/, 13];
                         }
-                        _a.label = 12;
+                        _b.label = 12;
                     case 12:
                         requestIndex += 1;
                         return [3 /*break*/, 4];
@@ -1222,21 +1625,21 @@ var ListControl = (function (_super) {
                         if (!(rows.length === 0 && !selectedViewId)) return [3 /*break*/, 15];
                         return [4 /*yield*/, this.loadRowsFromItemsEndpoint(viewFieldNames)];
                     case 14:
-                        itemsFallback = _a.sent();
+                        itemsFallback = _b.sent();
                         rows = itemsFallback.rows;
                         if (fields.length === 0) {
                             fields = itemsFallback.fields;
                         }
-                        _a.label = 15;
+                        _b.label = 15;
                     case 15:
                         visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
                         return [4 /*yield*/, this.loadListFieldTitleMap()];
                     case 16:
-                        fieldTitleMap = _a.sent();
+                        fieldTitleMap = _b.sent();
                         visibleFieldNames = visibleFields.map(function (field) { return _this.getFieldKey(field); });
                         return [4 /*yield*/, this.loadListFieldTypeMap(visibleFieldNames)];
                     case 17:
-                        fieldTypeMap = _a.sent();
+                        fieldTypeMap = _b.sent();
                         visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
                         visibleFields = this.applyFieldTypes(visibleFields, fieldTypeMap);
                         renderableRows = this.filterRenderableRows(rows, visibleFields);
@@ -1244,16 +1647,40 @@ var ListControl = (function (_super) {
                             this.logDiagnostic('Ignoring stale loadRows result. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
                             return [2 /*return*/];
                         }
+                        hasAttachmentsField = visibleFields.some(function (field) {
+                            return String(field.TypeAsString || '') === 'Attachments';
+                        });
+                        if (!hasAttachmentsField) return [3 /*break*/, 19];
+                        return [4 /*yield*/, this.loadAttachmentCounts(renderableRows.map(function (row) { return _this.getRowItemId(row); }))];
+                    case 18:
+                        _a = _b.sent();
+                        return [3 /*break*/, 20];
+                    case 19:
+                        _a = {};
+                        _b.label = 20;
+                    case 20:
+                        attachmentCountsByItemId = _a;
+                        if (requestId !== this._loadRowsRequestId) {
+                            this.logDiagnostic('Ignoring stale loadRows result after attachment count fetch. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
+                            return [2 /*return*/];
+                        }
                         this.setState({
                             fields: visibleFields,
                             rows: renderableRows,
+                            loadingMore: false,
+                            nextPageHref: nextPageHref,
+                            attachmentCountsByItemId: attachmentCountsByItemId,
                             loading: false,
                             error: null
+                        }, function () {
+                            if ((_this.parsePresetFilterConditions().length > 0 || _this.getGroupingConfig().enabled) && _this.state.nextPageHref) {
+                                _this.loadAllRemainingRows();
+                            }
                         });
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
-                        return [3 /*break*/, 19];
-                    case 18:
-                        error_4 = _a.sent();
+                        return [3 /*break*/, 22];
+                    case 21:
+                        error_4 = _b.sent();
                         loadError = error_4;
                         if (requestId !== this._loadRowsRequestId) {
                             this.logDiagnostic('Ignoring stale loadRows failure. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
@@ -1261,16 +1688,133 @@ var ListControl = (function (_super) {
                         }
                         this.setState({
                             loading: false,
+                            loadingMore: false,
+                            nextPageHref: '',
                             error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
                             fields: [],
                             rows: []
                         });
                         this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
-                        return [3 /*break*/, 19];
-                    case 19: return [2 /*return*/];
+                        return [3 /*break*/, 22];
+                    case 22: return [2 /*return*/];
                 }
             });
         });
+    };
+    ListControl.prototype.applyFetchBatchSize = function (viewXml) {
+        var parser = new DOMParser();
+        var xmlDocument = parser.parseFromString(String(viewXml || '<View></View>'), 'text/xml');
+        var viewElement = xmlDocument.documentElement;
+        var rowLimits = viewElement.getElementsByTagName('RowLimit');
+        var rowLimit = rowLimits.length > 0 ? rowLimits[0] : xmlDocument.createElement('RowLimit');
+        rowLimit.setAttribute('Paged', 'TRUE');
+        while (rowLimit.firstChild) {
+            rowLimit.removeChild(rowLimit.firstChild);
+        }
+        rowLimit.appendChild(xmlDocument.createTextNode(String(this.props.fetchBatchSize)));
+        if (rowLimits.length === 0) {
+            viewElement.appendChild(rowLimit);
+        }
+        return new XMLSerializer().serializeToString(xmlDocument);
+    };
+    ListControl.prototype.loadNextBatch = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var _this = this;
+            var requestId, parameters, sourceParameters, parameterName, response, extracted, _a, nextRows, existingIds, uniqueRows, nextAttachmentCounts, hasAttachments, nextPageHref, error_5;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
+                    case 0:
+                        if (this.state.loadingMore || !this.state.nextPageHref || !this._pagingEndpoint || !this._pagingRequestBody) {
+                            return [2 /*return*/, false];
+                        }
+                        requestId = this._loadRowsRequestId;
+                        this.setState({ loadingMore: true });
+                        _b.label = 1;
+                    case 1:
+                        _b.trys.push([1, 7, , 8]);
+                        parameters = {};
+                        sourceParameters = this._pagingRequestBody.parameters || {};
+                        for (parameterName in sourceParameters) {
+                            if (Object.prototype.hasOwnProperty.call(sourceParameters, parameterName)) {
+                                parameters[parameterName] = sourceParameters[parameterName];
+                            }
+                        }
+                        parameters.Paging = String(this.state.nextPageHref).replace(/^\?/, '');
+                        return [4 /*yield*/, this.postJsonWithFallback(this._pagingEndpoint, { parameters: parameters })];
+                    case 2:
+                        response = _b.sent();
+                        if (!response.ok) {
+                            this.setState({ loadingMore: false });
+                            return [2 /*return*/, false];
+                        }
+                        _a = extractRenderRowsAndFields;
+                        return [4 /*yield*/, response.json()];
+                    case 3:
+                        extracted = _a.apply(void 0, [_b.sent()]);
+                        if (requestId !== this._loadRowsRequestId) {
+                            return [2 /*return*/, false];
+                        }
+                        nextRows = this.filterRenderableRows(extracted.rows, this.state.fields);
+                        existingIds = {};
+                        this.state.rows.forEach(function (row) { existingIds[_this.getRowItemId(row)] = true; });
+                        uniqueRows = nextRows.filter(function (row) { return !existingIds[_this.getRowItemId(row)]; });
+                        nextAttachmentCounts = {};
+                        hasAttachments = this.state.fields.some(function (field) { return String(field.TypeAsString || '') === 'Attachments'; });
+                        if (!hasAttachments) return [3 /*break*/, 5];
+                        return [4 /*yield*/, this.loadAttachmentCounts(uniqueRows.map(function (row) { return _this.getRowItemId(row); }))];
+                    case 4:
+                        nextAttachmentCounts = _b.sent();
+                        _b.label = 5;
+                    case 5:
+                        nextPageHref = extracted.nextHref === this.state.nextPageHref && uniqueRows.length === 0 ? '' : extracted.nextHref;
+                        return [4 /*yield*/, new Promise(function (resolve) { return _this.setState({
+                                rows: _this.state.rows.concat(uniqueRows),
+                                attachmentCountsByItemId: __assign({}, _this.state.attachmentCountsByItemId, nextAttachmentCounts),
+                                nextPageHref: nextPageHref,
+                                loadingMore: false
+                            }, function () { return resolve(true); }); })];
+                    case 6:
+                        _b.sent();
+                        return [2 /*return*/, uniqueRows.length > 0 || !!nextPageHref];
+                    case 7:
+                        error_5 = _b.sent();
+                        this.logDiagnostic('Loading next batch failed: ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
+                        this.setState({ loadingMore: false });
+                        return [2 /*return*/, false];
+                    case 8: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    ListControl.prototype.loadAllRemainingRows = function () {
+        var _this = this;
+        if (this.state.loadingMore || !this.state.nextPageHref) {
+            return;
+        }
+        this.loadNextBatch().then(function (loaded) {
+            if (loaded && _this.state.nextPageHref) {
+                _this.loadAllRemainingRows();
+            }
+        });
+    };
+    ListControl.prototype.goToNextPage = function (currentPage, pageCount) {
+        var _this = this;
+        if (currentPage < pageCount - 1) {
+            var nextPage = currentPage + 1;
+            this.setState({ currentPage: nextPage }, function () {
+                if (_this.state.nextPageHref && nextPage >= pageCount - 2) {
+                    _this.loadNextBatch();
+                }
+            });
+            return;
+        }
+        if (this.state.nextPageHref && !this.state.loadingMore) {
+            this.loadNextBatch().then(function (loaded) {
+                if (loaded) {
+                    _this.setState({ currentPage: currentPage + 1 });
+                }
+            });
+        }
     };
     ListControl.prototype.getRowItemId = function (row) {
         return toPositiveInt(row.ID || row.Id || row.id);
@@ -1283,7 +1827,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.deleteSelected = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, error_5, deleteError;
+            var endpoint, response, error_6, deleteError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -1318,8 +1862,8 @@ var ListControl = (function (_super) {
                         _a.sent();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_5 = _a.sent();
-                        deleteError = error_5;
+                        error_6 = _a.sent();
+                        deleteError = error_6;
                         this.setState({
                             deleting: false,
                             error: deleteError && deleteError.message ? deleteError.message : strings.RuntimeDeleteFailed
@@ -1342,7 +1886,7 @@ var ListControl = (function (_super) {
         if (value === undefined || value === null || value === '') {
             return null;
         }
-        var text = this.formatDateCellValue(value, field);
+        var text = this.formatDateCellValue(value, field, row);
         if (text.indexOf('<') >= 0 && text.indexOf('>') >= 0) {
             return { __html: text };
         }
@@ -1366,7 +1910,19 @@ var ListControl = (function (_super) {
         if (value === undefined || value === null || value === '') {
             return '';
         }
+        if (String(field.TypeAsString || '') === 'Attachments') {
+            return String(this.getAttachmentCountForRow(row, value));
+        }
         return this.stringifyCellValue(value).replace(/<[^>]*>/g, '').trim();
+    };
+    ListControl.prototype.getAttachmentCountForRow = function (row, rawAttachmentsValue) {
+        var itemId = row ? this.getRowItemId(row) : 0;
+        var knownCount = this.state.attachmentCountsByItemId[itemId];
+        if (knownCount !== undefined) {
+            return knownCount;
+        }
+        // Fall back to the boolean-only presence indicator if the exact count hasn't loaded yet.
+        return rawAttachmentsValue === true ? 1 : 0;
     };
     ListControl.prototype.getItemLinkUrl = function (row) {
         var itemId = this.getRowItemId(row);
@@ -1466,6 +2022,22 @@ var ListControl = (function (_super) {
         if (!fieldKey) {
             return;
         }
+        this._filterAnchorEl = anchorElement;
+        var popoverStyle = this.getFilterPopoverStyle(anchorElement);
+        var existing = this.state.columnFilters[fieldKey];
+        var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
+        this.setState({
+            activeFilterFieldName: fieldKey,
+            filterPopoverStyle: popoverStyle,
+            activeFilterIsDate: isDateField,
+            draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
+            draftFilterValue: existing ? existing.value : '',
+            draftFilterEndValue: existing ? String(existing.endValue || '') : '',
+            datePickerTarget: '',
+            datePickerMonth: ''
+        });
+    };
+    ListControl.prototype.getFilterPopoverStyle = function (anchorElement) {
         var anchorRect = anchorElement.getBoundingClientRect();
         var viewportWidth = document.documentElement.clientWidth || window.innerWidth;
         var viewportHeight = document.documentElement.clientHeight || window.innerHeight;
@@ -1491,20 +2063,21 @@ var ListControl = (function (_super) {
             popoverStyle.bottom = 'auto';
             popoverStyle.maxHeight = Math.max(120, availableBelow);
         }
-        var existing = this.state.columnFilters[fieldKey];
-        var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
-        this.setState({
-            activeFilterFieldName: fieldKey,
-            filterPopoverStyle: popoverStyle,
-            activeFilterIsDate: isDateField,
-            draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
-            draftFilterValue: existing ? existing.value : '',
-            draftFilterEndValue: existing ? String(existing.endValue || '') : '',
-            datePickerTarget: '',
-            datePickerMonth: ''
-        });
+        return popoverStyle;
+    };
+    ListControl.prototype.updateActiveFilterPosition = function () {
+        if (!this.state.activeFilterFieldName || !this._filterAnchorEl || !document.body.contains(this._filterAnchorEl)) {
+            return;
+        }
+        var nextStyle = this.getFilterPopoverStyle(this._filterAnchorEl);
+        var currentStyle = this.state.filterPopoverStyle || {};
+        if (nextStyle.left !== currentStyle.left || nextStyle.top !== currentStyle.top
+            || nextStyle.bottom !== currentStyle.bottom || nextStyle.maxHeight !== currentStyle.maxHeight) {
+            this.setState({ filterPopoverStyle: nextStyle });
+        }
     };
     ListControl.prototype.closeFilter = function () {
+        this._filterAnchorEl = undefined;
         this.setState({ activeFilterFieldName: '', datePickerTarget: '' });
     };
     ListControl.prototype.getIsoDate = function (date) {
@@ -1561,9 +2134,11 @@ var ListControl = (function (_super) {
         }
         return (React.createElement("div", { className: "lc-date-picker", role: "dialog", "aria-label": "Choose date" },
             React.createElement("div", { className: "lc-date-picker-header" },
-                React.createElement("button", { type: "button", title: "Previous month", "aria-label": "Previous month", onClick: function () { return _this.changeDatePickerMonth(-1); } }, "\u2039"),
+                React.createElement("button", { type: "button", className: "gc-compact-icon-button", title: "Previous month", "aria-label": "Previous month", onClick: function () { return _this.changeDatePickerMonth(-1); } },
+                    React.createElement("i", { className: "ms-Icon ms-Icon--ChevronLeft", "aria-hidden": "true" })),
                 React.createElement("strong", null, new Date(year, monthIndex, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })),
-                React.createElement("button", { type: "button", title: "Next month", "aria-label": "Next month", onClick: function () { return _this.changeDatePickerMonth(1); } }, "\u203A")),
+                React.createElement("button", { type: "button", className: "gc-compact-icon-button", title: "Next month", "aria-label": "Next month", onClick: function () { return _this.changeDatePickerMonth(1); } },
+                    React.createElement("i", { className: "ms-Icon ms-Icon--ChevronRight", "aria-hidden": "true" }))),
             React.createElement("div", { className: "lc-date-picker-weekdays" },
                 React.createElement("span", null, "Su"),
                 React.createElement("span", null, "Mo"),
@@ -1954,6 +2529,98 @@ var ListControl = (function (_super) {
         }
         return rows;
     };
+    ListControl.prototype.getGroupingConfig = function () {
+        var json = String(this.props.groupingJson || '').trim();
+        if (!json) {
+            return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true };
+        }
+        try {
+            var grouping = JSON.parse(json);
+            var field1 = String(grouping && grouping.field1 || '');
+            return {
+                enabled: !!(grouping && grouping.enabled === true && field1),
+                field1: field1,
+                field2: grouping ? String(grouping.field2 || '') : '',
+                collapsedByDefault: !!(grouping && grouping.collapsedByDefault === true),
+                showCount: !grouping || grouping.showCount !== false
+            };
+        }
+        catch (_error) {
+            return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true };
+        }
+    };
+    ListControl.prototype.resolveFieldDefinitionByName = function (fieldName) {
+        var normalized = String(fieldName || '').toLowerCase();
+        for (var i = 0; i < this.state.fields.length; i += 1) {
+            var field = this.state.fields[i];
+            if (String(field.RealFieldName || field.Name || '').toLowerCase() === normalized
+                || String(field.Name || '').toLowerCase() === normalized) {
+                return field;
+            }
+        }
+        return { Name: fieldName, DisplayName: fieldName };
+    };
+    ListControl.prototype.getGroupValueText = function (row, fieldName) {
+        var field = this.resolveFieldDefinitionByName(fieldName);
+        var text = this.getCellPlainText(row, field).trim();
+        return text || strings.RuntimeGroupNoneValue;
+    };
+    ListControl.prototype.buildRowGroups = function (rows, grouping) {
+        var groupsLevel1 = [];
+        var indexByKey1 = {};
+        for (var i = 0; i < rows.length; i += 1) {
+            var row = rows[i];
+            var value1 = this.getGroupValueText(row, grouping.field1);
+            var key1 = value1.toLowerCase();
+            var groupIndex1 = indexByKey1[key1];
+            if (groupIndex1 === undefined) {
+                groupIndex1 = groupsLevel1.length;
+                indexByKey1[key1] = groupIndex1;
+                groupsLevel1.push({ key: key1, label: value1, rows: [], subGroups: [] });
+            }
+            var group1 = groupsLevel1[groupIndex1];
+            if (!grouping.field2) {
+                group1.rows.push(row);
+                continue;
+            }
+            var value2 = this.getGroupValueText(row, grouping.field2);
+            var key2 = value2.toLowerCase();
+            // Must explicitly reset to undefined each iteration: a bare "var subGroup;" without an
+            // initializer is a no-op on repeat visits and would keep the previous row's match/creation.
+            var subGroup = undefined;
+            for (var s = 0; s < group1.subGroups.length; s += 1) {
+                if (group1.subGroups[s].key === key2) {
+                    subGroup = group1.subGroups[s];
+                    break;
+                }
+            }
+            if (!subGroup) {
+                subGroup = { key: key2, label: value2, rows: [], subGroups: [] };
+                group1.subGroups.push(subGroup);
+            }
+            subGroup.rows.push(row);
+        }
+        return groupsLevel1;
+    };
+    ListControl.prototype.countGroupRows = function (group) {
+        if (group.subGroups.length === 0) {
+            return group.rows.length;
+        }
+        var total = 0;
+        for (var i = 0; i < group.subGroups.length; i += 1) {
+            total += group.subGroups[i].rows.length;
+        }
+        return total;
+    };
+    ListControl.prototype.isGroupCollapsed = function (groupKey, collapsedByDefault) {
+        var override = this.state.collapsedGroupKeys[groupKey];
+        return override !== undefined ? override : collapsedByDefault;
+    };
+    ListControl.prototype.toggleGroupCollapsed = function (groupKey, collapsedByDefault) {
+        var next = Object.assign({}, this.state.collapsedGroupKeys);
+        next[groupKey] = !this.isGroupCollapsed(groupKey, collapsedByDefault);
+        this.setState({ collapsedGroupKeys: next });
+    };
     ListControl.prototype.parseConditionalStyleRules = function () {
         var source = String(this.props.conditionalStyleJson || '').trim();
         if (!source) {
@@ -1984,6 +2651,10 @@ var ListControl = (function (_super) {
                 var styleDefinition = {
                     backgroundColor: toCssString(item.backgroundColor || (item.style && item.style.backgroundColor) || ''),
                     color: toCssString(item.color || item.foregroundColor || (item.style && item.style.color) || ''),
+                    borderColor: toCssString(item.borderColor || (item.style && item.style.borderColor) || ''),
+                    borderStyle: toCssString(item.borderStyle || (item.style && item.style.borderStyle) || ''),
+                    borderWidth: toCssString(item.borderWidth !== undefined ? item.borderWidth : (item.style && item.style.borderWidth)),
+                    borderRadius: toCssString(item.borderRadius !== undefined ? item.borderRadius : (item.style && item.style.borderRadius)),
                     fontFamily: toCssString(item.fontFamily || (item.style && item.style.fontFamily) || ''),
                     fontSize: toCssString(item.fontSize || (item.style && item.style.fontSize) || ''),
                     fontStyle: toCssString(item.fontStyle || (item.style && item.style.fontStyle) || ''),
@@ -2035,6 +2706,10 @@ var ListControl = (function (_super) {
         var style = {};
         var backgroundColor = toCssString(styleDefinition.backgroundColor);
         var color = toCssString(styleDefinition.color);
+        var borderColor = toCssString(styleDefinition.borderColor);
+        var borderStyle = toCssString(styleDefinition.borderStyle);
+        var borderWidth = toCssString(styleDefinition.borderWidth);
+        var borderRadius = toCssString(styleDefinition.borderRadius);
         var fontFamily = toCssString(styleDefinition.fontFamily);
         var fontSize = toCssString(styleDefinition.fontSize);
         var fontStyle = toCssString(styleDefinition.fontStyle);
@@ -2045,6 +2720,18 @@ var ListControl = (function (_super) {
         }
         if (color) {
             style.color = color;
+        }
+        if (borderColor) {
+            style.borderColor = borderColor;
+        }
+        if (borderStyle) {
+            style.borderStyle = borderStyle;
+        }
+        if (borderWidth) {
+            style.borderWidth = borderWidth + (isNaN(Number(borderWidth)) ? '' : 'px');
+        }
+        if (borderRadius) {
+            style.borderRadius = borderRadius + (isNaN(Number(borderRadius)) ? '' : 'px');
         }
         if (fontFamily) {
             style.fontFamily = fontFamily;
@@ -2141,6 +2828,74 @@ var ListControl = (function (_super) {
         }
         return names;
     };
+    ListControl.prototype.getCommandButtonClass = function (className) {
+        return joinClassNames([
+            className || '',
+            'gc-command-button',
+            this.props.buttonDisplayMode === 'icon' ? 'gc-command-button-icon-only' : ''
+        ]);
+    };
+    ListControl.prototype.renderCommandContent = function (iconName, label) {
+        if (this.props.buttonDisplayMode !== 'icon' && this.props.buttonDisplayMode !== 'iconText') {
+            return label;
+        }
+        return (React.createElement("span", { className: "gc-command-content" },
+            React.createElement("i", { className: 'ms-Icon ms-Icon--' + iconName, "aria-hidden": "true" }),
+            React.createElement("span", { className: this.props.buttonDisplayMode === 'icon' ? 'gc-visually-hidden' : '' }, label)));
+    };
+    ListControl.prototype.renderDataRow = function (row, keySuffix, displayFields, fieldsByKey, conditionalRules) {
+        var _this = this;
+        var rowItemId = this.getRowItemId(row);
+        var isSelected = rowItemId > 0 && rowItemId === this.state.selectedItemId;
+        var conditionalStyle = this.getConditionalStyleForRow(row, fieldsByKey, conditionalRules);
+        return (React.createElement("tr", { key: rowItemId > 0 ? String(rowItemId) : keySuffix, onClick: function () { return _this.selectRow(row); }, className: joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '']) }, displayFields.map(function (field) {
+            var markup = _this.getCellMarkup(row, field);
+            var urlCell = _this.getUrlCellValue(row, field);
+            var showItemLink = _this.props.showLinkToItem && _this.isTitleField(field);
+            var itemLinkUrl = showItemLink ? _this.getItemLinkUrl(row) : '';
+            var itemLinkText = showItemLink ? _this.getCellPlainText(row, field) : '';
+            var cellFieldKey = _this.getFieldKey(field);
+            var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
+            var mergedCellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
+            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) {
+                    ev.stopPropagation();
+                    if (!String(_this.props.linkTargetPageUrl || '').trim()) {
+                        ev.preventDefault();
+                        _this.openDefaultDisplayForm(row);
+                    }
+                } }, itemLinkText || strings.RuntimeView)) : (markup ? React.createElement("span", { dangerouslySetInnerHTML: markup }) : null)));
+        })));
+    };
+    ListControl.prototype.renderGroupHeaderRow = function (group, keyPath, level, totalColumnCount, groupingConfig) {
+        var _this = this;
+        var collapsed = this.isGroupCollapsed(keyPath, groupingConfig.collapsedByDefault);
+        var count = this.countGroupRows(group);
+        var toggleLabel = collapsed ? strings.RuntimeGroupExpand : strings.RuntimeGroupCollapse;
+        return (React.createElement("tr", { key: 'group-' + keyPath, className: joinClassNames(['gc-group-row', 'gc-group-row-level-' + String(level)]) },
+            React.createElement("td", { colSpan: totalColumnCount, style: { paddingLeft: (10 + level * 20) + 'px' } },
+                React.createElement("button", { type: "button", className: this.getCommandButtonClass('gc-group-toggle'), title: toggleLabel, "aria-label": toggleLabel, onClick: function () { return _this.toggleGroupCollapsed(keyPath, groupingConfig.collapsedByDefault); } }, this.renderCommandContent(collapsed ? 'ChevronRight' : 'ChevronDown', toggleLabel)),
+                React.createElement("span", { className: "gc-group-label" }, group.label),
+                groupingConfig.showCount && React.createElement("span", { className: "gc-group-count" }, formatString(strings.RuntimeGroupItemCount, count)))));
+    };
+    ListControl.prototype.renderRowGroupRows = function (group, keyPath, level, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules) {
+        var rowsOutput = [this.renderGroupHeaderRow(group, keyPath, level, totalColumnCount, groupingConfig)];
+        if (this.isGroupCollapsed(keyPath, groupingConfig.collapsedByDefault)) {
+            return rowsOutput;
+        }
+        if (group.subGroups.length > 0) {
+            for (var i = 0; i < group.subGroups.length; i += 1) {
+                var subGroup = group.subGroups[i];
+                var subKeyPath = keyPath + '/' + subGroup.key;
+                rowsOutput = rowsOutput.concat(this.renderRowGroupRows(subGroup, subKeyPath, level + 1, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules));
+            }
+        }
+        else {
+            for (var r = 0; r < group.rows.length; r += 1) {
+                rowsOutput.push(this.renderDataRow(group.rows[r], keyPath + '-' + String(r), displayFields, fieldsByKey, conditionalRules));
+            }
+        }
+        return rowsOutput;
+    };
     ListControl.prototype.render = function () {
         var _this = this;
         if (!this.props.listName) {
@@ -2157,6 +2912,9 @@ var ListControl = (function (_super) {
         var conditionalRules = this.parseConditionalStyleRules();
         var hasActiveFilters = Object.keys(this.state.columnFilters || {}).length > 0;
         var displayFields = this.getDisplayFields();
+        var groupingConfig = this.getGroupingConfig();
+        var rowGroups = groupingConfig.enabled ? this.buildRowGroups(visibleRows, groupingConfig) : [];
+        var totalColumnCount = displayFields.length;
         var fieldsByKey = {};
         for (var i = 0; i < displayFields.length; i += 1) {
             var fieldsByKeyField = displayFields[i];
@@ -2191,7 +2949,7 @@ var ListControl = (function (_super) {
             '--lc-selected-font-style': this.props.selectedFontStyle || this.props.bodyFontStyle || 'normal',
             '--lc-selected-font-weight': this.props.selectedFontBold ? 'bold' : (this.props.bodyFontBold ? 'bold' : 'normal'),
             '--lc-header-text-color': this.props.headerTextColor || 'inherit',
-            '--lc-header-bg-color': this.props.headerBackgroundColor || 'transparent',
+            '--lc-header-bg-color': this.props.headerBackgroundColor || '#ffffff',
             '--lc-header-font-family': this.props.headerFontFamily || 'inherit',
             '--lc-header-font-size': this.props.headerFontSize || '14px',
             '--lc-header-font-style': this.props.headerFontStyle || 'normal',
@@ -2234,23 +2992,23 @@ var ListControl = (function (_super) {
             React.createElement("div", { className: "lc-toolbar" },
                 this.props.showViewSelector && !this.state.embeddedByReportForms && (React.createElement("label", null,
                     React.createElement("span", { style: { marginRight: '6px' } }, strings.RuntimeViewLabel),
-                    React.createElement("select", { value: this.state.selectedViewId, onChange: function (ev) { return _this.setState({ selectedViewId: ev.currentTarget.value }); } }, this.props.views.map(function (view) {
+                    this.props.showViewAsDropdown !== false ? (React.createElement("select", { value: this.state.selectedViewId, onChange: function (ev) { return _this.setState({ selectedViewId: ev.currentTarget.value }); } }, this.props.views.map(function (view) {
                         return React.createElement("option", { key: view.key, value: view.key }, view.text);
-                    })))),
-                this.props.showRefresh && !this.state.embeddedByReportForms && React.createElement("button", { type: "button", onClick: function () { return _this.loadRows(); } }, strings.RuntimeRefresh),
-                this.props.showAdd && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", onClick: function () {
+                    }))) : (React.createElement("span", { className: "gc-view-static-label" }, this.getSelectedViewLabel())))),
+                this.props.showRefresh && !this.state.embeddedByReportForms && React.createElement("button", { type: "button", className: this.getCommandButtonClass(), title: strings.RuntimeRefresh, "aria-label": strings.RuntimeRefresh, onClick: function () { return _this.loadRows(); } }, this.renderCommandContent('Refresh', strings.RuntimeRefresh)),
+                this.props.showAdd && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", className: this.getCommandButtonClass(), title: strings.RuntimeNew, "aria-label": strings.RuntimeNew, onClick: function () {
                         _this.setState({ selectedItemId: 0, selectedMode: 'new' });
                         _this.props.onSelectionChange(0, 'new');
-                    } }, strings.RuntimeNew)),
-                this.props.showEdit && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection, onClick: function () {
+                    } }, this.renderCommandContent('Add', strings.RuntimeNew))),
+                this.props.showEdit && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: !canOperateOnSelection, title: strings.RuntimeEdit, "aria-label": strings.RuntimeEdit, onClick: function () {
                         _this.setState({ selectedMode: 'edit' });
                         _this.props.onSelectionChange(_this.state.selectedItemId, 'edit');
-                    } }, strings.RuntimeEdit)),
-                this.props.showView && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection, onClick: function () {
+                    } }, this.renderCommandContent('Edit', strings.RuntimeEdit))),
+                this.props.showView && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: !canOperateOnSelection, title: strings.RuntimeView, "aria-label": strings.RuntimeView, onClick: function () {
                         _this.setState({ selectedMode: 'view' });
                         _this.props.onSelectionChange(_this.state.selectedItemId, 'view');
-                    } }, strings.RuntimeView)),
-                this.props.showDelete && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", disabled: !canOperateOnSelection || this.state.deleting, onClick: function () { return _this.deleteSelected(); } }, strings.RuntimeDelete))),
+                    } }, this.renderCommandContent('View', strings.RuntimeView))),
+                this.props.showDelete && !this.state.embeddedByReportForms && (React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: !canOperateOnSelection || this.state.deleting, title: strings.RuntimeDelete, "aria-label": strings.RuntimeDelete, onClick: function () { return _this.deleteSelected(); } }, this.renderCommandContent('Delete', strings.RuntimeDelete)))),
             this.props.isEditMode && (React.createElement("div", { className: "lc-status" },
                 React.createElement("div", null, formatString(strings.RuntimeSelectedItem, this.state.selectedItemId || 0)),
                 React.createElement("div", null, formatString(strings.RuntimeSelectedMode, this.state.selectedMode)),
@@ -2259,96 +3017,86 @@ var ListControl = (function (_super) {
             this.state.loading && React.createElement("div", null, strings.RuntimeLoading),
             !!this.state.error && React.createElement("div", null, this.state.error),
             !this.state.loading && !this.state.error && processedRows.length === 0 && (React.createElement("div", null, hasActiveFilters ? strings.RuntimeNoItemsAfterFilter : strings.RuntimeNoItems)),
-            !this.state.loading && !this.state.error && processedRows.length > 0 && (React.createElement("div", { className: "lc-table-wrap" },
-                React.createElement("table", { className: "lc-table" },
-                    React.createElement("thead", null,
-                        React.createElement("tr", null, displayFields.map(function (field) {
-                            var fieldKey = _this.getFieldKey(field);
-                            var sortActive = _this.state.sortFieldName === fieldKey;
-                            var filterActive = !!_this.state.columnFilters[fieldKey];
-                            var sortIndicator = '';
-                            if (sortActive && _this.state.sortDirection === 'asc') {
-                                sortIndicator = ' ▲';
-                            }
-                            else if (sortActive && _this.state.sortDirection === 'desc') {
-                                sortIndicator = ' ▼';
-                            }
-                            return (React.createElement("th", { key: field.Name, style: _this.getConfiguredColumnStyle(field) },
-                                React.createElement("div", { className: "lc-header-cell" },
-                                    React.createElement("button", { type: "button", className: "lc-header-title", onClick: function (ev) {
-                                            ev.stopPropagation();
-                                            _this.toggleSort(field);
-                                        }, title: strings.RuntimeSortToggle },
-                                        field.DisplayName || field.Name || strings.ColumnIdFallback,
-                                        sortIndicator),
-                                    React.createElement("div", { className: "lc-header-actions" },
-                                        React.createElement("button", { type: "button", className: joinClassNames(['lc-header-action', filterActive ? 'lc-header-action-active' : '']), title: strings.RuntimeFilterTitle, onClick: function (ev) {
+            !this.state.loading && !this.state.error && processedRows.length > 0 && (React.createElement("div", { className: "lc-table-container" },
+                React.createElement("div", { className: "lc-sticky-header-viewport", ref: this._setStickyHeaderViewportRef }),
+                React.createElement("div", { className: "lc-table-wrap", ref: this._setTableWrapRef },
+                    this.state.showScrollArrows && (React.createElement("button", { type: "button", className: "lc-scroll-arrow lc-scroll-arrow-left", style: { top: this.state.scrollArrowTop + 'px', left: (this.state.scrollArrowLeft + 6) + 'px' }, title: strings.RuntimeScrollLeft, "aria-label": strings.RuntimeScrollLeft, onClick: function () { return _this.scrollTableHorizontally(-1); } }, "\u2039")),
+                    this.state.showScrollArrows && (React.createElement("button", { type: "button", className: "lc-scroll-arrow lc-scroll-arrow-right", style: { top: this.state.scrollArrowTop + 'px', right: (this.state.scrollArrowRight + 6) + 'px' }, title: strings.RuntimeScrollRight, "aria-label": strings.RuntimeScrollRight, onClick: function () { return _this.scrollTableHorizontally(1); } }, "\u203A")),
+                    React.createElement("table", { className: "lc-table" },
+                        React.createElement("thead", { ref: this._setTableHeadRef },
+                            React.createElement("tr", null, displayFields.map(function (field) {
+                                var fieldKey = _this.getFieldKey(field);
+                                var sortActive = _this.state.sortFieldName === fieldKey;
+                                var filterActive = !!_this.state.columnFilters[fieldKey];
+                                var sortIndicator = '';
+                                if (sortActive && _this.state.sortDirection === 'asc') {
+                                    sortIndicator = ' ▲';
+                                }
+                                else if (sortActive && _this.state.sortDirection === 'desc') {
+                                    sortIndicator = ' ▼';
+                                }
+                                return (React.createElement("th", { key: field.Name, style: _this.getConfiguredColumnStyle(field) },
+                                    React.createElement("div", { className: "lc-header-cell" },
+                                        React.createElement("button", { type: "button", className: "lc-header-title", onClick: function (ev) {
+                                                ev.stopPropagation();
+                                                _this.toggleSort(field);
+                                            }, title: strings.RuntimeSortToggle },
+                                            field.DisplayName || field.Name || strings.ColumnIdFallback,
+                                            sortIndicator),
+                                        React.createElement("div", { className: "lc-header-actions" },
+                                            React.createElement("button", { type: "button", className: _this.getCommandButtonClass(joinClassNames(['lc-header-action', filterActive ? 'lc-header-action-active' : ''])), title: strings.RuntimeFilterTitle, "aria-label": strings.RuntimeFilterTitle, onClick: function (ev) {
+                                                    ev.preventDefault();
+                                                    ev.stopPropagation();
+                                                    if (_this.state.activeFilterFieldName === fieldKey) {
+                                                        _this.closeFilter();
+                                                    }
+                                                    else {
+                                                        _this.openFilter(field, ev.currentTarget);
+                                                    }
+                                                } }, _this.renderCommandContent('Filter', strings.RuntimeFilterIcon))),
+                                        _this.state.activeFilterFieldName === fieldKey && (React.createElement("div", { className: "lc-filter-popover", style: _this.state.filterPopoverStyle, onClick: function (ev) {
                                                 ev.preventDefault();
                                                 ev.stopPropagation();
-                                                if (_this.state.activeFilterFieldName === fieldKey) {
-                                                    _this.closeFilter();
-                                                }
-                                                else {
-                                                    _this.openFilter(field, ev.currentTarget);
-                                                }
-                                            } }, strings.RuntimeFilterIcon)),
-                                    _this.state.activeFilterFieldName === fieldKey && (React.createElement("div", { className: "lc-filter-popover", style: _this.state.filterPopoverStyle, onClick: function (ev) {
-                                            ev.preventDefault();
-                                            ev.stopPropagation();
-                                        } },
-                                        _this.state.activeFilterIsDate ? (React.createElement("div", null,
-                                            React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterDateLabel),
-                                            React.createElement("div", { className: "lc-date-input-row" },
-                                                React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterValue, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } }),
-                                                React.createElement("button", { type: "button", className: "lc-date-picker-button", title: "Choose from date", "aria-label": "Choose from date", onClick: function () { return _this.toggleDatePicker('start'); } },
-                                                    React.createElement("span", { "aria-hidden": "true" }, "\uF4C5"))),
-                                            React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterEndDateLabel),
-                                            React.createElement("div", { className: "lc-date-input-row" },
-                                                React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterEndValue, onChange: function (ev) { return _this.setState({ draftFilterEndValue: ev.currentTarget.value }); } }),
-                                                React.createElement("button", { type: "button", className: "lc-date-picker-button", title: "Choose to date", "aria-label": "Choose to date", onClick: function () { return _this.toggleDatePicker('end'); } },
-                                                    React.createElement("span", { "aria-hidden": "true" }, "\uF4C5"))),
-                                            _this.renderDatePicker())) : (React.createElement("div", null,
-                                            React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterOperatorLabel),
-                                            React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterOperator, onChange: function (ev) { return _this.setState({ draftFilterOperator: ev.currentTarget.value }); } }, _this.getFilterOperatorOptions().map(function (option) {
-                                                return React.createElement("option", { key: option.key, value: option.key }, option.label);
-                                            })),
-                                            React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterValueLabel),
-                                            React.createElement("input", { className: "lc-filter-input", type: "text", value: _this.state.draftFilterValue, placeholder: strings.RuntimeFilterValuePlaceholder, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); }, onKeyDown: function (ev) {
-                                                    if (ev.key === 'Enter') {
-                                                        _this.applyActiveFilter();
-                                                    }
-                                                } }))),
-                                        React.createElement("div", { className: "lc-filter-actions" },
-                                            React.createElement("button", { type: "button", onClick: function () { return _this.applyActiveFilter(); } }, strings.RuntimeFilterApply),
-                                            React.createElement("button", { type: "button", onClick: function () { return _this.clearActiveFilter(); } }, strings.RuntimeFilterClear),
-                                            React.createElement("button", { type: "button", onClick: function () { return _this.closeFilter(); } }, strings.RuntimeFilterClose)))))));
-                        }))),
-                    React.createElement("tbody", null, visibleRows.map(function (row, index) {
-                        var rowItemId = _this.getRowItemId(row);
-                        var isSelected = rowItemId > 0 && rowItemId === _this.state.selectedItemId;
-                        var conditionalStyle = _this.getConditionalStyleForRow(row, fieldsByKey, conditionalRules);
-                        return (React.createElement("tr", { key: rowItemId > 0 ? String(rowItemId) : String(index), onClick: function () { return _this.selectRow(row); }, className: joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '']) }, displayFields.map(function (field) {
-                            var markup = _this.getCellMarkup(row, field);
-                            var urlCell = _this.getUrlCellValue(row, field);
-                            var showItemLink = _this.props.showLinkToItem && _this.isTitleField(field);
-                            var itemLinkUrl = showItemLink ? _this.getItemLinkUrl(row) : '';
-                            var itemLinkText = showItemLink ? _this.getCellPlainText(row, field) : '';
-                            var cellFieldKey = _this.getFieldKey(field);
-                            var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
-                            var mergedCellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
-                            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) {
-                                    ev.stopPropagation();
-                                    if (!String(_this.props.linkTargetPageUrl || '').trim()) {
-                                        ev.preventDefault();
-                                        _this.openDefaultDisplayForm(row);
-                                    }
-                                } }, itemLinkText || strings.RuntimeView)) : (markup ? React.createElement("span", { dangerouslySetInnerHTML: markup }) : null)));
-                        })));
-                    }))))),
-            !this.state.loading && !this.state.error && pageSize > 0 && pageCount > 1 && (React.createElement("div", { className: "lc-pagination" },
-                React.createElement("button", { type: "button", disabled: currentPage === 0, onClick: function () { return _this.setState({ currentPage: Math.max(0, currentPage - 1) }); } }, strings.RuntimePreviousPage),
-                React.createElement("span", null, strings.RuntimePageStatus.replace('{0}', String(currentPage + 1)).replace('{1}', String(pageCount))),
-                React.createElement("button", { type: "button", disabled: currentPage >= pageCount - 1, onClick: function () { return _this.setState({ currentPage: Math.min(pageCount - 1, currentPage + 1) }); } }, strings.RuntimeNextPage)))));
+                                            } },
+                                            _this.state.activeFilterIsDate ? (React.createElement("div", null,
+                                                React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterDateLabel),
+                                                React.createElement("div", { className: "lc-date-input-row" },
+                                                    React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterValue, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } }),
+                                                    React.createElement("button", { type: "button", className: "lc-date-picker-button gc-compact-icon-button", title: "Choose from date", "aria-label": "Choose from date", onClick: function () { return _this.toggleDatePicker('start'); } },
+                                                        React.createElement("i", { className: "ms-Icon ms-Icon--Calendar", "aria-hidden": "true" }))),
+                                                React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterEndDateLabel),
+                                                React.createElement("div", { className: "lc-date-input-row" },
+                                                    React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterEndValue, onChange: function (ev) { return _this.setState({ draftFilterEndValue: ev.currentTarget.value }); } }),
+                                                    React.createElement("button", { type: "button", className: "lc-date-picker-button gc-compact-icon-button", title: "Choose to date", "aria-label": "Choose to date", onClick: function () { return _this.toggleDatePicker('end'); } },
+                                                        React.createElement("i", { className: "ms-Icon ms-Icon--Calendar", "aria-hidden": "true" }))),
+                                                _this.renderDatePicker())) : (React.createElement("div", null,
+                                                React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterOperatorLabel),
+                                                React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterOperator, onChange: function (ev) { return _this.setState({ draftFilterOperator: ev.currentTarget.value }); } }, _this.getFilterOperatorOptions().map(function (option) {
+                                                    return React.createElement("option", { key: option.key, value: option.key }, option.label);
+                                                })),
+                                                React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterValueLabel),
+                                                React.createElement("input", { className: "lc-filter-input", type: "text", value: _this.state.draftFilterValue, placeholder: strings.RuntimeFilterValuePlaceholder, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); }, onKeyDown: function (ev) {
+                                                        if (ev.key === 'Enter') {
+                                                            _this.applyActiveFilter();
+                                                        }
+                                                    } }))),
+                                            React.createElement("div", { className: "lc-filter-actions" },
+                                                React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterApply, "aria-label": strings.RuntimeFilterApply, onClick: function () { return _this.applyActiveFilter(); } }, _this.renderCommandContent('CheckMark', strings.RuntimeFilterApply)),
+                                                React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterClear, "aria-label": strings.RuntimeFilterClear, onClick: function () { return _this.clearActiveFilter(); } }, _this.renderCommandContent('ClearFilter', strings.RuntimeFilterClear)),
+                                                React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterClose, "aria-label": strings.RuntimeFilterClose, onClick: function () { return _this.closeFilter(); } }, _this.renderCommandContent('Cancel', strings.RuntimeFilterClose))))))));
+                            }))),
+                        React.createElement("tbody", null, groupingConfig.enabled
+                            ? rowGroups.reduce(function (accumulated, group) { return accumulated.concat(_this.renderRowGroupRows(group, group.key, 0, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules)); }, [])
+                            : visibleRows.map(function (row, index) { return _this.renderDataRow(row, String(index), displayFields, fieldsByKey, conditionalRules); })))))),
+            !this.state.loading && !this.state.error && (React.createElement("div", { className: "lc-footer" },
+                React.createElement("div", { className: "lc-total-items" }, this.state.nextPageHref
+                    ? strings.RuntimeLoadedItemsLabel.replace('{0}', String(processedRows.length))
+                    : formatString(strings.RuntimeTotalItemsLabel, processedRows.length)),
+                pageSize > 0 && (pageCount > 1 || !!this.state.nextPageHref) && (React.createElement("div", { className: "lc-pagination" },
+                    React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: currentPage === 0, title: strings.RuntimePreviousPage, "aria-label": strings.RuntimePreviousPage, onClick: function () { return _this.setState({ currentPage: Math.max(0, currentPage - 1) }); } }, this.renderCommandContent('ChevronLeft', strings.RuntimePreviousPage)),
+                    React.createElement("span", null, (this.state.nextPageHref ? strings.RuntimePageStatusMore : strings.RuntimePageStatus).replace('{0}', String(currentPage + 1)).replace('{1}', String(pageCount)).replace('{2}', String(pageSize))),
+                    React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: this.state.loadingMore || (currentPage >= pageCount - 1 && !this.state.nextPageHref), title: strings.RuntimeNextPage, "aria-label": strings.RuntimeNextPage, onClick: function () { return _this.goToNextPage(currentPage, pageCount); } }, this.renderCommandContent('ChevronRight', strings.RuntimeNextPage)),
+                    this.state.loadingMore && React.createElement("span", null, strings.RuntimeLoadingMore)))))));
     };
     return ListControl;
 }(React.Component));

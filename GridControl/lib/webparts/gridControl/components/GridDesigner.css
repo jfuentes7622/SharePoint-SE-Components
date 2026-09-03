@@ -47,5 +47,16 @@
 .gd-empty { padding: 16px; color: #605e5c; text-align: center; }
 .gd-empty-canvas { margin-top: 60px; border: 1px dashed #c8c6c4; }
 .gd-error { margin-bottom: 10px; padding: 9px; border-left: 3px solid #a4262c; background: #fde7e9; color: #a4262c; }
+.gd-group-settings { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #edebe9; }
+.gd-group-view-load { margin-bottom: 12px; }
+.gd-group-view-load button { padding: 7px 12px; border: 1px solid #0078d4; background: #f3f9fd; color: #0078d4; cursor: pointer; }
+.gd-group-view-load button:disabled { cursor: not-allowed; opacity: .55; }
+.gd-group-container { margin-bottom: 12px; border: 1px solid #8a8886; border-radius: 4px; background: #faf9f8; }
+.gd-group-container-nested { margin: 10px; border-color: #c8c6c4; background: #f3f2f1; }
+.gd-group-container-header { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #d2d0ce; background: #edebe9; font-size: 13px; font-weight: 600; }
+.gd-group-container-icon { font-size: 11px; }
+.gd-group-container-header em { font-weight: 400; font-style: italic; color: #605e5c; }
+.gd-group-container-count { margin-left: auto; padding: 2px 7px; border-radius: 10px; background: #d2d0ce; color: #323130; font-size: 11px; font-weight: 400; }
+.gd-group-container-body { padding: 10px; }
 @media (max-width: 1050px) { .gd-workspace { grid-template-columns: 220px minmax(360px, 1fr); } .gd-properties { grid-column: 1 / -1; max-height: none; } }
 @media (max-width: 700px) { .gd-toolbar { align-items: flex-start; gap: 10px; padding: 10px 14px; } .gd-workspace { display: block; padding: 12px; } .gd-panel, .gd-canvas { width: 100%; margin-bottom: 12px; } }

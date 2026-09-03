@@ -127,6 +127,15 @@ export interface ICalendarWebPartProps {
   toolbarButtonFontBold: boolean;
   toolbarButtonBorderWidth: number;
   toolbarButtonCornerRadius: number;
+  dayHeaderBackgroundColor: string;
+  dayHeaderTextColor: string;
+  dayHeaderFontFamily: string;
+  dayHeaderFontSize: string;
+  dayHeaderFontStyle: string;
+  dayHeaderFontBold: boolean;
+  dayHeaderBorderColor: string;
+  dayHeaderBorderWidth: number;
+  dayHeaderPadding: number;
   eventBackgroundColor: string;
   eventTextColor: string;
   eventBorderColor: string;
@@ -339,6 +348,15 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         toolbarButtonFontBold: this.properties.toolbarButtonFontBold === true,
         toolbarButtonBorderWidth: typeof this.properties.toolbarButtonBorderWidth === 'number' ? this.properties.toolbarButtonBorderWidth : 1,
         toolbarButtonCornerRadius: typeof this.properties.toolbarButtonCornerRadius === 'number' ? this.properties.toolbarButtonCornerRadius : 4,
+        dayHeaderBackgroundColor: this.properties.dayHeaderBackgroundColor || '#f3f2f1',
+        dayHeaderTextColor: this.properties.dayHeaderTextColor || '#323130',
+        dayHeaderFontFamily: this.properties.dayHeaderFontFamily || 'inherit',
+        dayHeaderFontSize: this.properties.dayHeaderFontSize || 'inherit',
+        dayHeaderFontStyle: this.properties.dayHeaderFontStyle || 'normal',
+        dayHeaderFontBold: this.properties.dayHeaderFontBold === true,
+        dayHeaderBorderColor: this.properties.dayHeaderBorderColor || '#d2d0ce',
+        dayHeaderBorderWidth: typeof this.properties.dayHeaderBorderWidth === 'number' ? this.properties.dayHeaderBorderWidth : 1,
+        dayHeaderPadding: typeof this.properties.dayHeaderPadding === 'number' ? this.properties.dayHeaderPadding : 8,
         eventBackgroundColor: this.properties.eventBackgroundColor || '#3788d8',
         eventTextColor: this.properties.eventTextColor || '#ffffff',
         eventBorderColor: this.properties.eventBorderColor || '#2c6faa',
@@ -1934,6 +1952,68 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
                   max: 20,
                   step: 1,
                   value: typeof this.properties.toolbarButtonCornerRadius === 'number' ? this.properties.toolbarButtonCornerRadius : 4
+                })
+              ]
+            },
+            {
+              groupName: strings.DayHeaderAppearanceGroupName,
+              groupFields: [
+                PropertyFieldColorPicker('dayHeaderBackgroundColor', {
+                  label: strings.DayHeaderBackgroundColorLabel,
+                  selectedColor: this.getColorPickerValue(this.properties.dayHeaderBackgroundColor, '#f3f2f1'),
+                  onPropertyChange: this.handleAppearanceColorChange.bind(this),
+                  properties: this.properties,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'dayHeaderBackgroundColorField'
+                }),
+                PropertyFieldColorPicker('dayHeaderTextColor', {
+                  label: strings.DayHeaderTextColorLabel,
+                  selectedColor: this.getColorPickerValue(this.properties.dayHeaderTextColor, '#323130'),
+                  onPropertyChange: this.handleAppearanceColorChange.bind(this),
+                  properties: this.properties,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'dayHeaderTextColorField'
+                }),
+                PropertyFieldColorPicker('dayHeaderBorderColor', {
+                  label: strings.DayHeaderBorderColorLabel,
+                  selectedColor: this.getColorPickerValue(this.properties.dayHeaderBorderColor, '#d2d0ce'),
+                  onPropertyChange: this.handleAppearanceColorChange.bind(this),
+                  properties: this.properties,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  key: 'dayHeaderBorderColorField'
+                }),
+                PropertyPaneDropdown('dayHeaderFontFamily', {
+                  label: strings.DayHeaderFontFamilyLabel,
+                  options: fontFamilyOptions,
+                  selectedKey: this.properties.dayHeaderFontFamily || ''
+                }),
+                PropertyPaneDropdown('dayHeaderFontSize', {
+                  label: strings.DayHeaderFontSizeLabel,
+                  options: fontSizeOptions,
+                  selectedKey: this.properties.dayHeaderFontSize || ''
+                }),
+                PropertyPaneDropdown('dayHeaderFontStyle', {
+                  label: strings.DayHeaderFontStyleLabel,
+                  options: this.getFontStyleOptions(false),
+                  selectedKey: this.properties.dayHeaderFontStyle || 'normal'
+                }),
+                PropertyPaneCheckbox('dayHeaderFontBold', {
+                  text: strings.DayHeaderFontBoldLabel,
+                  checked: this.properties.dayHeaderFontBold === true
+                }),
+                PropertyPaneSlider('dayHeaderBorderWidth', {
+                  label: strings.DayHeaderBorderWidthLabel,
+                  min: 0,
+                  max: 20,
+                  step: 1,
+                  value: typeof this.properties.dayHeaderBorderWidth === 'number' ? this.properties.dayHeaderBorderWidth : 1
+                }),
+                PropertyPaneSlider('dayHeaderPadding', {
+                  label: strings.DayHeaderPaddingLabel,
+                  min: 0,
+                  max: 40,
+                  step: 1,
+                  value: typeof this.properties.dayHeaderPadding === 'number' ? this.properties.dayHeaderPadding : 8
                 })
               ]
             },

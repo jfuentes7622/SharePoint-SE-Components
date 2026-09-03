@@ -20,8 +20,11 @@ export interface IListControlWebPartProps {
     listName: string;
     viewId: string;
     viewColumns?: IListControlColumnConfiguration[];
+    groupingJson?: string;
     pageSize?: number | string;
+    fetchBatchSize?: number | string;
     showViewSelector: boolean;
+    showViewAsDropdown?: boolean;
     showRefresh: boolean;
     showAdd: boolean;
     showEdit: boolean;
@@ -39,7 +42,11 @@ export interface IListControlWebPartProps {
     bodyFontBold: boolean;
     bodyTextAlign: string;
     dateDisplayFormat: string;
+    dateCustomFormat?: string;
+    dateCustomFormatCase?: string;
     timeDisplayFormat: string;
+    timeCustomFormat?: string;
+    timeCustomFormatCase?: string;
     selectedTextColor: string;
     selectedBackgroundColor: string;
     selectedFontStyle: string;
@@ -72,6 +79,7 @@ export interface IListControlWebPartProps {
     webpartBackgroundColor: string;
     webpartBorderColor: string;
     webpartBorderWidth: number;
+    buttonDisplayMode?: string;
     filterJson?: string;
     filterDesignerField?: string;
     filterDesignerOperator?: 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'startswith' | 'endswith' | 'notcontains';
@@ -93,6 +101,11 @@ export interface IListControlWebPartProps {
     conditionalStylePriority?: string;
     conditionalStyleBackgroundColor?: string;
     conditionalStyleForegroundColor?: string;
+    conditionalStyleBorderColor?: string;
+    conditionalStyleBorderStyle?: string;
+    conditionalStyleBorderWidth?: number;
+    conditionalStyleCornerStyle?: string;
+    conditionalStyleBorderRadius?: number;
     conditionalStyleFontFamily?: string;
     conditionalStyleFontSize?: string;
     conditionalStyleFontStyle?: string;
@@ -110,6 +123,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private _sitePages;
     private _views;
     private _listFields;
+    private _isListDesignerOpen;
     private _selectedItemId;
     private _selectedMode;
     private _dynamicDataSourceManager;
@@ -191,5 +205,9 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private loadSitePages();
     private loadViews(listName);
     private loadViewColumns(listName, viewId);
+    private openListDesigner();
+    private closeListDesigner();
+    private saveListDesign(columns, groupingJson);
+    private getListDesignerStatus();
     private logDiagnostic(message);
 }

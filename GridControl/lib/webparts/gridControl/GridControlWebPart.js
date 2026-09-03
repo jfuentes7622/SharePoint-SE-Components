@@ -69,7 +69,11 @@ function normalizeQueryParamName(value, fallback) {
 }
 function normalizePageSize(value) {
     var parsed = parseInt(String(value === undefined || value === null ? '' : value), 10);
-    return !isNaN(parsed) && parsed > 0 ? parsed : 0;
+    return !isNaN(parsed) && parsed > 0 ? Math.min(100, parsed) : 50;
+}
+function normalizeFetchBatchSize(value) {
+    var parsed = parseInt(String(value === undefined || value === null ? '' : value), 10);
+    return !isNaN(parsed) ? Math.max(100, Math.min(2000, parsed)) : 500;
 }
 function normalizeStringCollection(value) {
     var source = value && value.results ? value.results : value;
@@ -87,9 +91,11 @@ var GridControlWebPart = (function (_super) {
     function GridControlWebPart() {
         var _this = _super.call(this) || this;
         _this._lists = [];
+        _this._versioningEnabledByListName = {};
         _this._sitePages = [];
         _this._views = [];
         _this._listFields = [];
+        _this._siteGroups = [];
         _this._selectedItemId = 0;
         _this._selectedMode = 'view';
         _this._filterJsonValidationMessage = '';
@@ -178,6 +184,7 @@ var GridControlWebPart = (function (_super) {
             var designerElement = React.createElement(GridDesigner_1.GridDesigner, {
                 context: this.context,
                 listName: this.properties.listName || '',
+                viewId: this.properties.viewId || '',
                 schemaJson: this.properties.gridSchemaJson || '',
                 onSave: function (schemaJson) { return _this.saveGridDesign(schemaJson); },
                 onCancel: function () { return _this.closeGridDesigner(); }
@@ -193,11 +200,22 @@ var GridControlWebPart = (function (_super) {
             viewColumns: this.properties.viewColumns || [],
             gridSchemaJson: this.properties.gridSchemaJson || '',
             pageSize: normalizePageSize(this.properties.pageSize),
+            fetchBatchSize: normalizeFetchBatchSize(this.properties.fetchBatchSize),
             isEditMode: this.displayMode === sp_core_library_1.DisplayMode.Edit,
             showViewSelector: this.properties.showViewSelector !== false,
+            showViewAsDropdown: this.properties.showViewAsDropdown !== false,
             showRefresh: this.properties.showRefresh !== false,
             showAdd: this.properties.showAdd !== false,
             showDelete: this.properties.showDelete !== false,
+            showHistory: this.properties.showHistory !== false,
+            historyAvailable: this.isSelectedListVersioningEnabled(),
+            actionButtonsPosition: this.properties.actionButtonsPosition === 'beginning' ? 'beginning' : 'end',
+            buttonDisplayMode: this.properties.buttonDisplayMode === 'icon' || this.properties.buttonDisplayMode === 'iconText'
+                ? this.properties.buttonDisplayMode : 'text',
+            readSecurityGroupId: this.properties.readSecurityGroupId || '',
+            editSecurityGroupId: this.properties.editSecurityGroupId || '',
+            readAccessDeniedMessage: this.properties.readAccessDeniedMessage || strings.RuntimeReadAccessDenied,
+            editAccessDeniedMessage: this.properties.editAccessDeniedMessage || strings.RuntimeEditAccessDenied,
             showLinkToItem: this.properties.showLinkToItem === true,
             linkTargetPageUrl: this.properties.linkTargetPageUrl === '__defaultForm__'
                 ? '' : (this.properties.linkTargetPageUrl || ''),
@@ -211,7 +229,11 @@ var GridControlWebPart = (function (_super) {
             bodyFontBold: this.properties.bodyFontBold === true,
             bodyTextAlign: this.properties.bodyTextAlign || 'left',
             dateDisplayFormat: this.properties.dateDisplayFormat || 'mdy',
+            dateCustomFormat: this.properties.dateCustomFormat || '',
+            dateCustomFormatCase: this.properties.dateCustomFormatCase || 'default',
             timeDisplayFormat: this.properties.timeDisplayFormat || '24hour',
+            timeCustomFormat: this.properties.timeCustomFormat || '',
+            timeCustomFormatCase: this.properties.timeCustomFormatCase || 'default',
             selectedTextColor: this.properties.selectedTextColor || '',
             selectedBackgroundColor: this.properties.selectedBackgroundColor || '',
             selectedFontStyle: this.properties.selectedFontStyle || 'normal',
@@ -255,7 +277,7 @@ var GridControlWebPart = (function (_super) {
         this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
         this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
         this.initializeDynamicDataSource();
-        return Promise.all([this.loadLists(), this.loadSitePages()]).then(function () {
+        return Promise.all([this.loadLists(), this.loadSitePages(), this.loadSiteGroups()]).then(function () {
             _this.logDiagnostic('List metadata loaded. Count=' + String(_this._lists.length));
             if (_this.properties.listName) {
                 _this.logDiagnostic('Loading views for configured list: ' + String(_this.properties.listName));
@@ -278,6 +300,9 @@ var GridControlWebPart = (function (_super) {
         }
         if (this._sitePages.length === 0) {
             this.loadSitePages();
+        }
+        if (this._siteGroups.length === 0) {
+            this.loadSiteGroups();
         }
         if (this.properties.listName && this._views.length === 0) {
             this.loadViews(this.properties.listName);
@@ -332,8 +357,11 @@ var GridControlWebPart = (function (_super) {
             || propertyPath === 'conditionalStyleConditionValueType'
             || propertyPath === 'conditionalStyleEnabled'
             || propertyPath === 'conditionalStylePriority'
+            || propertyPath === 'conditionalStyleCornerStyle'
             || propertyPath === 'conditionalStyleSelectedIndex'
-            || propertyPath === 'conditionalStyleLookupPick') {
+            || propertyPath === 'conditionalStyleLookupPick'
+            || propertyPath === 'dateDisplayFormat'
+            || propertyPath === 'timeDisplayFormat') {
             if (propertyPath === 'filterDesignerField') {
                 this.properties.filterDesignerValue = '';
                 this._filterLookupItemOptions = [];
@@ -710,6 +738,8 @@ var GridControlWebPart = (function (_super) {
         var conditionalStyleFieldOptions = this._listFields.length > 0 ? this._listFields : [{ key: '', text: strings.PropConditionalStyleFieldNone }];
         var conditionalStyleConditionOptions = [{ key: '', text: strings.PropConditionalStyleExistingNone }];
         var conditionalStyleRuleSummaryText = strings.PropConditionalStyleSummaryNone;
+        var securityGroupOptions = [{ key: '', text: strings.PropSecurityGroupEveryone }];
+        securityGroupOptions = securityGroupOptions.concat(this._siteGroups);
         try {
             var existingConditions = this.parseFilterJsonArray(this.properties.filterJson);
             if (existingConditions.length > 0) {
@@ -856,15 +886,26 @@ var GridControlWebPart = (function (_super) {
                                     description: strings.PropPageSizeDescription,
                                     value: String(this.properties.pageSize || '')
                                 }),
+                                sp_webpart_base_1.PropertyPaneTextField('fetchBatchSize', {
+                                    label: strings.PropFetchBatchSizeLabel,
+                                    description: strings.PropFetchBatchSizeDescription,
+                                    value: String(this.properties.fetchBatchSize || '')
+                                }),
                                 sp_webpart_base_1.PropertyPaneCheckbox('showViewSelector', {
                                     text: strings.PropShowViewSelectorLabel,
                                     checked: this.properties.showViewSelector !== false
-                                }),
+                                })
+                            ].concat((this.properties.showViewSelector !== false ? [
+                                sp_webpart_base_1.PropertyPaneCheckbox('showViewAsDropdown', {
+                                    text: strings.PropShowViewAsDropdownLabel,
+                                    checked: this.properties.showViewAsDropdown !== false
+                                })
+                            ] : []), [
                                 sp_webpart_base_1.PropertyPaneCheckbox('showLinkToItem', {
                                     text: strings.PropShowLinkToItemLabel,
                                     checked: this.properties.showLinkToItem === true
                                 })
-                            ].concat((this.properties.showLinkToItem === true ? [
+                            ], (this.properties.showLinkToItem === true ? [
                                 sp_webpart_base_1.PropertyPaneDropdown('linkTargetPageUrl', {
                                     label: strings.PropLinkTargetPageUrlLabel,
                                     options: this.getTargetPageOptions(),
@@ -895,6 +936,60 @@ var GridControlWebPart = (function (_super) {
                                 sp_webpart_base_1.PropertyPaneCheckbox('showDelete', {
                                     text: strings.PropShowDeleteLabel,
                                     checked: this.properties.showDelete !== false
+                                }),
+                                sp_webpart_base_1.PropertyPaneCheckbox('showHistory', {
+                                    text: strings.PropShowHistoryLabel,
+                                    checked: this.properties.showHistory !== false,
+                                    disabled: !this.isSelectedListVersioningEnabled()
+                                })
+                            ].concat((!this.isSelectedListVersioningEnabled() ? [
+                                sp_webpart_base_1.PropertyPaneLabel('showHistoryVersioningNote', {
+                                    text: this.properties.listName
+                                        ? strings.PropShowHistoryVersioningDisabledNote
+                                        : strings.PropShowHistorySelectListNote
+                                })
+                            ] : []), [
+                                sp_webpart_base_1.PropertyPaneDropdown('actionButtonsPosition', {
+                                    label: strings.PropActionButtonsPositionLabel,
+                                    options: [
+                                        { key: 'beginning', text: strings.PropActionButtonsPositionBeginning },
+                                        { key: 'end', text: strings.PropActionButtonsPositionEnd }
+                                    ],
+                                    selectedKey: this.properties.actionButtonsPosition === 'beginning' ? 'beginning' : 'end'
+                                }),
+                                sp_webpart_base_1.PropertyPaneDropdown('buttonDisplayMode', {
+                                    label: strings.PropButtonDisplayModeLabel,
+                                    options: [
+                                        { key: 'text', text: strings.PropButtonDisplayModeText },
+                                        { key: 'iconText', text: strings.PropButtonDisplayModeIconText },
+                                        { key: 'icon', text: strings.PropButtonDisplayModeIcon }
+                                    ],
+                                    selectedKey: this.properties.buttonDisplayMode === 'icon' || this.properties.buttonDisplayMode === 'iconText'
+                                        ? this.properties.buttonDisplayMode : 'text'
+                                })
+                            ])
+                        },
+                        {
+                            groupName: strings.PropertyGroupSecurity,
+                            groupFields: [
+                                sp_webpart_base_1.PropertyPaneDropdown('readSecurityGroupId', {
+                                    label: strings.PropReadSecurityGroupLabel,
+                                    options: securityGroupOptions,
+                                    selectedKey: this.properties.readSecurityGroupId || ''
+                                }),
+                                sp_webpart_base_1.PropertyPaneTextField('readAccessDeniedMessage', {
+                                    label: strings.PropReadAccessDeniedMessageLabel,
+                                    value: this.properties.readAccessDeniedMessage || strings.RuntimeReadAccessDenied
+                                }),
+                                sp_webpart_base_1.PropertyPaneDropdown('editSecurityGroupId', {
+                                    label: strings.PropEditSecurityGroupLabel,
+                                    options: securityGroupOptions,
+                                    selectedKey: this.properties.editSecurityGroupId || ''
+                                }),
+                                sp_webpart_base_1.PropertyPaneTextField('editAccessDeniedMessage', {
+                                    label: strings.PropEditAccessDeniedMessageLabel,
+                                    description: strings.PropEditSecurityGroupDescription,
+                                    value: this.properties.editAccessDeniedMessage || strings.RuntimeEditAccessDenied
                                 })
                             ]
                         },
@@ -949,19 +1044,54 @@ var GridControlWebPart = (function (_super) {
                                     options: [
                                         { key: 'mdy', text: 'MM/DD/YYYY' },
                                         { key: 'dmy', text: 'DD/MM/YYYY' },
-                                        { key: 'ymd', text: 'YYYY-MM-DD' }
+                                        { key: 'ymd', text: 'YYYY-MM-DD' },
+                                        { key: 'custom', text: strings.PropDateDisplayFormatCustom }
                                     ],
                                     selectedKey: this.properties.dateDisplayFormat || 'mdy'
+                                })
+                            ].concat((this.properties.dateDisplayFormat === 'custom' ? [
+                                sp_webpart_base_1.PropertyPaneTextField('dateCustomFormat', {
+                                    label: strings.PropDateCustomFormatLabel,
+                                    description: strings.PropDateCustomFormatDescription,
+                                    placeholder: 'MM/DD/YYYY',
+                                    value: this.properties.dateCustomFormat || ''
                                 }),
+                                sp_webpart_base_1.PropertyPaneDropdown('dateCustomFormatCase', {
+                                    label: strings.PropCustomFormatTextCaseLabel,
+                                    options: [
+                                        { key: 'default', text: strings.PropCustomFormatTextCaseDefault },
+                                        { key: 'upper', text: strings.PropCustomFormatTextCaseUpper },
+                                        { key: 'lower', text: strings.PropCustomFormatTextCaseLower }
+                                    ],
+                                    selectedKey: this.properties.dateCustomFormatCase || 'default'
+                                })
+                            ] : []), [
                                 sp_webpart_base_1.PropertyPaneDropdown('timeDisplayFormat', {
                                     label: strings.PropTimeDisplayFormatLabel,
                                     options: [
                                         { key: '24hour', text: '24-hour (HH:mm)' },
-                                        { key: '12hour', text: '12-hour (hh:mm AM/PM)' }
+                                        { key: '12hour', text: '12-hour (hh:mm AM/PM)' },
+                                        { key: 'custom', text: strings.PropTimeDisplayFormatCustom }
                                     ],
                                     selectedKey: this.properties.timeDisplayFormat || '24hour'
                                 })
-                            ]
+                            ], (this.properties.timeDisplayFormat === 'custom' ? [
+                                sp_webpart_base_1.PropertyPaneTextField('timeCustomFormat', {
+                                    label: strings.PropTimeCustomFormatLabel,
+                                    description: strings.PropTimeCustomFormatDescription,
+                                    placeholder: 'MM/DD/YYYY HH:mm',
+                                    value: this.properties.timeCustomFormat || ''
+                                }),
+                                sp_webpart_base_1.PropertyPaneDropdown('timeCustomFormatCase', {
+                                    label: strings.PropCustomFormatTextCaseLabel,
+                                    options: [
+                                        { key: 'default', text: strings.PropCustomFormatTextCaseDefault },
+                                        { key: 'upper', text: strings.PropCustomFormatTextCaseUpper },
+                                        { key: 'lower', text: strings.PropCustomFormatTextCaseLower }
+                                    ],
+                                    selectedKey: this.properties.timeCustomFormatCase || 'default'
+                                })
+                            ] : []))
                         },
                         {
                             groupName: strings.PropertyGroupSelectedStyle,
@@ -1517,6 +1647,52 @@ var GridControlWebPart = (function (_super) {
                                     style: PropertyFieldColorPicker_1.PropertyFieldColorPickerStyle.Inline,
                                     key: 'conditionalStyleForegroundColorField-' + String(this._conditionalStyleDesignerRevision)
                                 }),
+                                PropertyFieldColorPicker_1.PropertyFieldColorPicker('conditionalStyleBorderColor', {
+                                    label: strings.PropConditionalStyleBorderColorLabel,
+                                    selectedColor: this.properties.conditionalStyleBorderColor || '',
+                                    onPropertyChange: this.handleColorPropertyChange.bind(this),
+                                    properties: this.properties,
+                                    style: PropertyFieldColorPicker_1.PropertyFieldColorPickerStyle.Inline,
+                                    key: 'conditionalStyleBorderColorField-' + String(this._conditionalStyleDesignerRevision)
+                                }),
+                                sp_webpart_base_1.PropertyPaneDropdown('conditionalStyleBorderStyle', {
+                                    label: strings.PropConditionalStyleBorderStyleLabel,
+                                    options: [
+                                        { key: '', text: strings.PropConditionalStyleBorderDefault },
+                                        { key: 'none', text: strings.PropConditionalStyleBorderNone },
+                                        { key: 'solid', text: strings.PropConditionalStyleBorderSolid },
+                                        { key: 'dashed', text: strings.PropConditionalStyleBorderDashed },
+                                        { key: 'dotted', text: strings.PropConditionalStyleBorderDotted },
+                                        { key: 'double', text: strings.PropConditionalStyleBorderDouble }
+                                    ],
+                                    selectedKey: this.properties.conditionalStyleBorderStyle || ''
+                                }),
+                                sp_webpart_base_1.PropertyPaneSlider('conditionalStyleBorderWidth', {
+                                    label: strings.PropConditionalStyleBorderWidthLabel,
+                                    min: 0,
+                                    max: 20,
+                                    step: 1,
+                                    value: typeof this.properties.conditionalStyleBorderWidth === 'number' ? this.properties.conditionalStyleBorderWidth : 0,
+                                    showValue: true
+                                }),
+                                sp_webpart_base_1.PropertyPaneDropdown('conditionalStyleCornerStyle', {
+                                    label: strings.PropConditionalStyleCornerStyleLabel,
+                                    options: [
+                                        { key: 'square', text: strings.PropConditionalStyleCornerSquare },
+                                        { key: 'rounded', text: strings.PropConditionalStyleCornerRounded }
+                                    ],
+                                    selectedKey: this.properties.conditionalStyleCornerStyle || 'square'
+                                })
+                            ], (this.properties.conditionalStyleCornerStyle === 'rounded' ? [
+                                sp_webpart_base_1.PropertyPaneSlider('conditionalStyleBorderRadius', {
+                                    label: strings.PropConditionalStyleBorderRadiusLabel,
+                                    min: 0,
+                                    max: 40,
+                                    step: 1,
+                                    value: typeof this.properties.conditionalStyleBorderRadius === 'number' ? this.properties.conditionalStyleBorderRadius : 8,
+                                    showValue: true
+                                })
+                            ] : []), [
                                 sp_webpart_base_1.PropertyPaneDropdown('conditionalStyleFontFamily', {
                                     label: strings.PropConditionalStyleFontFamilyLabel,
                                     options: fontFamilyOptions,
@@ -1984,6 +2160,12 @@ var GridControlWebPart = (function (_super) {
             style: {
                 backgroundColor: String(this.properties.conditionalStyleBackgroundColor || '').trim(),
                 color: String(this.properties.conditionalStyleForegroundColor || '').trim(),
+                borderColor: String(this.properties.conditionalStyleBorderColor || '').trim(),
+                borderStyle: String(this.properties.conditionalStyleBorderStyle || '').trim(),
+                borderWidth: this.properties.conditionalStyleBorderStyle
+                    ? (typeof this.properties.conditionalStyleBorderWidth === 'number' ? this.properties.conditionalStyleBorderWidth : 0) : undefined,
+                borderRadius: this.properties.conditionalStyleBorderStyle && this.properties.conditionalStyleCornerStyle === 'rounded'
+                    ? (typeof this.properties.conditionalStyleBorderRadius === 'number' ? this.properties.conditionalStyleBorderRadius : 8) : 0,
                 fontFamily: String(this.properties.conditionalStyleFontFamily || '').trim(),
                 fontSize: String(this.properties.conditionalStyleFontSize || '').trim(),
                 fontStyle: String(this.properties.conditionalStyleFontStyle || '').trim(),
@@ -2005,6 +2187,11 @@ var GridControlWebPart = (function (_super) {
         this.properties.conditionalStyleConditionValue = '';
         this.properties.conditionalStyleBackgroundColor = '';
         this.properties.conditionalStyleForegroundColor = '';
+        this.properties.conditionalStyleBorderColor = '';
+        this.properties.conditionalStyleBorderStyle = '';
+        this.properties.conditionalStyleBorderWidth = 0;
+        this.properties.conditionalStyleCornerStyle = 'square';
+        this.properties.conditionalStyleBorderRadius = 8;
         this.properties.conditionalStyleFontFamily = '';
         this.properties.conditionalStyleFontSize = '';
         this.properties.conditionalStyleFontStyle = '';
@@ -2057,6 +2244,11 @@ var GridControlWebPart = (function (_super) {
             this.properties.conditionalStyleConditionValue = String(selected.value === undefined || selected.value === null ? '' : selected.value);
             this.properties.conditionalStyleBackgroundColor = String(selectedStyle.backgroundColor || '');
             this.properties.conditionalStyleForegroundColor = String(selectedStyle.color || '');
+            this.properties.conditionalStyleBorderColor = String(selectedStyle.borderColor || '');
+            this.properties.conditionalStyleBorderStyle = String(selectedStyle.borderStyle || '');
+            this.properties.conditionalStyleBorderWidth = Number(selectedStyle.borderWidth || 0);
+            this.properties.conditionalStyleBorderRadius = Number(selectedStyle.borderRadius || 0);
+            this.properties.conditionalStyleCornerStyle = this.properties.conditionalStyleBorderRadius > 0 ? 'rounded' : 'square';
             this.properties.conditionalStyleFontFamily = String(selectedStyle.fontFamily || '');
             this.properties.conditionalStyleFontSize = String(selectedStyle.fontSize || '');
             this.properties.conditionalStyleFontStyle = String(selectedStyle.fontStyle || '');
@@ -2247,26 +2439,29 @@ var GridControlWebPart = (function (_super) {
     };
     GridControlWebPart.prototype.loadLists = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, data, lists, error_3;
+            var webUrl, data, lists, versioningEnabledByListName, error_3;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
                         _a.trys.push([0, 2, , 3]);
                         webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
                         this.logDiagnostic('Loading lists from web URL: ' + webUrl);
-                        return [4 /*yield*/, this.getJsonWithAcceptFallback(webUrl + "/_api/web/lists?$select=Title,Hidden,BaseTemplate&$filter=Hidden eq false")];
+                        return [4 /*yield*/, this.getJsonWithAcceptFallback(webUrl + "/_api/web/lists?$select=Title,Hidden,BaseTemplate,EnableVersioning&$filter=Hidden eq false")];
                     case 1:
                         data = _a.sent();
                         lists = data && data.value ? data.value : [];
                         if (!lists || lists.length === 0) {
                             lists = data && data.d && data.d.results ? data.d.results : [];
                         }
+                        versioningEnabledByListName = {};
                         this._lists = lists.map(function (list) {
+                            versioningEnabledByListName[String(list.Title || '').toLowerCase()] = list.EnableVersioning === true;
                             return {
                                 key: list.Title,
                                 text: list.Title
                             };
                         });
+                        this._versioningEnabledByListName = versioningEnabledByListName;
                         this.logDiagnostic('Loaded lists successfully. Count=' + String(this._lists.length));
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 3];
@@ -2274,6 +2469,41 @@ var GridControlWebPart = (function (_super) {
                         error_3 = _a.sent();
                         this.logDiagnostic('Failed to load lists: ' + (error_3 && error_3.message ? error_3.message : String(error_3)));
                         this._lists = [];
+                        this._versioningEnabledByListName = {};
+                        return [3 /*break*/, 3];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    GridControlWebPart.prototype.isSelectedListVersioningEnabled = function () {
+        var listName = String(this.properties.listName || '').trim().toLowerCase();
+        return !!listName && this._versioningEnabledByListName[listName] === true;
+    };
+    GridControlWebPart.prototype.loadSiteGroups = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var webUrl, data, groups, error_4;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+                        return [4 /*yield*/, this.getJsonWithAcceptFallback(webUrl + '/_api/web/sitegroups?$select=Id,Title&$orderby=Title')];
+                    case 1:
+                        data = _a.sent();
+                        groups = data && data.value ? data.value : [];
+                        if (!groups || groups.length === 0) {
+                            groups = data && data.d && data.d.results ? data.d.results : [];
+                        }
+                        this._siteGroups = groups.map(function (group) {
+                            return { key: String(group.Id), text: String(group.Title || group.Id) };
+                        });
+                        this.context.propertyPane.refresh();
+                        return [3 /*break*/, 3];
+                    case 2:
+                        error_4 = _a.sent();
+                        this.logDiagnostic('Failed to load SharePoint groups: ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
+                        this._siteGroups = [];
                         return [3 /*break*/, 3];
                     case 3: return [2 /*return*/];
                 }
@@ -2293,7 +2523,7 @@ var GridControlWebPart = (function (_super) {
     };
     GridControlWebPart.prototype.loadSitePages = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, libraryData, libraries, pageOptionsByUrl, libraryIndex, libraryId, data, pages, pageError_1, defaultPageOptions, error_4;
+            var webUrl, libraryData, libraries, pageOptionsByUrl, libraryIndex, libraryId, data, pages, pageError_1, defaultPageOptions, error_5;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2351,8 +2581,8 @@ var GridControlWebPart = (function (_super) {
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 9];
                     case 8:
-                        error_4 = _a.sent();
-                        this.logDiagnostic('Failed to load Site Pages: ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
+                        error_5 = _a.sent();
+                        this.logDiagnostic('Failed to load Site Pages: ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
                         this._sitePages = [{ key: '__defaultForm__', text: strings.PropLinkTargetDefaultFormOption }];
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 9];
@@ -2363,7 +2593,7 @@ var GridControlWebPart = (function (_super) {
     };
     GridControlWebPart.prototype.loadViews = function (listName) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, data, views, i, error_5;
+            var webUrl, data, views, i, error_6;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2407,8 +2637,8 @@ var GridControlWebPart = (function (_super) {
                         this.render();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_5 = _a.sent();
-                        this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
+                        error_6 = _a.sent();
+                        this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error_6 && error_6.message ? error_6.message : String(error_6)));
                         this._views = [];
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 5];
@@ -2419,7 +2649,7 @@ var GridControlWebPart = (function (_super) {
     };
     GridControlWebPart.prototype.loadViewColumns = function (listName, viewId) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, listPath, normalizedViewId, viewData, viewFields, fieldData, fields, titleByName, error_6;
+            var webUrl, listPath, normalizedViewId, viewData, viewFields, fieldData, fields, titleByName, error_7;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2474,11 +2704,11 @@ var GridControlWebPart = (function (_super) {
                         this.render();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_6 = _a.sent();
+                        error_7 = _a.sent();
                         this.properties.viewColumns = [];
                         this.context.propertyPane.refresh();
                         this.render();
-                        this.logDiagnostic('Failed to initialize columns for view ' + viewId + ': ' + (error_6 && error_6.message ? error_6.message : String(error_6)));
+                        this.logDiagnostic('Failed to initialize columns for view ' + viewId + ': ' + (error_7 && error_7.message ? error_7.message : String(error_7)));
                         return [3 /*break*/, 5];
                     case 5: return [2 /*return*/];
                 }

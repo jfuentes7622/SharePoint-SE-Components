@@ -58,10 +58,6 @@ interface ISPFieldResponse {
 
 var SYSTEM_FIELDS: { [key: string]: boolean } = {
   ID: true,
-  Created: true,
-  Modified: true,
-  Author: true,
-  Editor: true,
   OData__UIVersionString: true,
   GUID: true,
   ContentType: true,
@@ -80,6 +76,10 @@ function createId(prefix: string): string {
 function escapeODataText(value: string): string {
   return value.replace(/'/g, "''");
 }
+
+// Fallback used whenever a level (form/container/field) does not customize its own font, so the
+// designer preview never silently cascades styling in from a different (unrelated) level's setting.
+var DEFAULT_THEME_FONT_FAMILY = "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif";
 
 function copySchema(schema: FormSchema): FormSchema {
   return JSON.parse(JSON.stringify(schema));
@@ -349,10 +349,12 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       var mapped = fields
         .filter(function(field) {
           var isAttachmentField = field.InternalName === 'Attachments';
+          var isCommonSystemField = field.InternalName === 'Author' || field.InternalName === 'Editor'
+            || field.InternalName === 'Created' || field.InternalName === 'Modified';
           if (field.Hidden) {
             return false;
           }
-          if (field.FromBaseType && field.InternalName !== 'Title' && !isAttachmentField) {
+          if (field.FromBaseType && field.InternalName !== 'Title' && !isAttachmentField && !isCommonSystemField) {
             return false;
           }
           return !SYSTEM_FIELDS[field.InternalName];
@@ -628,6 +630,22 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     });
   }
 
+  private moveStep(direction: number): void {
+    var nextSchema = copySchema(this.props.schema);
+    var steps = nextSchema.steps;
+    var index = this.state.selectedStepIndex;
+    var targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= steps.length) {
+      return;
+    }
+
+    var temp = steps[index];
+    steps[index] = steps[targetIndex];
+    steps[targetIndex] = temp;
+    this.props.onChange(nextSchema);
+    this.setState({ selectedStepIndex: targetIndex });
+  }
+
   private addFieldFromSPField(spField: SPFieldInfo): void {
     var currentStep = this.getCurrentStep();
     if (!currentStep) {
@@ -796,11 +814,13 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     // Form-level wrapper style
     var formWrapperStyle: React.CSSProperties = { padding: '12px' };
     var formTitleStyle: React.CSSProperties = { textAlign: schema.nameAlignment || 'left' };
+    // Font settings always resolve to their own default when unset so the preview never shows a
+    // title/description silently inheriting styling meant for a different level.
+    formTitleStyle.fontSize = (schema.theme && schema.theme.fontSize) || 14;
+    formTitleStyle.fontFamily = (schema.theme && schema.theme.fontFamily) || DEFAULT_THEME_FONT_FAMILY;
+    formTitleStyle.fontWeight = ((schema.theme && schema.theme.fontWeight) || 'normal') as any;
+    formTitleStyle.color = (schema.theme && schema.theme.color) || '#000000';
     if (schema.theme) {
-      if (schema.theme.fontSize) { formTitleStyle.fontSize = schema.theme.fontSize; }
-      if (schema.theme.fontFamily) { formTitleStyle.fontFamily = schema.theme.fontFamily; }
-      if (schema.theme.fontWeight) { formTitleStyle.fontWeight = schema.theme.fontWeight as any; }
-      if (schema.theme.color) { formTitleStyle.color = schema.theme.color; }
       if (schema.theme.backgroundColor) { formWrapperStyle.backgroundColor = schema.theme.backgroundColor; }
       if (schema.theme.borderColor || schema.theme.borderWidth) {
         formWrapperStyle.border = (schema.theme.borderWidth || 1) + 'px solid ' + (schema.theme.borderColor || '#cccccc');
@@ -823,12 +843,10 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     // Build description style with separate font settings
     var descriptionStyle: React.CSSProperties = { marginBottom: '16px' };
     descriptionStyle.textAlign = schema.descriptionAlignment || 'left';
-    if (schema.theme) {
-      if (schema.theme.descriptionFontSize) { descriptionStyle.fontSize = schema.theme.descriptionFontSize; }
-      if (schema.theme.descriptionFontFamily) { descriptionStyle.fontFamily = schema.theme.descriptionFontFamily; }
-      if (schema.theme.descriptionFontWeight) { descriptionStyle.fontWeight = schema.theme.descriptionFontWeight as any; }
-      if (schema.theme.descriptionColor) { descriptionStyle.color = schema.theme.descriptionColor; }
-    }
+    descriptionStyle.fontSize = (schema.theme && schema.theme.descriptionFontSize) || 14;
+    descriptionStyle.fontFamily = (schema.theme && schema.theme.descriptionFontFamily) || DEFAULT_THEME_FONT_FAMILY;
+    descriptionStyle.fontWeight = ((schema.theme && schema.theme.descriptionFontWeight) || 'normal') as any;
+    descriptionStyle.color = (schema.theme && schema.theme.descriptionColor) || '#666666';
 
     return (
       <div className={styles.designerPreviewSection}>
@@ -852,15 +870,18 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
               var stepTextStyle: React.CSSProperties = {};
               var stepDescriptionStyle: React.CSSProperties = {};
 
+              // Font settings always resolve to their own default when unset so the preview never
+              // shows a container silently inheriting the form's font styling.
+              stepTextStyle.fontSize = (step.theme && step.theme.fontSize) || 14;
+              stepTextStyle.fontFamily = (step.theme && step.theme.fontFamily) || DEFAULT_THEME_FONT_FAMILY;
+              stepTextStyle.fontWeight = ((step.theme && step.theme.fontWeight) || 'normal') as any;
+              stepTextStyle.color = (step.theme && step.theme.color) || '#000000';
+              stepDescriptionStyle.fontSize = (step.theme && step.theme.descriptionFontSize) || 14;
+              stepDescriptionStyle.fontFamily = (step.theme && step.theme.descriptionFontFamily) || DEFAULT_THEME_FONT_FAMILY;
+              stepDescriptionStyle.fontWeight = ((step.theme && step.theme.descriptionFontWeight) || 'normal') as any;
+              stepDescriptionStyle.color = (step.theme && step.theme.descriptionColor) || '#666666';
+
               if (step.theme) {
-                if (step.theme.fontSize) { stepTextStyle.fontSize = step.theme.fontSize; }
-                if (step.theme.fontFamily) { stepTextStyle.fontFamily = step.theme.fontFamily; }
-                if (step.theme.fontWeight) { stepTextStyle.fontWeight = step.theme.fontWeight as any; }
-                if (step.theme.color) { stepTextStyle.color = step.theme.color; }
-                if (step.theme.descriptionFontSize) { stepDescriptionStyle.fontSize = step.theme.descriptionFontSize; }
-                if (step.theme.descriptionFontFamily) { stepDescriptionStyle.fontFamily = step.theme.descriptionFontFamily; }
-                if (step.theme.descriptionFontWeight) { stepDescriptionStyle.fontWeight = step.theme.descriptionFontWeight as any; }
-                if (step.theme.descriptionColor) { stepDescriptionStyle.color = step.theme.descriptionColor; }
                 if (step.theme.backgroundColor) { stepContainerStyle.backgroundColor = step.theme.backgroundColor; }
                 if (step.theme.borderColor || step.theme.borderWidth) {
                   stepContainerStyle.border = (step.theme.borderWidth || 1) + 'px solid ' + (step.theme.borderColor || '#cccccc');
@@ -917,6 +938,8 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                           wordBreak: 'break-word',
                           lineHeight: '1.6',
                           fontSize: '12px',
+                          fontFamily: DEFAULT_THEME_FONT_FAMILY,
+                          fontWeight: 'normal',
                           color: '#605e5c'
                         };
                         if (field.inputFontSize) { richTextStyle.fontSize = field.inputFontSize; }
@@ -982,15 +1005,16 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                         fieldWrapperStyle.borderRadius = String(field.fieldBorderRadius || 8) + 'px';
                       }
 
-                      // Label style
-                      var labelStyle: React.CSSProperties = { fontWeight: 600 };
+                      // Label style: always resolved (own default when unset) so the preview label
+                      // never inherits the container's font styling.
+                      var labelStyle: React.CSSProperties = { fontWeight: 600, fontSize: 14, fontFamily: DEFAULT_THEME_FONT_FAMILY, color: '#000000' };
                       if (field.labelFontSize) { labelStyle.fontSize = field.labelFontSize; }
                       if (field.labelFontFamily) { labelStyle.fontFamily = field.labelFontFamily; }
                       if (field.labelFontWeight) { labelStyle.fontWeight = field.labelFontWeight as any; }
                       if (field.labelColor) { labelStyle.color = field.labelColor; }
 
-                      // Input/value style
-                      var inputStyle: React.CSSProperties = { fontSize: '12px', color: '#605e5c', marginTop: '4px' };
+                      // Input/value style: always resolved (own default when unset)
+                      var inputStyle: React.CSSProperties = { fontSize: '12px', fontFamily: DEFAULT_THEME_FONT_FAMILY, fontWeight: 'normal', color: '#605e5c', marginTop: '4px' };
                       if (field.inputFontSize) { inputStyle.fontSize = field.inputFontSize; }
                       if (field.inputFontFamily) { inputStyle.fontFamily = field.inputFontFamily; }
                       if (field.inputFontWeight) { inputStyle.fontWeight = field.inputFontWeight as any; }
@@ -1120,6 +1144,26 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
             </button>
           ))}
           <button type="button" className={styles.designerActionButton} onClick={() => this.addStep()}>{strings.DesignerAddStep}</button>
+          <button
+            type="button"
+            className={styles.designerInlineButton}
+            title={strings.DesignerMoveStepLeft}
+            aria-label={strings.DesignerMoveStepLeft}
+            onClick={() => this.moveStep(-1)}
+            disabled={this.state.selectedStepIndex <= 0}
+          >
+            {strings.DesignerMoveStepLeftLabel}
+          </button>
+          <button
+            type="button"
+            className={styles.designerInlineButton}
+            title={strings.DesignerMoveStepRight}
+            aria-label={strings.DesignerMoveStepRight}
+            onClick={() => this.moveStep(1)}
+            disabled={this.state.selectedStepIndex >= this.props.schema.steps.length - 1}
+          >
+            {strings.DesignerMoveStepRightLabel}
+          </button>
           {this.props.schema.steps.length > 1 && (
             <button type="button" className={styles.designerDeleteButton} onClick={() => this.deleteCurrentStep()}>{strings.DesignerDeleteStep}</button>
           )}
@@ -1797,9 +1841,9 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                 className={styles.designerInput}
                 value={field.config && field.config.displayFormat || 'dateTime'}
                 onChange={(ev) => this.updateSelectedField(function(nextField) {
-                  var nextFormat = ev.currentTarget.value === 'dateOnly' || ev.currentTarget.value === 'timeOnly' ? ev.currentTarget.value : 'dateTime';
+                  var nextFormat = ev.currentTarget.value === 'dateOnly' || ev.currentTarget.value === 'timeOnly' || ev.currentTarget.value === 'custom' ? ev.currentTarget.value : 'dateTime';
                   nextField.config = nextField.config || {};
-                  nextField.config.displayFormat = nextFormat as 'dateOnly' | 'dateTime' | 'timeOnly';
+                  nextField.config.displayFormat = nextFormat as 'dateOnly' | 'dateTime' | 'timeOnly' | 'custom';
                   console.log('[FormDesigner] datetime field "' + nextField.label + '" format changed to: ' + nextFormat);
                   return nextField;
                 })}
@@ -1807,7 +1851,41 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                 <option value="dateOnly">{strings.PropertyPanelDateFormatDateOnly}</option>
                 <option value="dateTime">{strings.PropertyPanelDateFormatDateTime}</option>
                 <option value="timeOnly">{strings.PropertyPanelDateFormatTimeOnly}</option>
+                <option value="custom">{strings.PropertyPanelDateFormatCustom}</option>
               </select>
+              {field.config && field.config.displayFormat === 'custom' && (
+                <div>
+                  <label className={styles.designerFormLabel}>{strings.PropertyPanelCustomDateFormatLabel}</label>
+                  <input
+                    className={styles.designerInput}
+                    type="text"
+                    value={(field.config && field.config.customDateFormat) || ''}
+                    placeholder="MM/DD/YYYY HH:mm"
+                    title={strings.PropertyPanelCustomDateFormatDescription}
+                    onChange={(ev) => this.updateSelectedField(function(nextField) {
+                      nextField.config = nextField.config || {};
+                      nextField.config.customDateFormat = ev.currentTarget.value;
+                      return nextField;
+                    })}
+                  />
+                  <div style={{ fontSize: '12px', color: '#605e5c' }}>{strings.PropertyPanelCustomDateFormatDescription}</div>
+                  <label className={styles.designerFormLabel}>{strings.PropertyPanelCustomDateFormatCaseLabel}</label>
+                  <select
+                    className={styles.designerInput}
+                    value={(field.config && field.config.customDateFormatCase) || 'default'}
+                    onChange={(ev) => this.updateSelectedField(function(nextField) {
+                      var nextCase = ev.currentTarget.value === 'upper' || ev.currentTarget.value === 'lower' ? ev.currentTarget.value : 'default';
+                      nextField.config = nextField.config || {};
+                      nextField.config.customDateFormatCase = nextCase as 'default' | 'upper' | 'lower';
+                      return nextField;
+                    })}
+                  >
+                    <option value="default">{strings.PropertyPanelCustomDateFormatCaseDefault}</option>
+                    <option value="upper">{strings.PropertyPanelCustomDateFormatCaseUpper}</option>
+                    <option value="lower">{strings.PropertyPanelCustomDateFormatCaseLower}</option>
+                  </select>
+                </div>
+              )}
               {(!field.config || field.config.displayFormat !== 'dateOnly') && (
                 <div>
                   <label className={styles.designerFormLabel}>{strings.PropertyPanelTimeZone}</label>

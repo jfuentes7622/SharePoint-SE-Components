@@ -15,6 +15,7 @@ GridControl starts with the ListControl display, filtering, styling, and dynamic
 - Add and edit SharePoint items directly in the grid
 - Validate required fields and deterministic Dynamic Form field rules before saving
 - Select multiple rows and delete them in one operation
+- Restrict read access and add/edit/delete access by SharePoint group
 
 ## Grid Designer
 
@@ -48,7 +49,7 @@ Grid Designer exposes one **Read only** setting because read-only and disabled c
 | SharePoint/Dynamic Form type | Grid editor |
 |---|---|
 | Text / `text` | Single-line text input |
-| Note / `multiline` | Multiline text area |
+| Note / `multiline` | Resizable multiline text area, or a visual HTML editor when SharePoint Rich Text is enabled |
 | Number, Currency, Integer / `number` | Numeric input with optional min, max, and decimal step |
 | Boolean / `boolean` | Checkbox |
 | Choice / `dropdown` | Single-select dropdown |
@@ -59,6 +60,8 @@ Grid Designer exposes one **Read only** setting because read-only and disabled c
 Grid Designer restricts the Cell control list according to the underlying SharePoint storage type. Text and Note columns can use text, multiline, or number controls; URL columns can use URL or text controls. Number, Currency, Integer, Boolean, Choice, MultiChoice, DateTime, Lookup, Person, Taxonomy, Image, and Attachment columns remain limited to their storage-compatible control family. Existing schemas containing an incompatible selection are normalized when opened, and runtime applies the same guard to older or manually edited schemas.
 
 Read-only, hidden, computed, and unsupported complex fields do not receive an editor. Lookup, person, taxonomy, image, and attachment editing controls remain reserved for a later implementation phase.
+
+SharePoint Note columns configured for rich text use a visual editor with bold, italic, underline, lists, alignment, and clear-formatting controls. Existing HTML is rendered visually and preserved when saved instead of being exposed as tags. Rich and plain multiline editing surfaces can be resized horizontally and vertically.
 
 ## Validation
 
@@ -81,12 +84,19 @@ GridControl also executes DForm-compatible field rule types `required`, `minLeng
 
 ## Display And Actions
 
-- `pageSize` controls client-side pagination; `0` or blank displays all rows.
+- `pageSize` controls client-side pagination; `0` or blank uses Automatic (50), and the maximum is 100 rows per page.
+- SharePoint rows are cached progressively using paged batches (500 by default, configurable from 100 to 2000). The next batch is prefetched near the cache boundary, page totals show `+` while more rows exist, and client-only filtering, sorting, or grouping completes the cache before totals become final.
+- The interactive column header follows page scrolling while the grid is visible, stops at the bottom of the table, and keeps open filter dialogs anchored to their header buttons; horizontal scrolling remains synchronized with the columns.
+- When the table is wider than its viewport, left/right navigation arrows appear on hover or keyboard focus and move with the visible portion of the grid.
 - The view selector, Refresh, Add, Delete, and Link to Item controls can be shown or hidden independently.
+- The row action column containing Edit, History, or Save/Cancel can be placed at the beginning or end of the data columns. Delete-selection checkboxes remain first when enabled.
+- Runtime command buttons can display text, a standard SharePoint Fabric icon with text, or an icon only. Icon-only controls retain accessible labels and hover tooltips.
+- When versioning is enabled for the selected SharePoint list, the optional row-level **History** button opens the default version-history page in a padded in-page dialog. The button is hidden when list versioning is off, and its property-pane option is disabled with an explanatory note. It remains available in read-only grids because viewing history does not mutate the item; SharePoint permissions still govern access to version details.
 - Link to Item can navigate to the list's default display form or an `.aspx` page discovered from the current site's Site Pages and publishing Pages libraries. It passes the selected ID through a configurable query parameter and can optionally include a return URL. Previously saved custom target URLs remain available in the dropdown.
 - Body, header, selected-row, alternating-row, table, button, and web-part-container styles are configurable in the property pane.
-- Preset filters and conditional formatting rules can be built in their property-pane designers and stored as JSON.
+- Preset filters and conditional formatting rules can be built in their property-pane designers and stored as JSON. Conditional overrides include background, foreground, font, alignment, border color/type/thickness, and square or rounded corners with a configurable radius.
 - Diagnostic logging can be enabled for data loading and runtime troubleshooting.
+- The Security settings can restrict reading to one SharePoint group and mutations to another. Edit-group members automatically receive read access. Users without read access see no list data, while read-only users see the configured edit-denial message and no mutation controls. Blank group selections defer to normal SharePoint list permissions.
 - Use a row's **Edit** button to edit it inline. Save and Cancel replace the row action while editing, and only one row can be edited at a time.
 - Select rows with the checkbox column, or select all rows on the current page from the header, then choose **Delete selected**. Selections persist while paging; failed deletions remain selected for retry.
 
@@ -119,7 +129,7 @@ The deployable package is generated under `sharepoint/solution/`.
 - **Data:** `listName`, `viewId`, and fallback `viewColumns` define the source and initial columns.
 - **Selected views:** Grid Control executes the selected view's native CAML filter, sort, scope, and row limit first, then loads Grid Designer field values only for the item IDs returned by that view.
 - **Grid design:** `gridSchemaJson` stores the visual designer output and is authoritative once saved. Use the designer for field compatibility and validation rather than hand-editing it.
-- **Behavior:** page size, view selector, refresh, add/delete, item links, filtering, and target-page properties control grid operation.
+- **Behavior:** `pageSize`, `fetchBatchSize`, view selector, refresh, add/delete/history, item links, filtering, and target-page properties control grid operation. Blank page size means Automatic (50); fetch batches default to 500.
 - **Editors and validation:** text, multiline, number, Boolean, choice, multi-choice, date/time, URL, lookup, and person fields receive compatible controls; list-required fields remain required.
 - **Appearance:** body/header/selected-row, borders, alternate rows, buttons, date/time formats, web-part surface, and conditional-rule designers control display.
 - **Advanced:** `forceFullWidth` uses the available page width. `enableDiagnostics` records metadata, REST fallback, mutation, and rendering details.

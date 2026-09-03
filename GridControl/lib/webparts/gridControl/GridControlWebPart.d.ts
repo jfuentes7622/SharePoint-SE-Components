@@ -22,10 +22,19 @@ export interface IGridControlWebPartProps {
     viewColumns?: IGridControlColumnConfiguration[];
     gridSchemaJson?: string;
     pageSize?: number | string;
+    fetchBatchSize?: number | string;
     showViewSelector: boolean;
+    showViewAsDropdown?: boolean;
     showRefresh: boolean;
     showAdd: boolean;
     showDelete: boolean;
+    showHistory?: boolean;
+    actionButtonsPosition?: string;
+    buttonDisplayMode?: string;
+    readSecurityGroupId?: string;
+    editSecurityGroupId?: string;
+    readAccessDeniedMessage?: string;
+    editAccessDeniedMessage?: string;
     showLinkToItem: boolean;
     linkTargetPageUrl: string;
     linkTargetIdParam: string;
@@ -38,7 +47,11 @@ export interface IGridControlWebPartProps {
     bodyFontBold: boolean;
     bodyTextAlign: string;
     dateDisplayFormat: string;
+    dateCustomFormat?: string;
+    dateCustomFormatCase?: string;
     timeDisplayFormat: string;
+    timeCustomFormat?: string;
+    timeCustomFormatCase?: string;
     selectedTextColor: string;
     selectedBackgroundColor: string;
     selectedFontStyle: string;
@@ -92,6 +105,11 @@ export interface IGridControlWebPartProps {
     conditionalStylePriority?: string;
     conditionalStyleBackgroundColor?: string;
     conditionalStyleForegroundColor?: string;
+    conditionalStyleBorderColor?: string;
+    conditionalStyleBorderStyle?: string;
+    conditionalStyleBorderWidth?: number;
+    conditionalStyleCornerStyle?: string;
+    conditionalStyleBorderRadius?: number;
     conditionalStyleFontFamily?: string;
     conditionalStyleFontSize?: string;
     conditionalStyleFontStyle?: string;
@@ -106,9 +124,11 @@ export interface IDropdownOption {
 }
 export default class GridControlWebPart extends BaseClientSideWebPart<IGridControlWebPartProps> {
     private _lists;
+    private _versioningEnabledByListName;
     private _sitePages;
     private _views;
     private _listFields;
+    private _siteGroups;
     private _selectedItemId;
     private _selectedMode;
     private _dynamicDataSourceManager;
@@ -191,6 +211,8 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private handleSelectionChange(itemId, mode);
     private getJsonWithAcceptFallback(url);
     private loadLists();
+    private isSelectedListVersioningEnabled();
+    private loadSiteGroups();
     private getTargetPageOptions();
     private loadSitePages();
     private loadViews(listName);

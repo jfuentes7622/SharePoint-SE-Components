@@ -5,6 +5,7 @@ import './GridDesigner.css';
 export interface IGridDesignerProps {
     context: any;
     listName: string;
+    viewId: string;
     schemaJson: string;
     onSave: (schemaJson: string) => void;
     onCancel: () => void;
@@ -39,12 +40,21 @@ export interface IGridDesignerField {
     validation?: any[];
     gridWidth?: string;
 }
+export interface IGridGroupingConfig {
+    field1: string;
+    field2: string;
+    collapsedByDefault: boolean;
+    showCount: boolean;
+}
 export interface IGridDesignerState {
     fields: IGridDesignerField[];
     sharePointFields: ISharePointField[];
     selectedFieldId: string;
     loading: boolean;
     error: string;
+    grouping: IGridGroupingConfig;
+    viewLoading: boolean;
+    viewLoadMessage: string;
     advancedValidationEnabled: boolean;
     advancedValidationRules: IGridAdvancedValidationRule[];
     validationExpression: string;
@@ -59,6 +69,7 @@ export declare class GridDesigner extends React.Component<IGridDesignerProps, IG
     private getWebUrl();
     private getFieldsResponse(url);
     private loadFields();
+    private loadFromView();
     private getAvailableFields();
     private addField(source);
     private getSelectedField();
@@ -66,6 +77,7 @@ export declare class GridDesigner extends React.Component<IGridDesignerProps, IG
     private moveField(fieldId, direction);
     private removeField(fieldId);
     private updateConfig(name, value);
+    private updateGrouping(mutator);
     private changeSelectedControlType(controlType);
     private updateValidation(type, value, message);
     private updateValidationMessages(types, message);
@@ -79,6 +91,9 @@ export declare class GridDesigner extends React.Component<IGridDesignerProps, IG
     private removeValidationRule();
     private save();
     private renderPalette();
+    private getFieldLabel(fieldName);
+    private renderGroupingSettings();
+    private renderColumnsList();
     private renderCanvas();
     private renderFieldEditor();
     render(): JSX.Element;

@@ -21,9 +21,12 @@ export interface IListControlProps {
   defaultViewId: string;
   views: IListControlViewOption[];
   viewColumns: IListControlColumnConfiguration[];
+  groupingJson?: string;
   pageSize: number;
+  fetchBatchSize: number;
   isEditMode: boolean;
   showViewSelector: boolean;
+  showViewAsDropdown: boolean;
   showRefresh: boolean;
   showAdd: boolean;
   showEdit: boolean;
@@ -41,7 +44,11 @@ export interface IListControlProps {
   bodyFontBold: boolean;
   bodyTextAlign: string;
   dateDisplayFormat: string;
+  dateCustomFormat?: string;
+  dateCustomFormatCase?: string;
   timeDisplayFormat: string;
+  timeCustomFormat?: string;
+  timeCustomFormatCase?: string;
   selectedTextColor: string;
   selectedBackgroundColor: string;
   selectedFontStyle: string;
@@ -71,6 +78,7 @@ export interface IListControlProps {
   buttonFontBold: boolean;
   buttonCornerStyle: string;
   buttonCornerRadius: number;
+  buttonDisplayMode: string;
   webpartBackgroundColor: string;
   webpartBorderColor: string;
   webpartBorderWidth: number;
@@ -89,11 +97,28 @@ export interface IListFieldDefinition {
   ConfiguredWidth?: string;
 }
 
+interface IListGroupingConfig {
+  enabled: boolean;
+  field1: string;
+  field2: string;
+  collapsedByDefault: boolean;
+  showCount: boolean;
+}
+
+interface IListRowGroup {
+  key: string;
+  label: string;
+  rows: any[];
+  subGroups: IListRowGroup[];
+}
+
 export interface IListControlState {
   selectedViewId: string;
   fields: IListFieldDefinition[];
   rows: any[];
   loading: boolean;
+  loadingMore: boolean;
+  nextPageHref: string;
   error: string | null;
   selectedItemId: number;
   selectedMode: string;
@@ -110,12 +135,18 @@ export interface IListControlState {
   datePickerMonth: string;
   columnFilters: { [fieldName: string]: IColumnFilter };
   currentPage: number;
+  collapsedGroupKeys: { [groupKey: string]: boolean };
   displayFormUrl: string;
   displayFormLoading: boolean;
   displayFormError: string;
   embeddedByReportForms: boolean;
   runtimeFilterJson: string;
   runtimeConfigOwner: string;
+  attachmentCountsByItemId: { [itemId: number]: number };
+  showScrollArrows: boolean;
+  scrollArrowTop: number;
+  scrollArrowLeft: number;
+  scrollArrowRight: number;
 }
 
 export type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
@@ -140,6 +171,10 @@ type ConditionalScope = 'row' | 'column';
 interface IConditionalStyleDefinition {
   backgroundColor?: string;
   color?: string;
+  borderColor?: string;
+  borderStyle?: string;
+  borderWidth?: string;
+  borderRadius?: string;
   fontFamily?: string;
   fontSize?: string;
   fontStyle?: string;
@@ -300,7 +335,7 @@ function isSharePointWrapperUrl(url: string): boolean {
   return /\/_layouts\/15\/(sharepoint|onedrive|doc)\.aspx/i.test(String(url || ''));
 }
 
-function extractRenderRowsAndFields(data: any): { rows: any[]; fields: IListFieldDefinition[] } {
+function extractRenderRowsAndFields(data: any): { rows: any[]; fields: IListFieldDefinition[]; nextHref: string } {
   var directData = data && data.d && data.d.RenderListDataAsStream
     ? data.d.RenderListDataAsStream : data;
   var responseData = tryParseObject(directData) || {};
@@ -331,7 +366,8 @@ function extractRenderRowsAndFields(data: any): { rows: any[]; fields: IListFiel
 
   return {
     rows: rows,
-    fields: fields
+    fields: fields,
+    nextHref: String(listData.NextHref || responseData.NextHref || '')
   };
 }
 
@@ -391,6 +427,23 @@ function formatLocalDate(value: Date): string {
   return String(value.getFullYear()) + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
 }
 
+function padTwoDigits(value: number): string {
+  var text = String(value);
+  return text.length < 2 ? '0' + text : text;
+}
+
+function applyDateFormatPattern(pattern: string, tokenValues: { [token: string]: string }): string {
+  return pattern.replace(/YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd|HH|H|hh|h|mm|ss|tt/g, function(token: string): string {
+    return tokenValues[token] !== undefined ? tokenValues[token] : token;
+  });
+}
+
+function applyTextCase(text: string, textCase: string): string {
+  if (textCase === 'upper') { return text.toUpperCase(); }
+  if (textCase === 'lower') { return text.toLowerCase(); }
+  return text;
+}
+
 function toCssString(value: any): string {
   return String(value === undefined || value === null ? '' : value).trim();
 }
@@ -428,6 +481,16 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   private _runtimeConfigEventHandler: any;
   private _fieldDisplayFormatMap: { [internalName: string]: number } = {};
   private _loadRowsRequestId: number = 0;
+  private _tableWrapEl: HTMLDivElement;
+  private _tableHeadEl: HTMLTableSectionElement;
+  private _stickyHeaderViewportEl: HTMLDivElement;
+  private _stickyHeaderSourceHtml: string = '';
+  private _stickyHeaderVisible: boolean = false;
+  private _filterAnchorEl: HTMLElement;
+  private _pagingEndpoint: string = '';
+  private _pagingRequestBody: any = undefined;
+  private _scrollArrowResizeHandler: any;
+  private _scrollArrowScrollHandler: any;
 
   public constructor(props: IListControlProps) {
     super(props);
@@ -437,6 +500,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       fields: [],
       rows: [],
       loading: true,
+      loadingMore: false,
+      nextPageHref: '',
       error: null,
       selectedItemId: 0,
       selectedMode: 'view',
@@ -453,16 +518,24 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       datePickerMonth: '',
       columnFilters: {},
       currentPage: 0,
+      collapsedGroupKeys: {},
       displayFormUrl: '',
       displayFormLoading: false,
       displayFormError: '',
       embeddedByReportForms: false,
       runtimeFilterJson: '',
       runtimeConfigOwner: '',
+      attachmentCountsByItemId: {},
+      showScrollArrows: false,
+      scrollArrowTop: 0,
+      scrollArrowLeft: 0,
+      scrollArrowRight: 0,
     };
 
     this._refreshEventHandler = this.handleExternalRefresh.bind(this);
     this._runtimeConfigEventHandler = this.handleRuntimeConfig.bind(this);
+    this._scrollArrowResizeHandler = this.refreshTableViewport.bind(this);
+    this._scrollArrowScrollHandler = this.refreshTableViewport.bind(this);
   }
 
   public componentDidMount(): void {
@@ -470,6 +543,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
       window.addEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
+      window.addEventListener('resize', this._scrollArrowResizeHandler);
+      window.addEventListener('scroll', this._scrollArrowScrollHandler, true);
     }
     this.loadRows();
   }
@@ -479,6 +554,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
       window.removeEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
+      window.removeEventListener('resize', this._scrollArrowResizeHandler);
+      window.removeEventListener('scroll', this._scrollArrowScrollHandler, true);
     }
   }
 
@@ -542,6 +619,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         draftFilterValue: '',
         columnFilters: {},
         currentPage: 0,
+        collapsedGroupKeys: {},
       }, () => {
         this.props.onSelectionChange(0, 'view');
         if (!selectedViewWillChange) {
@@ -562,6 +640,270 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (prevProps.pageSize !== this.props.pageSize || prevProps.filterJson !== this.props.filterJson) {
       this.setState({ currentPage: 0 });
     }
+    if (prevProps.fetchBatchSize !== this.props.fetchBatchSize) {
+      this.loadRows();
+      return;
+    }
+
+    if ((prevState.sortFieldName !== this.state.sortFieldName
+      || prevState.sortDirection !== this.state.sortDirection
+      || prevState.columnFilters !== this.state.columnFilters
+      || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
+      || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref) {
+      this.loadAllRemainingRows();
+    }
+
+    if (typeof window !== 'undefined') {
+      this._stickyHeaderSourceHtml = '';
+      window.setTimeout(() => this.refreshTableViewport(), 0);
+    }
+  }
+
+  private _setTableWrapRef = (el: HTMLDivElement): void => {
+    this._tableWrapEl = el;
+    this.refreshTableViewport();
+  }
+
+  private _setTableHeadRef = (el: HTMLTableSectionElement): void => {
+    this._tableHeadEl = el;
+    this.updateStickyHeaderPosition();
+  }
+
+  private _setStickyHeaderViewportRef = (el: HTMLDivElement): void => {
+    this._stickyHeaderViewportEl = el;
+    if (el) {
+      el.onclick = this.handleStickyHeaderClick;
+    }
+    this.updateStickyHeaderPosition();
+  }
+
+  private handleStickyHeaderClick = (event: MouseEvent): void => {
+    if (!this._stickyHeaderViewportEl || !this._tableHeadEl) { return; }
+    var target = event.target as HTMLElement;
+    while (target && target !== this._stickyHeaderViewportEl && !target.getAttribute('data-lc-sticky-index')) {
+      target = target.parentElement;
+    }
+    if (!target || target === this._stickyHeaderViewportEl) { return; }
+    event.preventDefault();
+    event.stopPropagation();
+    var sourceControls = this.getStickyHeaderControls(this._tableHeadEl);
+    var sourceIndex = parseInt(String(target.getAttribute('data-lc-sticky-index') || ''), 10);
+    var sourceControl = sourceControls[sourceIndex] as HTMLElement;
+    if (!sourceControl) { return; }
+    var isFilterButton = (' ' + String(target.className || '') + ' ').indexOf(' lc-header-action ') >= 0;
+    if (isFilterButton) {
+      this._filterAnchorEl = target;
+    }
+    (sourceControl as any).click();
+    if (isFilterButton && typeof window !== 'undefined') {
+      this._filterAnchorEl = target;
+      window.setTimeout(() => this.updateActiveFilterPosition(), 0);
+    }
+  }
+
+  private getStickyHeaderControls(root: Element): Element[] {
+    var controls = root.querySelectorAll('button,input');
+    var result: Element[] = [];
+    for (var index = 0; index < controls.length; index += 1) {
+      var control = controls[index] as HTMLElement;
+      var ancestor = control.parentElement;
+      var insideFilter = false;
+      while (ancestor && ancestor !== root) {
+        if ((' ' + String(ancestor.className || '') + ' ').indexOf(' lc-filter-popover ') >= 0) {
+          insideFilter = true;
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (!insideFilter) {
+        result.push(control);
+      }
+    }
+    return result;
+  }
+
+  private refreshTableViewport(): void {
+    this.refreshScrollArrows();
+    this.updateStickyHeaderPosition();
+    this.updateActiveFilterPosition();
+  }
+
+  private refreshScrollArrows(): void {
+    this.updateScrollArrowVisibility();
+    this.updateScrollArrowPosition();
+  }
+
+  private updateScrollArrowVisibility(): void {
+    if (!this._tableWrapEl) {
+      return;
+    }
+
+    var overflowing = this._tableWrapEl.scrollWidth > this._tableWrapEl.clientWidth + 1;
+    if (overflowing !== this.state.showScrollArrows) {
+      this.setState({ showScrollArrows: overflowing });
+    }
+  }
+
+  // Positions the arrows via fixed coordinates centered on the currently visible slice of the
+  // table (intersection of its bounding rect with the viewport), so they stay reachable in the
+  // middle of the view regardless of vertical scroll position instead of drifting to the bottom.
+  private updateScrollArrowPosition(): void {
+    if (!this._tableWrapEl || typeof window === 'undefined') {
+      return;
+    }
+
+    var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    var rect = this._tableWrapEl.getBoundingClientRect();
+    var visibleTop = Math.max(rect.top, 0);
+    var visibleBottom = Math.min(rect.bottom, viewportHeight);
+    var centerY = Math.round((visibleTop + visibleBottom) / 2);
+    var leftPx = Math.round(rect.left);
+    var rightPx = Math.round(viewportWidth - rect.right);
+
+    if (centerY !== this.state.scrollArrowTop || leftPx !== this.state.scrollArrowLeft || rightPx !== this.state.scrollArrowRight) {
+      this.setState({ scrollArrowTop: centerY, scrollArrowLeft: leftPx, scrollArrowRight: rightPx });
+    }
+  }
+
+  private updateStickyHeaderPosition(): void {
+    if (!this._tableWrapEl || !this._tableHeadEl || !this._stickyHeaderViewportEl) { return; }
+    var wrapRect = this._tableWrapEl.getBoundingClientRect();
+    var headerHeight = this._tableHeadEl.getBoundingClientRect().height;
+    var stickyTop = this.getStickyViewportTop(wrapRect);
+    var shouldStick = wrapRect.top < stickyTop && wrapRect.bottom > stickyTop + headerHeight;
+    if (shouldStick !== this._stickyHeaderVisible) {
+      this._stickyHeaderVisible = shouldStick;
+      this.logDiagnostic('Sticky header ' + (shouldStick ? 'shown' : 'hidden')
+        + '. tableTop=' + String(Math.round(wrapRect.top))
+        + ', tableBottom=' + String(Math.round(wrapRect.bottom))
+        + ', stickyTop=' + String(Math.round(stickyTop))
+        + ', headerHeight=' + String(Math.round(headerHeight)));
+    }
+    if (!shouldStick) {
+      this._stickyHeaderViewportEl.style.display = 'none';
+      return;
+    }
+
+    var sourceHtml = this._tableHeadEl.innerHTML;
+    if (sourceHtml !== this._stickyHeaderSourceHtml || this._stickyHeaderViewportEl.children.length === 0) {
+      var activeStickyIndex = this._filterAnchorEl && this._stickyHeaderViewportEl.contains(this._filterAnchorEl)
+        ? parseInt(String(this._filterAnchorEl.getAttribute('data-lc-sticky-index') || ''), 10) : -1;
+      this._stickyHeaderViewportEl.innerHTML = '';
+      var stickyTable = document.createElement('table');
+      stickyTable.className = 'lc-table lc-sticky-header-table';
+      var stickyHead = this._tableHeadEl.cloneNode(true) as HTMLTableSectionElement;
+      var filterPopovers = stickyHead.querySelectorAll('.lc-filter-popover');
+      for (var popoverIndex = 0; popoverIndex < filterPopovers.length; popoverIndex += 1) {
+        var popover = filterPopovers[popoverIndex];
+        if (popover.parentElement) {
+          popover.parentElement.removeChild(popover);
+        }
+      }
+      var stickyControls = this.getStickyHeaderControls(stickyHead);
+      for (var controlIndex = 0; controlIndex < stickyControls.length; controlIndex += 1) {
+        stickyControls[controlIndex].setAttribute('data-lc-sticky-index', String(controlIndex));
+      }
+      if (this.state.activeFilterFieldName && activeStickyIndex >= 0 && activeStickyIndex < stickyControls.length) {
+        this._filterAnchorEl = stickyControls[activeStickyIndex] as HTMLElement;
+      }
+      var stickyColGroup = document.createElement('colgroup');
+      var stickyHeaderCells = stickyHead.children.length > 0 ? stickyHead.children[0].children : [];
+      for (var colIndex = 0; colIndex < stickyHeaderCells.length; colIndex += 1) {
+        stickyColGroup.appendChild(document.createElement('col'));
+      }
+      stickyTable.appendChild(stickyColGroup);
+      stickyTable.appendChild(stickyHead);
+      this._stickyHeaderViewportEl.appendChild(stickyTable);
+      this._stickyHeaderSourceHtml = sourceHtml;
+    }
+
+    var tableElement = this._tableHeadEl.parentElement as HTMLElement;
+    var clonedTable = this._stickyHeaderViewportEl.children[0] as HTMLElement;
+    var sourceCells = this._tableHeadEl.children.length > 0 ? this._tableHeadEl.children[0].children : [];
+    var clonedColGroup = clonedTable.children[0] as HTMLElement;
+    var clonedHead = clonedTable.children[1] as HTMLElement;
+    var clonedCells = clonedHead && clonedHead.children.length > 0 ? clonedHead.children[0].children : [];
+    var clonedColumns = clonedColGroup ? clonedColGroup.children : [];
+    var totalTableWidth = 0;
+    for (var cellIndex = 0; cellIndex < sourceCells.length && cellIndex < clonedCells.length; cellIndex += 1) {
+      var measuredCellWidth = (sourceCells[cellIndex] as HTMLElement).getBoundingClientRect().width;
+      var cellWidth = measuredCellWidth.toFixed(2) + 'px';
+      var clonedCell = clonedCells[cellIndex] as HTMLElement;
+      clonedCell.style.width = '';
+      clonedCell.style.minWidth = '';
+      clonedCell.style.maxWidth = '';
+      if (cellIndex < clonedColumns.length) {
+        (clonedColumns[cellIndex] as HTMLElement).style.width = cellWidth;
+      }
+      totalTableWidth += measuredCellWidth;
+    }
+    clonedTable.style.width = totalTableWidth.toFixed(2) + 'px';
+    clonedTable.style.left = Math.round(-this._tableWrapEl.scrollLeft) + 'px';
+    this._stickyHeaderViewportEl.style.display = 'block';
+    this._stickyHeaderViewportEl.style.top = Math.round(stickyTop) + 'px';
+    this._stickyHeaderViewportEl.style.left = Math.round(wrapRect.left + this._tableWrapEl.clientLeft) + 'px';
+    this._stickyHeaderViewportEl.style.width = Math.round(this._tableWrapEl.clientWidth) + 'px';
+    this._stickyHeaderViewportEl.style.height = Math.round(headerHeight) + 'px';
+  }
+
+  private getStickyViewportTop(wrapRect: ClientRect): number {
+    if (typeof document === 'undefined' || typeof window === 'undefined' || !document.elementFromPoint) { return 0; }
+    var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    var probeX = Math.max(1, Math.min((window.innerWidth || document.documentElement.clientWidth || 0) - 1, Math.round((wrapRect.left + wrapRect.right) / 2)));
+    var stickyTop = this.getScrollViewportTop(viewportHeight);
+    for (var probeCount = 0; probeCount < 6 && stickyTop < Math.min(240, viewportHeight); probeCount += 1) {
+      var probeY = Math.max(1, stickyTop + 1);
+      var element: HTMLElement = document.elementFromPoint(probeX, probeY) as HTMLElement;
+      var chromeElement: HTMLElement | undefined = undefined;
+      while (element && element !== document.body) {
+        var position = window.getComputedStyle(element).position;
+        var elementRect = element.getBoundingClientRect();
+        if (element !== this._stickyHeaderViewportEl && (position === 'fixed' || position === 'sticky') && elementRect.top <= probeY && elementRect.bottom > probeY) {
+          chromeElement = element;
+        }
+        element = element.parentElement;
+      }
+      if (!chromeElement) { break; }
+      var chromeBottom = Math.round(chromeElement.getBoundingClientRect().bottom);
+      if (chromeBottom <= stickyTop) { break; }
+      stickyTop = chromeBottom;
+    }
+    return stickyTop;
+  }
+
+  private getScrollViewportTop(viewportHeight: number): number {
+    if (!this._tableWrapEl || typeof window === 'undefined') { return 0; }
+    var stickyTop = 0;
+    var ancestor = this._tableWrapEl.parentElement;
+    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      var computedStyle = window.getComputedStyle(ancestor);
+      var overflowY = String(computedStyle.overflowY || '').toLowerCase();
+      var canScrollVertically = (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+        && ancestor.scrollHeight > ancestor.clientHeight + 1;
+      if (canScrollVertically) {
+        var ancestorRect = ancestor.getBoundingClientRect();
+        if (ancestorRect.bottom > 0 && ancestorRect.top < viewportHeight) {
+          stickyTop = Math.max(stickyTop, Math.max(0, Math.round(ancestorRect.top)));
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return stickyTop;
+  }
+
+  private scrollTableHorizontally(direction: number): void {
+    if (!this._tableWrapEl) {
+      return;
+    }
+
+    var amount = Math.max(120, Math.round(this._tableWrapEl.clientWidth * 0.6));
+    var nextLeft = this._tableWrapEl.scrollLeft + (amount * direction);
+    if (this._tableWrapEl.scrollTo) {
+      this._tableWrapEl.scrollTo({ left: nextLeft, behavior: 'smooth' });
+    } else {
+      this._tableWrapEl.scrollLeft = nextLeft;
+    }
   }
 
   private getInitialViewId(views: IListControlViewOption[]): string {
@@ -571,6 +913,16 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       }
     }
     return views.length > 0 ? String(views[0].key) : '';
+  }
+
+  private getSelectedViewLabel(): string {
+    var views = this.props.views || [];
+    for (var i = 0; i < views.length; i += 1) {
+      if (String(views[i].key) === String(this.state.selectedViewId)) {
+        return views[i].text;
+      }
+    }
+    return '';
   }
 
   private handleExternalRefresh(event: any): void {
@@ -852,10 +1204,16 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
 
     var configured: IListFieldDefinition[] = [];
+    var addedFieldNames: { [name: string]: boolean } = {};
     for (var j = 0; j < this.props.viewColumns.length; j += 1) {
       var column = this.props.viewColumns[j];
-      var match = byName[String(column.fieldName || '').toLowerCase()];
+      var columnKey = String(column.fieldName || '').toLowerCase();
+      // Guard against a duplicate saved column (e.g. a SharePoint view listing the same field
+      // twice) rendering the same value twice with no visible separator between cells.
+      if (!columnKey || addedFieldNames[columnKey]) { continue; }
+      var match = byName[columnKey];
       if (match) {
+        addedFieldNames[columnKey] = true;
         configured.push(Object.assign({}, match, {
           DisplayName: column.displayName || match.DisplayName || match.Name,
           ConfiguredWidth: column.width || ''
@@ -1057,6 +1415,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return '';
     }
 
+    if (typeof value === 'boolean') {
+      return value ? strings.RuntimeBooleanYes : strings.RuntimeBooleanNo;
+    }
+
     if (Array.isArray(value)) {
       var listValues: string[] = [];
       for (var i = 0; i < value.length; i += 1) {
@@ -1100,7 +1462,11 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return String(value);
   }
 
-  private formatDateCellValue(value: any, field: IListFieldDefinition): string {
+  private formatDateCellValue(value: any, field: IListFieldDefinition, row?: any): string {
+    if (String(field.TypeAsString || '') === 'Attachments') {
+      return String(this.getAttachmentCountForRow(row, value));
+    }
+
     var rawValue = this.stringifyCellValue(value);
     if (String(field.TypeAsString || '').toLowerCase() !== 'datetime') {
       return rawValue;
@@ -1115,26 +1481,62 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var month = dateOnlyMatch ? dateOnlyMatch[2] : String(dateValue.getMonth() + 1);
     var day = dateOnlyMatch ? dateOnlyMatch[3] : String(dateValue.getDate());
     var year = dateOnlyMatch ? dateOnlyMatch[1] : String(dateValue.getFullYear());
-    month = month.length < 2 ? '0' + month : month;
-    day = day.length < 2 ? '0' + day : day;
+    var monthPadded = padTwoDigits(Number(month));
+    var dayPadded = padTwoDigits(Number(day));
 
-    var dateText = month + '/' + day + '/' + year;
-    if (this.props.dateDisplayFormat === 'dmy') {
-      dateText = day + '/' + month + '/' + year;
+    // Date-only fields build named tokens from the corrected local date to avoid a UTC day shift.
+    var namedTokenDate = dateOnlyMatch ? new Date(Number(year), Number(month) - 1, Number(day)) : dateValue;
+
+    var hours = dateValue.getHours();
+    var twelveHour = hours % 12 || 12;
+    var tokenValues: { [token: string]: string } = {
+      YYYY: year,
+      YY: year.length > 2 ? year.substring(year.length - 2) : year,
+      MMMM: namedTokenDate.toLocaleString(undefined, { month: 'long' }),
+      MMM: namedTokenDate.toLocaleString(undefined, { month: 'short' }),
+      MM: monthPadded,
+      M: String(Number(month)),
+      DD: dayPadded,
+      D: String(Number(day)),
+      dddd: namedTokenDate.toLocaleString(undefined, { weekday: 'long' }),
+      ddd: namedTokenDate.toLocaleString(undefined, { weekday: 'short' }),
+      HH: padTwoDigits(hours),
+      H: String(hours),
+      hh: padTwoDigits(twelveHour),
+      h: String(twelveHour),
+      mm: padTwoDigits(dateValue.getMinutes()),
+      ss: padTwoDigits(dateValue.getSeconds()),
+      tt: hours >= 12 ? 'PM' : 'AM'
+    };
+
+    var dateText: string;
+    if (this.props.dateDisplayFormat === 'custom') {
+      dateText = applyTextCase(
+        applyDateFormatPattern(String(this.props.dateCustomFormat || '').trim() || 'MM/DD/YYYY', tokenValues),
+        String(this.props.dateCustomFormatCase || '')
+      );
+    } else if (this.props.dateDisplayFormat === 'dmy') {
+      dateText = dayPadded + '/' + monthPadded + '/' + year;
     } else if (this.props.dateDisplayFormat === 'ymd') {
-      dateText = year + '-' + month + '-' + day;
+      dateText = year + '-' + monthPadded + '-' + dayPadded;
+    } else {
+      dateText = monthPadded + '/' + dayPadded + '/' + year;
     }
 
     if (field.DisplayFormat === 0) {
       return dateText;
     }
 
-    var hours = dateValue.getHours();
-    var minutes = String(dateValue.getMinutes());
-    minutes = minutes.length < 2 ? '0' + minutes : minutes;
+    var minutes = padTwoDigits(dateValue.getMinutes());
+    if (this.props.timeDisplayFormat === 'custom') {
+      // Custom time format fully controls the combined output so date/time tokens can be freely interleaved.
+      return applyTextCase(
+        applyDateFormatPattern(String(this.props.timeCustomFormat || '').trim() || 'MM/DD/YYYY HH:mm', tokenValues),
+        String(this.props.timeCustomFormatCase || '')
+      );
+    }
     if (this.props.timeDisplayFormat === '12hour') {
       var period = hours >= 12 ? 'PM' : 'AM';
-      var twelveHour = hours % 12 || 12;
       return dateText + ' ' + (twelveHour < 10 ? '0' : '') + String(twelveHour) + ':' + minutes + ' ' + period;
     }
 
@@ -1255,6 +1657,45 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     };
   }
 
+  private async loadAttachmentCounts(itemIds: number[]): Promise<{ [itemId: number]: number }> {
+    var counts: { [itemId: number]: number } = {};
+    var uniqueItemIds = itemIds.filter(function(itemId: number, index: number) {
+      return itemId > 0 && itemIds.indexOf(itemId) === index;
+    });
+    if (uniqueItemIds.length === 0) {
+      return counts;
+    }
+
+    try {
+      var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items"
+        + '?$top=200&$select=ID,AttachmentFiles&$expand=AttachmentFiles'
+        + '&$filter=' + encodeURIComponent(uniqueItemIds.map(function(itemId: number) {
+          return 'ID eq ' + String(itemId);
+        }).join(' or '));
+      var response = await this.getJsonWithFallback(endpoint);
+      if (!response.ok) {
+        return counts;
+      }
+
+      var data = await response.json();
+      var items = toArray(data.value);
+      if (items.length === 0) {
+        items = toArray(data && data.d && data.d.results);
+      }
+
+      for (var i = 0; i < items.length; i += 1) {
+        var item = items[i];
+        var itemId = toPositiveInt(item.ID || item.Id || item.id);
+        var attachmentFiles = item.AttachmentFiles && item.AttachmentFiles.results ? item.AttachmentFiles.results : item.AttachmentFiles;
+        counts[itemId] = Array.isArray(attachmentFiles) ? attachmentFiles.length : 0;
+      }
+    } catch (attachmentCountError) {
+      this.logDiagnostic('loadAttachmentCounts failed: ' + (attachmentCountError && attachmentCountError.message ? attachmentCountError.message : String(attachmentCountError)));
+    }
+
+    return counts;
+  }
+
   private async loadRows(): Promise<void> {
     if (!this.props.listName) {
       this.setState({ loading: false, error: null, fields: [], rows: [] });
@@ -1263,7 +1704,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
     var requestId = ++this._loadRowsRequestId;
     this.logDiagnostic('Starting loadRows. requestId=' + String(requestId) + ', listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
-    this.setState({ loading: true, error: null });
+    this.setState({ loading: true, loadingMore: false, nextPageHref: '', error: null });
 
     try {
       var baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
@@ -1276,12 +1717,13 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           RenderOptions: 7
         }
       };
-      if (selectedViewXml) {
-        body.parameters.ViewXml = selectedViewXml;
-      }
+      body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewXml || '<View></View>');
+      this._pagingEndpoint = baseEndpoint;
+      this._pagingRequestBody = body;
 
       var selectedRows: any[] = [];
       var selectedFields: IListFieldDefinition[] = [];
+      var nextPageHref = '';
       var lastError: string = '';
       var hadSuccessfulResponse = false;
       var requestUrls = [baseEndpoint];
@@ -1305,6 +1747,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
         var data = await response.json();
         var extracted = extractRenderRowsAndFields(data);
+        nextPageHref = extracted.nextHref;
         this.logDiagnostic('RenderListDataAsStream parsed. rows=' + String(extracted.rows.length) + ', fields=' + String(extracted.fields.length));
 
         if (selectedFields.length === 0 && extracted.fields.length > 0) {
@@ -1348,11 +1791,30 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         return;
       }
 
+      var hasAttachmentsField = visibleFields.some(function(field: IListFieldDefinition) {
+        return String(field.TypeAsString || '') === 'Attachments';
+      });
+      var attachmentCountsByItemId = hasAttachmentsField
+        ? await this.loadAttachmentCounts(renderableRows.map((row: any) => this.getRowItemId(row)))
+        : {};
+
+      if (requestId !== this._loadRowsRequestId) {
+        this.logDiagnostic('Ignoring stale loadRows result after attachment count fetch. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
+        return;
+      }
+
       this.setState({
         fields: visibleFields,
         rows: renderableRows,
+        loadingMore: false,
+        nextPageHref: nextPageHref,
+        attachmentCountsByItemId: attachmentCountsByItemId,
         loading: false,
         error: null
+      }, () => {
+        if ((this.parsePresetFilterConditions().length > 0 || this.getGroupingConfig().enabled) && this.state.nextPageHref) {
+          this.loadAllRemainingRows();
+        }
       });
       this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
     } catch (error) {
@@ -1363,11 +1825,106 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       }
       this.setState({
         loading: false,
+        loadingMore: false,
+        nextPageHref: '',
         error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
         fields: [],
         rows: []
       });
       this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
+    }
+  }
+
+  private applyFetchBatchSize(viewXml: string): string {
+    var parser = new DOMParser();
+    var xmlDocument = parser.parseFromString(String(viewXml || '<View></View>'), 'text/xml');
+    var viewElement = xmlDocument.documentElement;
+    var rowLimits = viewElement.getElementsByTagName('RowLimit');
+    var rowLimit = rowLimits.length > 0 ? rowLimits[0] : xmlDocument.createElement('RowLimit');
+    rowLimit.setAttribute('Paged', 'TRUE');
+    while (rowLimit.firstChild) {
+      rowLimit.removeChild(rowLimit.firstChild);
+    }
+    rowLimit.appendChild(xmlDocument.createTextNode(String(this.props.fetchBatchSize)));
+    if (rowLimits.length === 0) {
+      viewElement.appendChild(rowLimit);
+    }
+    return new XMLSerializer().serializeToString(xmlDocument);
+  }
+
+  private async loadNextBatch(): Promise<boolean> {
+    if (this.state.loadingMore || !this.state.nextPageHref || !this._pagingEndpoint || !this._pagingRequestBody) {
+      return false;
+    }
+    var requestId = this._loadRowsRequestId;
+    this.setState({ loadingMore: true });
+    try {
+      var parameters: any = {};
+      var sourceParameters = this._pagingRequestBody.parameters || {};
+      for (var parameterName in sourceParameters) {
+        if (Object.prototype.hasOwnProperty.call(sourceParameters, parameterName)) {
+          parameters[parameterName] = sourceParameters[parameterName];
+        }
+      }
+      parameters.Paging = String(this.state.nextPageHref).replace(/^\?/, '');
+      var response = await this.postJsonWithFallback(this._pagingEndpoint, { parameters: parameters });
+      if (!response.ok) {
+        this.setState({ loadingMore: false });
+        return false;
+      }
+      var extracted = extractRenderRowsAndFields(await response.json());
+      if (requestId !== this._loadRowsRequestId) {
+        return false;
+      }
+      var nextRows = this.filterRenderableRows(extracted.rows, this.state.fields);
+      var existingIds: { [itemId: number]: boolean } = {};
+      this.state.rows.forEach((row: any) => { existingIds[this.getRowItemId(row)] = true; });
+      var uniqueRows = nextRows.filter((row: any) => !existingIds[this.getRowItemId(row)]);
+      var nextAttachmentCounts: { [itemId: number]: number } = {};
+      var hasAttachments = this.state.fields.some(function(field: IListFieldDefinition) { return String(field.TypeAsString || '') === 'Attachments'; });
+      if (hasAttachments) {
+        nextAttachmentCounts = await this.loadAttachmentCounts(uniqueRows.map((row: any) => this.getRowItemId(row)));
+      }
+      var nextPageHref = extracted.nextHref === this.state.nextPageHref && uniqueRows.length === 0 ? '' : extracted.nextHref;
+      await new Promise<boolean>((resolve) => this.setState({
+        rows: this.state.rows.concat(uniqueRows),
+        attachmentCountsByItemId: { ...this.state.attachmentCountsByItemId, ...nextAttachmentCounts },
+        nextPageHref: nextPageHref,
+        loadingMore: false
+      }, () => resolve(true)));
+      return uniqueRows.length > 0 || !!nextPageHref;
+    } catch (error) {
+      this.logDiagnostic('Loading next batch failed: ' + (error && error.message ? error.message : String(error)));
+      this.setState({ loadingMore: false });
+      return false;
+    }
+  }
+
+  private loadAllRemainingRows(): void {
+    if (this.state.loadingMore || !this.state.nextPageHref) { return; }
+    this.loadNextBatch().then((loaded) => {
+      if (loaded && this.state.nextPageHref) {
+        this.loadAllRemainingRows();
+      }
+    });
+  }
+
+  private goToNextPage(currentPage: number, pageCount: number): void {
+    if (currentPage < pageCount - 1) {
+      var nextPage = currentPage + 1;
+      this.setState({ currentPage: nextPage }, () => {
+        if (this.state.nextPageHref && nextPage >= pageCount - 2) {
+          this.loadNextBatch();
+        }
+      });
+      return;
+    }
+    if (this.state.nextPageHref && !this.state.loadingMore) {
+      this.loadNextBatch().then((loaded) => {
+        if (loaded) {
+          this.setState({ currentPage: currentPage + 1 });
+        }
+      });
     }
   }
 
@@ -1440,7 +1997,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return null;
     }
 
-    var text = this.formatDateCellValue(value, field);
+    var text = this.formatDateCellValue(value, field, row);
     if (text.indexOf('<') >= 0 && text.indexOf('>') >= 0) {
       return { __html: text };
     }
@@ -1470,7 +2027,21 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return '';
     }
 
+    if (String(field.TypeAsString || '') === 'Attachments') {
+      return String(this.getAttachmentCountForRow(row, value));
+    }
+
     return this.stringifyCellValue(value).replace(/<[^>]*>/g, '').trim();
+  }
+
+  private getAttachmentCountForRow(row: any, rawAttachmentsValue: any): number {
+    var itemId = row ? this.getRowItemId(row) : 0;
+    var knownCount = this.state.attachmentCountsByItemId[itemId];
+    if (knownCount !== undefined) {
+      return knownCount;
+    }
+    // Fall back to the boolean-only presence indicator if the exact count hasn't loaded yet.
+    return rawAttachmentsValue === true ? 1 : 0;
   }
 
   private getItemLinkUrl(row: any): string {
@@ -1582,6 +2153,23 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return;
     }
 
+    this._filterAnchorEl = anchorElement;
+    var popoverStyle = this.getFilterPopoverStyle(anchorElement);
+    var existing = this.state.columnFilters[fieldKey];
+    var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
+    this.setState({
+      activeFilterFieldName: fieldKey,
+      filterPopoverStyle: popoverStyle,
+      activeFilterIsDate: isDateField,
+      draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
+      draftFilterValue: existing ? existing.value : '',
+      draftFilterEndValue: existing ? String(existing.endValue || '') : '',
+      datePickerTarget: '',
+      datePickerMonth: ''
+    });
+  }
+
+  private getFilterPopoverStyle(anchorElement: HTMLElement): any {
     var anchorRect = anchorElement.getBoundingClientRect();
     var viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     var viewportHeight = document.documentElement.clientHeight || window.innerHeight;
@@ -1608,21 +2196,21 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       popoverStyle.maxHeight = Math.max(120, availableBelow);
     }
 
-    var existing = this.state.columnFilters[fieldKey];
-    var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
-    this.setState({
-      activeFilterFieldName: fieldKey,
-      filterPopoverStyle: popoverStyle,
-      activeFilterIsDate: isDateField,
-      draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
-      draftFilterValue: existing ? existing.value : '',
-      draftFilterEndValue: existing ? String(existing.endValue || '') : '',
-      datePickerTarget: '',
-      datePickerMonth: ''
-    });
+    return popoverStyle;
+  }
+
+  private updateActiveFilterPosition(): void {
+    if (!this.state.activeFilterFieldName || !this._filterAnchorEl || !document.body.contains(this._filterAnchorEl)) { return; }
+    var nextStyle = this.getFilterPopoverStyle(this._filterAnchorEl);
+    var currentStyle = this.state.filterPopoverStyle || {};
+    if (nextStyle.left !== currentStyle.left || nextStyle.top !== currentStyle.top
+      || nextStyle.bottom !== currentStyle.bottom || nextStyle.maxHeight !== currentStyle.maxHeight) {
+      this.setState({ filterPopoverStyle: nextStyle });
+    }
   }
 
   private closeFilter(): void {
+    this._filterAnchorEl = undefined;
     this.setState({ activeFilterFieldName: '', datePickerTarget: '' });
   }
 
@@ -1686,9 +2274,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return (
       <div className="lc-date-picker" role="dialog" aria-label="Choose date">
         <div className="lc-date-picker-header">
-          <button type="button" title="Previous month" aria-label="Previous month" onClick={() => this.changeDatePickerMonth(-1)}>&#8249;</button>
+          <button type="button" className="gc-compact-icon-button" title="Previous month" aria-label="Previous month" onClick={() => this.changeDatePickerMonth(-1)}><i className="ms-Icon ms-Icon--ChevronLeft" aria-hidden="true"></i></button>
           <strong>{new Date(year, monthIndex, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })}</strong>
-          <button type="button" title="Next month" aria-label="Next month" onClick={() => this.changeDatePickerMonth(1)}>&#8250;</button>
+          <button type="button" className="gc-compact-icon-button" title="Next month" aria-label="Next month" onClick={() => this.changeDatePickerMonth(1)}><i className="ms-Icon ms-Icon--ChevronRight" aria-hidden="true"></i></button>
         </div>
         <div className="lc-date-picker-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
         <div className="lc-date-picker-days">{cells}</div>
@@ -2110,6 +2698,103 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return rows;
   }
 
+  private getGroupingConfig(): IListGroupingConfig {
+    var json = String(this.props.groupingJson || '').trim();
+    if (!json) { return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true }; }
+    try {
+      var grouping = JSON.parse(json);
+      var field1 = String(grouping && grouping.field1 || '');
+      return {
+        enabled: !!(grouping && grouping.enabled === true && field1),
+        field1: field1,
+        field2: grouping ? String(grouping.field2 || '') : '',
+        collapsedByDefault: !!(grouping && grouping.collapsedByDefault === true),
+        showCount: !grouping || grouping.showCount !== false
+      };
+    } catch (_error) {
+      return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true };
+    }
+  }
+
+  private resolveFieldDefinitionByName(fieldName: string): IListFieldDefinition {
+    var normalized = String(fieldName || '').toLowerCase();
+    for (var i = 0; i < this.state.fields.length; i += 1) {
+      var field = this.state.fields[i];
+      if (String(field.RealFieldName || field.Name || '').toLowerCase() === normalized
+        || String(field.Name || '').toLowerCase() === normalized) {
+        return field;
+      }
+    }
+    return { Name: fieldName, DisplayName: fieldName };
+  }
+
+  private getGroupValueText(row: any, fieldName: string): string {
+    var field = this.resolveFieldDefinitionByName(fieldName);
+    var text = this.getCellPlainText(row, field).trim();
+    return text || strings.RuntimeGroupNoneValue;
+  }
+
+  private buildRowGroups(rows: any[], grouping: IListGroupingConfig): IListRowGroup[] {
+    var groupsLevel1: IListRowGroup[] = [];
+    var indexByKey1: { [key: string]: number } = {};
+
+    for (var i = 0; i < rows.length; i += 1) {
+      var row = rows[i];
+      var value1 = this.getGroupValueText(row, grouping.field1);
+      var key1 = value1.toLowerCase();
+      var groupIndex1 = indexByKey1[key1];
+      if (groupIndex1 === undefined) {
+        groupIndex1 = groupsLevel1.length;
+        indexByKey1[key1] = groupIndex1;
+        groupsLevel1.push({ key: key1, label: value1, rows: [], subGroups: [] });
+      }
+      var group1 = groupsLevel1[groupIndex1];
+
+      if (!grouping.field2) {
+        group1.rows.push(row);
+        continue;
+      }
+
+      var value2 = this.getGroupValueText(row, grouping.field2);
+      var key2 = value2.toLowerCase();
+      // Must explicitly reset to undefined each iteration: a bare "var subGroup;" without an
+      // initializer is a no-op on repeat visits and would keep the previous row's match/creation.
+      var subGroup: IListRowGroup | undefined = undefined;
+      for (var s = 0; s < group1.subGroups.length; s += 1) {
+        if (group1.subGroups[s].key === key2) { subGroup = group1.subGroups[s]; break; }
+      }
+      if (!subGroup) {
+        subGroup = { key: key2, label: value2, rows: [], subGroups: [] };
+        group1.subGroups.push(subGroup);
+      }
+      subGroup.rows.push(row);
+    }
+
+    return groupsLevel1;
+  }
+
+  private countGroupRows(group: IListRowGroup): number {
+    if (group.subGroups.length === 0) {
+      return group.rows.length;
+    }
+    var total = 0;
+    for (var i = 0; i < group.subGroups.length; i += 1) {
+      total += group.subGroups[i].rows.length;
+    }
+    return total;
+  }
+
+  private isGroupCollapsed(groupKey: string, collapsedByDefault: boolean): boolean {
+    var override = this.state.collapsedGroupKeys[groupKey];
+    return override !== undefined ? override : collapsedByDefault;
+  }
+
+  private toggleGroupCollapsed(groupKey: string, collapsedByDefault: boolean): void {
+    var next = Object.assign({}, this.state.collapsedGroupKeys);
+    next[groupKey] = !this.isGroupCollapsed(groupKey, collapsedByDefault);
+    this.setState({ collapsedGroupKeys: next });
+  }
+
   private parseConditionalStyleRules(): IConditionalStyleRule[] {
     var source = String(this.props.conditionalStyleJson || '').trim();
     if (!source) {
@@ -2146,6 +2831,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         var styleDefinition: IConditionalStyleDefinition = {
           backgroundColor: toCssString(item.backgroundColor || (item.style && item.style.backgroundColor) || ''),
           color: toCssString(item.color || item.foregroundColor || (item.style && item.style.color) || ''),
+          borderColor: toCssString(item.borderColor || (item.style && item.style.borderColor) || ''),
+          borderStyle: toCssString(item.borderStyle || (item.style && item.style.borderStyle) || ''),
+          borderWidth: toCssString(item.borderWidth !== undefined ? item.borderWidth : (item.style && item.style.borderWidth)),
+          borderRadius: toCssString(item.borderRadius !== undefined ? item.borderRadius : (item.style && item.style.borderRadius)),
           fontFamily: toCssString(item.fontFamily || (item.style && item.style.fontFamily) || ''),
           fontSize: toCssString(item.fontSize || (item.style && item.style.fontSize) || ''),
           fontStyle: toCssString(item.fontStyle || (item.style && item.style.fontStyle) || ''),
@@ -2201,6 +2890,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var style: React.CSSProperties = {};
     var backgroundColor = toCssString(styleDefinition.backgroundColor);
     var color = toCssString(styleDefinition.color);
+    var borderColor = toCssString(styleDefinition.borderColor);
+    var borderStyle = toCssString(styleDefinition.borderStyle);
+    var borderWidth = toCssString(styleDefinition.borderWidth);
+    var borderRadius = toCssString(styleDefinition.borderRadius);
     var fontFamily = toCssString(styleDefinition.fontFamily);
     var fontSize = toCssString(styleDefinition.fontSize);
     var fontStyle = toCssString(styleDefinition.fontStyle);
@@ -2212,6 +2905,18 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
     if (color) {
       style.color = color;
+    }
+    if (borderColor) {
+      style.borderColor = borderColor;
+    }
+    if (borderStyle) {
+      style.borderStyle = borderStyle as any;
+    }
+    if (borderWidth) {
+      style.borderWidth = borderWidth + (isNaN(Number(borderWidth)) ? '' : 'px');
+    }
+    if (borderRadius) {
+      style.borderRadius = borderRadius + (isNaN(Number(borderRadius)) ? '' : 'px');
     }
     if (fontFamily) {
       style.fontFamily = fontFamily;
@@ -2324,6 +3029,143 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return names;
   }
 
+  private getCommandButtonClass(className?: string): string {
+    return joinClassNames([
+      className || '',
+      'gc-command-button',
+      this.props.buttonDisplayMode === 'icon' ? 'gc-command-button-icon-only' : ''
+    ]);
+  }
+
+  private renderCommandContent(iconName: string, label: string): React.ReactNode {
+    if (this.props.buttonDisplayMode !== 'icon' && this.props.buttonDisplayMode !== 'iconText') {
+      return label;
+    }
+    return (
+      <span className="gc-command-content">
+        <i className={'ms-Icon ms-Icon--' + iconName} aria-hidden="true"></i>
+        <span className={this.props.buttonDisplayMode === 'icon' ? 'gc-visually-hidden' : ''}>{label}</span>
+      </span>
+    );
+  }
+
+  private renderDataRow(
+    row: any,
+    keySuffix: string,
+    displayFields: IListFieldDefinition[],
+    fieldsByKey: { [key: string]: IListFieldDefinition },
+    conditionalRules: IConditionalStyleRule[]
+  ): JSX.Element {
+    var rowItemId = this.getRowItemId(row);
+    var isSelected = rowItemId > 0 && rowItemId === this.state.selectedItemId;
+    var conditionalStyle = this.getConditionalStyleForRow(row, fieldsByKey, conditionalRules);
+    return (
+      <tr
+        key={rowItemId > 0 ? String(rowItemId) : keySuffix}
+        onClick={() => this.selectRow(row)}
+        className={joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : ''])}
+      >
+        {displayFields.map((field) => {
+          var markup = this.getCellMarkup(row, field);
+          var urlCell = this.getUrlCellValue(row, field);
+          var showItemLink = this.props.showLinkToItem && this.isTitleField(field);
+          var itemLinkUrl = showItemLink ? this.getItemLinkUrl(row) : '';
+          var itemLinkText = showItemLink ? this.getCellPlainText(row, field) : '';
+          var cellFieldKey = this.getFieldKey(field);
+          var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
+          var mergedCellStyle = mergeStyleObjects(
+            mergeStyleObjects(conditionalStyle.rowStyle, columnStyle),
+            this.getConfiguredColumnStyle(field)
+          );
+          return (
+            <td key={field.Name} style={mergedCellStyle}>
+              {urlCell ? (
+                <a
+                  className="lc-item-link"
+                  href={urlCell.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(ev) => ev.stopPropagation()}
+                >
+                  {urlCell.text}
+                </a>
+              ) : showItemLink && itemLinkUrl ? (
+                <a
+                  className="lc-item-link"
+                  href={itemLinkUrl}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    if (!String(this.props.linkTargetPageUrl || '').trim()) {
+                      ev.preventDefault();
+                      this.openDefaultDisplayForm(row);
+                    }
+                  }}
+                >
+                  {itemLinkText || strings.RuntimeView}
+                </a>
+              ) : (
+                markup ? <span dangerouslySetInnerHTML={markup} /> : null
+              )}
+            </td>
+          );
+        })}
+      </tr>
+    );
+  }
+
+  private renderGroupHeaderRow(group: IListRowGroup, keyPath: string, level: number, totalColumnCount: number, groupingConfig: IListGroupingConfig): JSX.Element {
+    var collapsed = this.isGroupCollapsed(keyPath, groupingConfig.collapsedByDefault);
+    var count = this.countGroupRows(group);
+    var toggleLabel = collapsed ? strings.RuntimeGroupExpand : strings.RuntimeGroupCollapse;
+    return (
+      <tr key={'group-' + keyPath} className={joinClassNames(['gc-group-row', 'gc-group-row-level-' + String(level)])}>
+        <td colSpan={totalColumnCount} style={{ paddingLeft: (10 + level * 20) + 'px' }}>
+          <button
+            type="button"
+            className={this.getCommandButtonClass('gc-group-toggle')}
+            title={toggleLabel}
+            aria-label={toggleLabel}
+            onClick={() => this.toggleGroupCollapsed(keyPath, groupingConfig.collapsedByDefault)}
+          >
+            {this.renderCommandContent(collapsed ? 'ChevronRight' : 'ChevronDown', toggleLabel)}
+          </button>
+          <span className="gc-group-label">{group.label}</span>
+          {groupingConfig.showCount && <span className="gc-group-count">{formatString(strings.RuntimeGroupItemCount, count)}</span>}
+        </td>
+      </tr>
+    );
+  }
+
+  private renderRowGroupRows(
+    group: IListRowGroup,
+    keyPath: string,
+    level: number,
+    groupingConfig: IListGroupingConfig,
+    totalColumnCount: number,
+    displayFields: IListFieldDefinition[],
+    fieldsByKey: { [key: string]: IListFieldDefinition },
+    conditionalRules: IConditionalStyleRule[]
+  ): JSX.Element[] {
+    var rowsOutput: JSX.Element[] = [this.renderGroupHeaderRow(group, keyPath, level, totalColumnCount, groupingConfig)];
+    if (this.isGroupCollapsed(keyPath, groupingConfig.collapsedByDefault)) {
+      return rowsOutput;
+    }
+    if (group.subGroups.length > 0) {
+      for (var i = 0; i < group.subGroups.length; i += 1) {
+        var subGroup = group.subGroups[i];
+        var subKeyPath = keyPath + '/' + subGroup.key;
+        rowsOutput = rowsOutput.concat(this.renderRowGroupRows(
+          subGroup, subKeyPath, level + 1, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules
+        ));
+      }
+    } else {
+      for (var r = 0; r < group.rows.length; r += 1) {
+        rowsOutput.push(this.renderDataRow(group.rows[r], keyPath + '-' + String(r), displayFields, fieldsByKey, conditionalRules));
+      }
+    }
+    return rowsOutput;
+  }
+
   public render(): JSX.Element {
     if (!this.props.listName) {
       return <div>{strings.RuntimeNoListSelected}</div>;
@@ -2340,6 +3182,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var conditionalRules = this.parseConditionalStyleRules();
     var hasActiveFilters = Object.keys(this.state.columnFilters || {}).length > 0;
     var displayFields = this.getDisplayFields();
+    var groupingConfig = this.getGroupingConfig();
+    var rowGroups = groupingConfig.enabled ? this.buildRowGroups(visibleRows, groupingConfig) : [];
+    var totalColumnCount = displayFields.length;
     var fieldsByKey: { [key: string]: IListFieldDefinition } = {};
     for (var i = 0; i < displayFields.length; i += 1) {
       var fieldsByKeyField = displayFields[i];
@@ -2375,7 +3220,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       '--lc-selected-font-style': this.props.selectedFontStyle || this.props.bodyFontStyle || 'normal',
       '--lc-selected-font-weight': this.props.selectedFontBold ? 'bold' : (this.props.bodyFontBold ? 'bold' : 'normal'),
       '--lc-header-text-color': this.props.headerTextColor || 'inherit',
-      '--lc-header-bg-color': this.props.headerBackgroundColor || 'transparent',
+      '--lc-header-bg-color': this.props.headerBackgroundColor || '#ffffff',
       '--lc-header-font-family': this.props.headerFontFamily || 'inherit',
       '--lc-header-font-size': this.props.headerFontSize || '14px',
       '--lc-header-font-style': this.props.headerFontStyle || 'normal',
@@ -2426,59 +3271,75 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           {this.props.showViewSelector && !this.state.embeddedByReportForms && (
             <label>
               <span style={{ marginRight: '6px' }}>{strings.RuntimeViewLabel}</span>
-              <select
-                value={this.state.selectedViewId}
-                onChange={(ev) => this.setState({ selectedViewId: ev.currentTarget.value })}
-              >
-                {this.props.views.map((view) => {
-                  return <option key={view.key} value={view.key}>{view.text}</option>;
-                })}
-              </select>
+              {this.props.showViewAsDropdown !== false ? (
+                <select
+                  value={this.state.selectedViewId}
+                  onChange={(ev) => this.setState({ selectedViewId: ev.currentTarget.value })}
+                >
+                  {this.props.views.map((view) => {
+                    return <option key={view.key} value={view.key}>{view.text}</option>;
+                  })}
+                </select>
+              ) : (
+                <span className="gc-view-static-label">{this.getSelectedViewLabel()}</span>
+              )}
             </label>
           )}
-          {this.props.showRefresh && !this.state.embeddedByReportForms && <button type="button" onClick={() => this.loadRows()}>{strings.RuntimeRefresh}</button>}
+          {this.props.showRefresh && !this.state.embeddedByReportForms && <button type="button" className={this.getCommandButtonClass()} title={strings.RuntimeRefresh} aria-label={strings.RuntimeRefresh} onClick={() => this.loadRows()}>{this.renderCommandContent('Refresh', strings.RuntimeRefresh)}</button>}
           {this.props.showAdd && !this.state.embeddedByReportForms && (
             <button
               type="button"
+              className={this.getCommandButtonClass()}
+              title={strings.RuntimeNew}
+              aria-label={strings.RuntimeNew}
               onClick={() => {
                 this.setState({ selectedItemId: 0, selectedMode: 'new' });
                 this.props.onSelectionChange(0, 'new');
               }}
             >
-              {strings.RuntimeNew}
+              {this.renderCommandContent('Add', strings.RuntimeNew)}
             </button>
           )}
           {this.props.showEdit && !this.state.embeddedByReportForms && (
             <button
               type="button"
+              className={this.getCommandButtonClass()}
               disabled={!canOperateOnSelection}
+              title={strings.RuntimeEdit}
+              aria-label={strings.RuntimeEdit}
               onClick={() => {
                 this.setState({ selectedMode: 'edit' });
                 this.props.onSelectionChange(this.state.selectedItemId, 'edit');
               }}
             >
-              {strings.RuntimeEdit}
+              {this.renderCommandContent('Edit', strings.RuntimeEdit)}
             </button>
           )}
           {this.props.showView && !this.state.embeddedByReportForms && (
             <button
               type="button"
+              className={this.getCommandButtonClass()}
               disabled={!canOperateOnSelection}
+              title={strings.RuntimeView}
+              aria-label={strings.RuntimeView}
               onClick={() => {
                 this.setState({ selectedMode: 'view' });
                 this.props.onSelectionChange(this.state.selectedItemId, 'view');
               }}
             >
-              {strings.RuntimeView}
+              {this.renderCommandContent('View', strings.RuntimeView)}
             </button>
           )}
           {this.props.showDelete && !this.state.embeddedByReportForms && (
             <button
               type="button"
+              className={this.getCommandButtonClass()}
               disabled={!canOperateOnSelection || this.state.deleting}
+              title={strings.RuntimeDelete}
+              aria-label={strings.RuntimeDelete}
               onClick={() => this.deleteSelected()}
             >
-              {strings.RuntimeDelete}
+              {this.renderCommandContent('Delete', strings.RuntimeDelete)}
             </button>
           )}
         </div>
@@ -2499,9 +3360,31 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         )}
 
         {!this.state.loading && !this.state.error && processedRows.length > 0 && (
-          <div className="lc-table-wrap">
+          <div className="lc-table-container">
+            <div className="lc-sticky-header-viewport" ref={this._setStickyHeaderViewportRef}></div>
+            <div className="lc-table-wrap" ref={this._setTableWrapRef}>
+            {this.state.showScrollArrows && (
+              <button
+                type="button"
+                className="lc-scroll-arrow lc-scroll-arrow-left"
+                style={{ top: this.state.scrollArrowTop + 'px', left: (this.state.scrollArrowLeft + 6) + 'px' }}
+                title={strings.RuntimeScrollLeft}
+                aria-label={strings.RuntimeScrollLeft}
+                onClick={() => this.scrollTableHorizontally(-1)}
+              >&#8249;</button>
+            )}
+            {this.state.showScrollArrows && (
+              <button
+                type="button"
+                className="lc-scroll-arrow lc-scroll-arrow-right"
+                style={{ top: this.state.scrollArrowTop + 'px', right: (this.state.scrollArrowRight + 6) + 'px' }}
+                title={strings.RuntimeScrollRight}
+                aria-label={strings.RuntimeScrollRight}
+                onClick={() => this.scrollTableHorizontally(1)}
+              >&#8250;</button>
+            )}
             <table className="lc-table">
-              <thead>
+              <thead ref={this._setTableHeadRef}>
                 <tr>
                   {displayFields.map((field) => {
                     var fieldKey = this.getFieldKey(field);
@@ -2531,8 +3414,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                           <div className="lc-header-actions">
                             <button
                               type="button"
-                              className={joinClassNames(['lc-header-action', filterActive ? 'lc-header-action-active' : ''])}
+                              className={this.getCommandButtonClass(joinClassNames(['lc-header-action', filterActive ? 'lc-header-action-active' : '']))}
                               title={strings.RuntimeFilterTitle}
+                              aria-label={strings.RuntimeFilterTitle}
                               onClick={(ev) => {
                                 ev.preventDefault();
                                 ev.stopPropagation();
@@ -2543,7 +3427,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                                 }
                               }}
                             >
-                              {strings.RuntimeFilterIcon}
+                              {this.renderCommandContent('Filter', strings.RuntimeFilterIcon)}
                             </button>
                           </div>
                           {this.state.activeFilterFieldName === fieldKey && (
@@ -2560,12 +3444,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                                   <label className="lc-filter-label">{strings.RuntimeFilterDateLabel}</label>
                                   <div className="lc-date-input-row">
                                     <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterValue} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} />
-                                    <button type="button" className="lc-date-picker-button" title="Choose from date" aria-label="Choose from date" onClick={() => this.toggleDatePicker('start')}><span aria-hidden="true">&#128197;</span></button>
+                                    <button type="button" className="lc-date-picker-button gc-compact-icon-button" title="Choose from date" aria-label="Choose from date" onClick={() => this.toggleDatePicker('start')}><i className="ms-Icon ms-Icon--Calendar" aria-hidden="true"></i></button>
                                   </div>
                                   <label className="lc-filter-label">{strings.RuntimeFilterEndDateLabel}</label>
                                   <div className="lc-date-input-row">
                                     <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterEndValue} onChange={(ev) => this.setState({ draftFilterEndValue: ev.currentTarget.value })} />
-                                    <button type="button" className="lc-date-picker-button" title="Choose to date" aria-label="Choose to date" onClick={() => this.toggleDatePicker('end')}><span aria-hidden="true">&#128197;</span></button>
+                                    <button type="button" className="lc-date-picker-button gc-compact-icon-button" title="Choose to date" aria-label="Choose to date" onClick={() => this.toggleDatePicker('end')}><i className="ms-Icon ms-Icon--Calendar" aria-hidden="true"></i></button>
                                   </div>
                                   {this.renderDatePicker()}
                                 </div>
@@ -2586,9 +3470,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                                 </div>
                               )}
                               <div className="lc-filter-actions">
-                                <button type="button" onClick={() => this.applyActiveFilter()}>{strings.RuntimeFilterApply}</button>
-                                <button type="button" onClick={() => this.clearActiveFilter()}>{strings.RuntimeFilterClear}</button>
-                                <button type="button" onClick={() => this.closeFilter()}>{strings.RuntimeFilterClose}</button>
+                                <button type="button" className={this.getCommandButtonClass()} title={strings.RuntimeFilterApply} aria-label={strings.RuntimeFilterApply} onClick={() => this.applyActiveFilter()}>{this.renderCommandContent('CheckMark', strings.RuntimeFilterApply)}</button>
+                                <button type="button" className={this.getCommandButtonClass()} title={strings.RuntimeFilterClear} aria-label={strings.RuntimeFilterClear} onClick={() => this.clearActiveFilter()}>{this.renderCommandContent('ClearFilter', strings.RuntimeFilterClear)}</button>
+                                <button type="button" className={this.getCommandButtonClass()} title={strings.RuntimeFilterClose} aria-label={strings.RuntimeFilterClose} onClick={() => this.closeFilter()}>{this.renderCommandContent('Cancel', strings.RuntimeFilterClose)}</button>
                               </div>
                             </div>
                           )}
@@ -2599,84 +3483,47 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row, index) => {
-                  var rowItemId = this.getRowItemId(row);
-                  var isSelected = rowItemId > 0 && rowItemId === this.state.selectedItemId;
-                  var conditionalStyle = this.getConditionalStyleForRow(row, fieldsByKey, conditionalRules);
-                  return (
-                    <tr
-                      key={rowItemId > 0 ? String(rowItemId) : String(index)}
-                      onClick={() => this.selectRow(row)}
-                      className={joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : ''])}
-                    >
-                      {displayFields.map((field) => {
-                        var markup = this.getCellMarkup(row, field);
-                        var urlCell = this.getUrlCellValue(row, field);
-                        var showItemLink = this.props.showLinkToItem && this.isTitleField(field);
-                        var itemLinkUrl = showItemLink ? this.getItemLinkUrl(row) : '';
-                        var itemLinkText = showItemLink ? this.getCellPlainText(row, field) : '';
-                        var cellFieldKey = this.getFieldKey(field);
-                        var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
-                        var mergedCellStyle = mergeStyleObjects(
-                          mergeStyleObjects(conditionalStyle.rowStyle, columnStyle),
-                          this.getConfiguredColumnStyle(field)
-                        );
-                        return (
-                          <td key={field.Name} style={mergedCellStyle}>
-                            {urlCell ? (
-                              <a
-                                className="lc-item-link"
-                                href={urlCell.href}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(ev) => ev.stopPropagation()}
-                              >
-                                {urlCell.text}
-                              </a>
-                            ) : showItemLink && itemLinkUrl ? (
-                              <a
-                                className="lc-item-link"
-                                href={itemLinkUrl}
-                                onClick={(ev) => {
-                                  ev.stopPropagation();
-                                  if (!String(this.props.linkTargetPageUrl || '').trim()) {
-                                    ev.preventDefault();
-                                    this.openDefaultDisplayForm(row);
-                                  }
-                                }}
-                              >
-                                {itemLinkText || strings.RuntimeView}
-                              </a>
-                            ) : (
-                              markup ? <span dangerouslySetInnerHTML={markup} /> : null
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
+                {groupingConfig.enabled
+                  ? rowGroups.reduce((accumulated: JSX.Element[], group) => accumulated.concat(this.renderRowGroupRows(
+                      group, group.key, 0, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules
+                    )), [] as JSX.Element[])
+                  : visibleRows.map((row, index) => this.renderDataRow(row, String(index), displayFields, fieldsByKey, conditionalRules))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
-        {!this.state.loading && !this.state.error && pageSize > 0 && pageCount > 1 && (
-          <div className="lc-pagination">
-            <button
-              type="button"
-              disabled={currentPage === 0}
-              onClick={() => this.setState({ currentPage: Math.max(0, currentPage - 1) })}
-            >
-              {strings.RuntimePreviousPage}
-            </button>
-            <span>{strings.RuntimePageStatus.replace('{0}', String(currentPage + 1)).replace('{1}', String(pageCount))}</span>
-            <button
-              type="button"
-              disabled={currentPage >= pageCount - 1}
-              onClick={() => this.setState({ currentPage: Math.min(pageCount - 1, currentPage + 1) })}
-            >
-              {strings.RuntimeNextPage}
-            </button>
+        {!this.state.loading && !this.state.error && (
+          <div className="lc-footer">
+            <div className="lc-total-items">{this.state.nextPageHref
+              ? strings.RuntimeLoadedItemsLabel.replace('{0}', String(processedRows.length))
+              : formatString(strings.RuntimeTotalItemsLabel, processedRows.length)}</div>
+            {pageSize > 0 && (pageCount > 1 || !!this.state.nextPageHref) && (
+              <div className="lc-pagination">
+                <button
+                  type="button"
+                  className={this.getCommandButtonClass()}
+                  disabled={currentPage === 0}
+                  title={strings.RuntimePreviousPage}
+                  aria-label={strings.RuntimePreviousPage}
+                  onClick={() => this.setState({ currentPage: Math.max(0, currentPage - 1) })}
+                >
+                  {this.renderCommandContent('ChevronLeft', strings.RuntimePreviousPage)}
+                </button>
+                <span>{(this.state.nextPageHref ? strings.RuntimePageStatusMore : strings.RuntimePageStatus).replace('{0}', String(currentPage + 1)).replace('{1}', String(pageCount)).replace('{2}', String(pageSize))}</span>
+                <button
+                  type="button"
+                  className={this.getCommandButtonClass()}
+                  disabled={this.state.loadingMore || (currentPage >= pageCount - 1 && !this.state.nextPageHref)}
+                  title={strings.RuntimeNextPage}
+                  aria-label={strings.RuntimeNextPage}
+                  onClick={() => this.goToNextPage(currentPage, pageCount)}
+                >
+                  {this.renderCommandContent('ChevronRight', strings.RuntimeNextPage)}
+                </button>
+                {this.state.loadingMore && <span>{strings.RuntimeLoadingMore}</span>}
+              </div>
+            )}
           </div>
         )}
       </div>

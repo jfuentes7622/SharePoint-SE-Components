@@ -225,6 +225,10 @@ declare interface ISharePointDynamicFormWebPartStrings {
   DesignerStepDefaultTitle: string;
   DesignerAddStep: string;
   DesignerDeleteStep: string;
+  DesignerMoveStepLeft: string;
+  DesignerMoveStepRight: string;
+  DesignerMoveStepLeftLabel: string;
+  DesignerMoveStepRightLabel: string;
   DesignerStepTitlePlaceholder: string;
   DesignerStepDescriptionPlaceholder: string;
   DesignerShowStep: string;
@@ -299,6 +303,13 @@ declare interface ISharePointDynamicFormWebPartStrings {
   PropertyPanelDateFormatDateOnly: string;
   PropertyPanelDateFormatDateTime: string;
   PropertyPanelDateFormatTimeOnly: string;
+  PropertyPanelDateFormatCustom: string;
+  PropertyPanelCustomDateFormatLabel: string;
+  PropertyPanelCustomDateFormatDescription: string;
+  PropertyPanelCustomDateFormatCaseLabel: string;
+  PropertyPanelCustomDateFormatCaseDefault: string;
+  PropertyPanelCustomDateFormatCaseUpper: string;
+  PropertyPanelCustomDateFormatCaseLower: string;
   PropertyPanelTimeZone: string;
   PropertyPanelTimeZoneUtc: string;
   PropertyPanelTimeZoneLocal: string;

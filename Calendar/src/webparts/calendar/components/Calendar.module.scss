@@ -464,6 +464,22 @@
       background-color: var(--calendar-toolbar-button-active-background, #172536);
       color: var(--calendar-toolbar-button-active-color, #fff);
     }
+
+    :global(.fc-col-header-cell) {
+      background-color: var(--calendar-day-header-background, #f3f2f1);
+      border-color: var(--calendar-day-header-border, #d2d0ce);
+      border-width: var(--calendar-day-header-border-width, 1px);
+    }
+
+    :global(.fc-col-header-cell-cushion) {
+      display: inline-block;
+      padding: var(--calendar-day-header-padding, 8px);
+      color: var(--calendar-day-header-color, #323130);
+      font-family: var(--calendar-day-header-font-family, inherit);
+      font-size: var(--calendar-day-header-font-size, inherit);
+      font-style: var(--calendar-day-header-font-style, normal);
+      font-weight: var(--calendar-day-header-font-weight, normal);
+    }
   }
 
   .swimlanes {
@@ -546,9 +562,13 @@
   .swimlaneCorner,
   .swimlaneDayHeader {
     min-height: 42px;
-    padding: 10px 8px;
-    background: #f3f2f1;
-    font-weight: 600;
+    padding: var(--calendar-day-header-padding, 10px) 8px;
+    background: var(--calendar-day-header-background, #f3f2f1);
+    color: var(--calendar-day-header-color, #323130);
+    font-family: var(--calendar-day-header-font-family, inherit);
+    font-size: var(--calendar-day-header-font-size, inherit);
+    font-style: var(--calendar-day-header-font-style, normal);
+    font-weight: var(--calendar-day-header-font-weight, 600);
     text-align: center;
   }
 

@@ -20,6 +20,7 @@ Do not upgrade Microsoft SPFx packages independently. SharePoint Server Subscrip
 - Runtime fields are always rendered in View mode.
 - Add, Edit, Save, Cancel, defaults, record-filter, and validation property pages are not exposed.
 - The visual designer remains available while editing the SharePoint page so authors can select fields and configure the report layout.
+- Date/Time fields support built-in date, date/time, and time-only output plus custom format strings. Custom formats can preserve default text case or force the final output to uppercase or lowercase.
 - A custom **List Control** field can place a separately configured ListControl web part inside the report layout. The complete web-part host is moved at runtime and returned to its original page position when the report unmounts.
 - SharePoint list and item permissions are still enforced by SharePoint. Report permission checks use `ViewListItems`, not Add or Edit permissions.
 
@@ -30,6 +31,8 @@ Do not upgrade Microsoft SPFx packages independently. SharePoint Server Subscrip
 3. Open the visual designer from the web part while the page is in edit mode.
 4. Add and arrange the fields that should appear in the report.
 5. Select a fixed item ID, use the configured URL query parameter, or connect the dynamic item source to another supported web part.
+
+For a Date/Time field, choose **Custom** formatting to enter a token-based format, then select **Text case** as Default, UPPERCASE, or lowercase. The case option is applied after the complete custom date/time value is formatted.
 
 ### Embed a ListControl
 
@@ -74,7 +77,7 @@ See the repository-level `LICENSE` file.
 
 - **Data:** `listName` identifies the report list and `formSchemaJson` stores the visual designer layout.
 - **Item resolution:** fixed item ID, `itemIdQueryParam`, dynamic item references, and `filterJson` support direct links and same-page selection workflows.
-- **Runtime:** the web part is intentionally read-only and does not expose submit or edit transitions.
+- **Runtime:** the web part is intentionally read-only and does not expose submit or edit transitions. Date/time fields support custom patterns and final-output text case.
 - **Embedded content:** a designer-configured List Control can show records related to the current parent item.
 - **Layout and diagnostics:** full-width/fixed-width settings adapt the report to the page; dynamic diagnostics log item resolution, data loading, and embedded-control discovery.
 

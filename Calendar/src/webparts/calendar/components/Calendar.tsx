@@ -96,6 +96,9 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
   private _eventLoadSequence: number = 0;
   private _newEventFrameObserver: any;
   private _newEventFrameResizeTimer: number;
+  // Per-source cache of the previous/current/next month window so date navigation within
+  // that window reuses already-fetched items instead of re-querying SharePoint.
+  private _eventCache: { [sourceKey: string]: { windowStart: number; windowEnd: number; items: any[] } } = {};
 
   private async getWithAcceptFallback(url: string): Promise<any> {
     let response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1);
@@ -164,6 +167,10 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
 
     var shouldReloadEvents = prevProps.listName !== this.props.listName
       || JSON.stringify(prevProps.dataSources || []) !== JSON.stringify(this.props.dataSources || []);
+    if (shouldReloadEvents) {
+      // Data-source composition changed, so any cached previous/current/next month window is no longer valid.
+      this._eventCache = {};
+    }
     if (shouldReloadEvents && this.state.selectedItemId > 0) {
       this.setState({ selectedEvent: undefined, selectedItemId: 0, selectedEventKey: '' });
     }
@@ -1834,6 +1841,138 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     return sources;
   }
 
+  // Computes the previous/current/next month window (relative to the currently displayed month)
+  // that should be cached and fetched together, so navigating within it never re-queries SharePoint.
+  private getCacheWindow(visibleStart: Date, visibleEnd: Date): { start: Date; end: Date } {
+    var anchor = visibleStart;
+    if (this.props.enableSwimlanes !== true && this._calendar && this._calendar.view && this._calendar.view.currentStart) {
+      anchor = this._calendar.view.currentStart;
+    }
+
+    var windowStart = new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1);
+    var windowEnd = new Date(anchor.getFullYear(), anchor.getMonth() + 2, 1);
+
+    // Guard for wide non-month ranges (e.g. a 30-day swim-lane span) that could extend past the
+    // month-based window above; widen rather than risk returning a window that misses visible data.
+    if (windowStart.getTime() > visibleStart.getTime()) {
+      windowStart = new Date(visibleStart.getFullYear(), visibleStart.getMonth() - 1, 1);
+    }
+    if (windowEnd.getTime() < visibleEnd.getTime()) {
+      windowEnd = new Date(visibleEnd.getFullYear(), visibleEnd.getMonth() + 1, 1);
+    }
+
+    return { start: windowStart, end: windowEnd };
+  }
+
+  // Fetches and normalizes raw list items (including recurrence merge) for one data source across
+  // the given range. Callers decide whether to call this or reuse a cached result for the range.
+  private async fetchSourceItems(listName: string, startFieldName: string, endFieldName: string,
+    supportsBuiltInRecurrence: boolean, rangeStart: string, rangeEnd: string): Promise<any[]> {
+    const webUrl = this.props.spfxContext.pageContext.web.absoluteUrl.replace(/\/$/, '');
+    const baseUrl = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/items"
+      + "?$select=*,FieldValuesAsText&$expand=FieldValuesAsText";
+    const overlapUrl = baseUrl
+      + "&$filter=" + startFieldName + " lt datetime'" + rangeEnd + "' and (" + endFieldName + " ge datetime'" + rangeStart
+      + "' or (" + endFieldName + " eq null and " + startFieldName + " ge datetime'" + rangeStart + "'))"
+      + '&$orderby=' + startFieldName + '&$top=5000';
+    const startDateUrl = baseUrl
+      + "&$filter=" + startFieldName + " ge datetime'" + rangeStart + "' and " + startFieldName + " lt datetime'" + rangeEnd + "'"
+      + '&$orderby=' + startFieldName + '&$top=5000';
+    const recurrenceMastersUrl = baseUrl + '&$filter=fRecurrence eq 1&$top=5000';
+
+    let usedStartDateFallback = false;
+    let response = await this.getWithAcceptFallback(overlapUrl);
+    if (!response.ok) {
+      this.logDiagnostic('Overlap query was rejected; retrying with start-date range. HTTP ' + String(response.status));
+      usedStartDateFallback = true;
+      response = await this.getWithAcceptFallback(startDateUrl);
+    }
+    if (!response.ok) {
+      throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
+    }
+
+    let data = await response.json();
+    let items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+    if (items.length === 0 && !usedStartDateFallback) {
+      this.logDiagnostic('Overlap query returned no items; retrying with start-date range.');
+      usedStartDateFallback = true;
+      response = await this.getWithAcceptFallback(startDateUrl);
+      if (!response.ok) {
+        throw new Error('Fallback request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
+      }
+      data = await response.json();
+      items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+    }
+    this.logRestItems(usedStartDateFallback ? 'cache window (start-date fallback)' : 'cache window (overlap)',
+      usedStartDateFallback ? startDateUrl : overlapUrl, items);
+    if (supportsBuiltInRecurrence) {
+      var recurrenceResponse = await this.getWithAcceptFallback(recurrenceMastersUrl);
+      if (recurrenceResponse.ok) {
+        var recurrenceData = await recurrenceResponse.json();
+        var recurrenceItems = recurrenceData && recurrenceData.value ? recurrenceData.value
+          : (recurrenceData && recurrenceData.d && recurrenceData.d.results ? recurrenceData.d.results : []);
+        this.logRestItems('recurrence masters', recurrenceMastersUrl, recurrenceItems);
+        var itemIndexesById: { [id: string]: number } = {};
+        items.forEach((item: any, index: number) => { itemIndexesById[String(item.Id)] = index; });
+        recurrenceItems.forEach((recurrenceItem: any) => {
+          var existingIndex = itemIndexesById[String(recurrenceItem.Id)];
+          if (existingIndex === undefined) {
+            itemIndexesById[String(recurrenceItem.Id)] = items.length;
+            items.push(recurrenceItem);
+          } else {
+            Object.keys(recurrenceItem).forEach((key: string) => {
+              items[existingIndex][key] = recurrenceItem[key];
+            });
+          }
+        });
+        this.logDiagnostic('Loaded recurrence masters. Count=' + String(recurrenceItems.length));
+      } else {
+        this.logDiagnostic('Recurrence master query was rejected. HTTP ' + String(recurrenceResponse.status));
+      }
+    }
+
+    for (var itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+      var detailItem = items[itemIndex];
+      if (!supportsBuiltInRecurrence || !detailItem || !detailItem.Id || !this.itemSpansMultipleDates(detailItem)) {
+        continue;
+      }
+
+      var recurrenceDetailUrl = webUrl + "/_api/web/lists/getByTitle('"
+        + escapeODataText(listName) + "')/items(" + String(detailItem.Id)
+        + ')?$select=Title,EventDate,EndDate,RecurrenceData,UID';
+      var recurrenceDetailResponse = await this.getWithAcceptFallback(recurrenceDetailUrl);
+      if (!recurrenceDetailResponse.ok) {
+        this.logDiagnostic('Recurrence detail query was rejected for item ' + String(detailItem.Id)
+          + '. HTTP ' + String(recurrenceDetailResponse.status));
+        continue;
+      }
+
+      var recurrenceDetailText = await recurrenceDetailResponse.text();
+      var recurrenceDetailItem: any;
+      try {
+        recurrenceDetailItem = this.parseRestItemResponse(recurrenceDetailText);
+      } catch (parseError) {
+        this.logDiagnostic('Recurrence detail response could not be parsed for item ' + String(detailItem.Id)
+          + ': ' + String(parseError && parseError.message ? parseError.message : parseError));
+        continue;
+      }
+      if (!recurrenceDetailItem) {
+        this.logDiagnostic('Recurrence detail response was empty or invalid for item ' + String(detailItem.Id));
+        continue;
+      }
+      this.logRestItems('recurrence detail for item ' + String(detailItem.Id), recurrenceDetailUrl,
+        [recurrenceDetailItem]);
+      Object.keys(recurrenceDetailItem).forEach((key: string) => {
+        detailItem[key] = recurrenceDetailItem[key];
+      });
+    }
+    items.forEach((sourceItem: any) => {
+      sourceItem.EventDate = sourceItem[startFieldName];
+      sourceItem.EndDate = sourceItem[endFieldName] || sourceItem[startFieldName];
+    });
+    return items;
+  }
+
   private async loadEvents(): Promise<void> {
     if (!this._calendar) {
       return;
@@ -1854,6 +1993,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       var visibleRange = this.getVisibleEventRange();
       var rangeStart = visibleRange.start.toISOString();
       var rangeEnd = visibleRange.end.toISOString();
+      var cacheWindow = this.getCacheWindow(visibleRange.start, visibleRange.end);
       var combinedEvents: any[] = [];
       for (var sourceIndex = 0; sourceIndex < dataSources.length; sourceIndex += 1) {
       var source = dataSources[sourceIndex];
@@ -1872,119 +2012,30 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
         throw new Error('Could not determine this modern calendar view\'s default date columns. Select Start date column and End date column.');
       }
       var supportsBuiltInRecurrence = isEventsList && startFieldName === 'EventDate' && endFieldName === 'EndDate';
-      this.logDiagnostic('Loading events from list "' + listName + '" for ' + rangeStart + ' through ' + rangeEnd);
-      const webUrl = this.props.spfxContext.pageContext.web.absoluteUrl.replace(/\/$/, '');
-      const baseUrl = webUrl + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/items"
-        + "?$select=*,FieldValuesAsText&$expand=FieldValuesAsText";
-      const overlapUrl = baseUrl
-        + "&$filter=" + startFieldName + " lt datetime'" + rangeEnd + "' and (" + endFieldName + " ge datetime'" + rangeStart
-        + "' or (" + endFieldName + " eq null and " + startFieldName + " ge datetime'" + rangeStart + "'))"
-        + '&$orderby=' + startFieldName + '&$top=5000';
-      const startDateUrl = baseUrl
-        + "&$filter=" + startFieldName + " ge datetime'" + rangeStart + "' and " + startFieldName + " lt datetime'" + rangeEnd + "'"
-        + '&$orderby=' + startFieldName + '&$top=5000';
-      const recurrenceMastersUrl = baseUrl + '&$filter=fRecurrence eq 1&$top=5000';
 
-      let usedStartDateFallback = false;
-      let response = await this.getWithAcceptFallback(overlapUrl);
-      if (!response.ok) {
-        this.logDiagnostic('Overlap query was rejected; retrying with start-date range. HTTP ' + String(response.status));
-        usedStartDateFallback = true;
-        response = await this.getWithAcceptFallback(startDateUrl);
-      }
-      if (!response.ok) {
-        throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
-      }
-
-      if (loadSequence !== this._eventLoadSequence) {
-        return;
-      }
-
-      let data = await response.json();
-      let items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
-      if (items.length === 0 && !usedStartDateFallback) {
-        this.logDiagnostic('Overlap query returned no items; retrying with start-date range.');
-        usedStartDateFallback = true;
-        response = await this.getWithAcceptFallback(startDateUrl);
-        if (!response.ok) {
-          throw new Error('Fallback request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
-        }
+      var cachedSource = this._eventCache[sourceKey];
+      var items: any[];
+      if (cachedSource && cachedSource.windowStart <= visibleRange.start.getTime()
+        && cachedSource.windowEnd >= visibleRange.end.getTime()) {
+        this.logDiagnostic('Reusing cached events for list "' + listName + '"; cached window still covers '
+          + rangeStart + ' through ' + rangeEnd + '.');
+        items = cachedSource.items;
+      } else {
+        this.logDiagnostic('Loading events from list "' + listName + '" for cache window '
+          + cacheWindow.start.toISOString() + ' through ' + cacheWindow.end.toISOString()
+          + ' (previous/current/next month).');
+        items = await this.fetchSourceItems(listName, startFieldName, endFieldName, supportsBuiltInRecurrence,
+          cacheWindow.start.toISOString(), cacheWindow.end.toISOString());
         if (loadSequence !== this._eventLoadSequence) {
           return;
         }
-        data = await response.json();
-        items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
-      }
-      this.logRestItems(usedStartDateFallback ? 'visible range (start-date fallback)' : 'visible range (overlap)',
-        usedStartDateFallback ? startDateUrl : overlapUrl, items);
-      if (supportsBuiltInRecurrence) {
-        var recurrenceResponse = await this.getWithAcceptFallback(recurrenceMastersUrl);
-        if (recurrenceResponse.ok) {
-        var recurrenceData = await recurrenceResponse.json();
-        var recurrenceItems = recurrenceData && recurrenceData.value ? recurrenceData.value
-          : (recurrenceData && recurrenceData.d && recurrenceData.d.results ? recurrenceData.d.results : []);
-        this.logRestItems('recurrence masters', recurrenceMastersUrl, recurrenceItems);
-        var itemIndexesById: { [id: string]: number } = {};
-        items.forEach((item: any, index: number) => { itemIndexesById[String(item.Id)] = index; });
-        recurrenceItems.forEach((recurrenceItem: any) => {
-          var existingIndex = itemIndexesById[String(recurrenceItem.Id)];
-          if (existingIndex === undefined) {
-            itemIndexesById[String(recurrenceItem.Id)] = items.length;
-            items.push(recurrenceItem);
-          } else {
-            Object.keys(recurrenceItem).forEach((key: string) => {
-              items[existingIndex][key] = recurrenceItem[key];
-            });
-          }
-        });
-        this.logDiagnostic('Loaded recurrence masters. Count=' + String(recurrenceItems.length));
-        } else {
-          this.logDiagnostic('Recurrence master query was rejected. HTTP ' + String(recurrenceResponse.status));
-        }
+        this._eventCache[sourceKey] = {
+          windowStart: cacheWindow.start.getTime(),
+          windowEnd: cacheWindow.end.getTime(),
+          items: items
+        };
       }
 
-      for (var itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
-        var detailItem = items[itemIndex];
-        if (!supportsBuiltInRecurrence || !detailItem || !detailItem.Id || !this.itemSpansMultipleDates(detailItem)) {
-          continue;
-        }
-
-        var recurrenceDetailUrl = webUrl + "/_api/web/lists/getByTitle('"
-          + escapeODataText(listName) + "')/items(" + String(detailItem.Id)
-          + ')?$select=Title,EventDate,EndDate,RecurrenceData,UID';
-        var recurrenceDetailResponse = await this.getWithAcceptFallback(recurrenceDetailUrl);
-        if (!recurrenceDetailResponse.ok) {
-          this.logDiagnostic('Recurrence detail query was rejected for item ' + String(detailItem.Id)
-            + '. HTTP ' + String(recurrenceDetailResponse.status));
-          continue;
-        }
-        if (loadSequence !== this._eventLoadSequence) {
-          return;
-        }
-
-        var recurrenceDetailText = await recurrenceDetailResponse.text();
-        var recurrenceDetailItem: any;
-        try {
-          recurrenceDetailItem = this.parseRestItemResponse(recurrenceDetailText);
-        } catch (parseError) {
-          this.logDiagnostic('Recurrence detail response could not be parsed for item ' + String(detailItem.Id)
-            + ': ' + String(parseError && parseError.message ? parseError.message : parseError));
-          continue;
-        }
-        if (!recurrenceDetailItem) {
-          this.logDiagnostic('Recurrence detail response was empty or invalid for item ' + String(detailItem.Id));
-          continue;
-        }
-        this.logRestItems('recurrence detail for item ' + String(detailItem.Id), recurrenceDetailUrl,
-          [recurrenceDetailItem]);
-        Object.keys(recurrenceDetailItem).forEach((key: string) => {
-          detailItem[key] = recurrenceDetailItem[key];
-        });
-      }
-      items.forEach((sourceItem: any) => {
-        sourceItem.EventDate = sourceItem[startFieldName];
-        sourceItem.EndDate = sourceItem[endFieldName] || sourceItem[startFieldName];
-      });
       const filterConditions = this.parseConditions(this.props.filterJson).filter((condition: ICalendarCondition) => {
         var conditionSourceList = String(condition.sourceListName || '');
         return !conditionSourceList || conditionSourceList.toLowerCase() === listName.toLowerCase();
@@ -2063,6 +2114,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     }
   }
 
+
   private renderDataSourceLegend(): React.ReactElement<any> {
     var sources = this.getEffectiveDataSources();
     if (sources.length < 2) {
@@ -2140,6 +2192,15 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       '--calendar-toolbar-button-font-weight': this.props.toolbarButtonFontBold === true ? 'bold' : 'normal',
       '--calendar-toolbar-button-border-width': String(typeof this.props.toolbarButtonBorderWidth === 'number' ? this.props.toolbarButtonBorderWidth : 1) + 'px',
       '--calendar-toolbar-button-corner-radius': String(typeof this.props.toolbarButtonCornerRadius === 'number' ? this.props.toolbarButtonCornerRadius : 4) + 'px',
+      '--calendar-day-header-background': this.props.dayHeaderBackgroundColor || '#f3f2f1',
+      '--calendar-day-header-color': this.props.dayHeaderTextColor || '#323130',
+      '--calendar-day-header-border': this.props.dayHeaderBorderColor || '#d2d0ce',
+      '--calendar-day-header-font-family': this.props.dayHeaderFontFamily || 'inherit',
+      '--calendar-day-header-font-size': this.props.dayHeaderFontSize || 'inherit',
+      '--calendar-day-header-font-style': this.props.dayHeaderFontStyle || 'normal',
+      '--calendar-day-header-font-weight': this.props.dayHeaderFontBold === true ? 'bold' : 'normal',
+      '--calendar-day-header-border-width': String(typeof this.props.dayHeaderBorderWidth === 'number' ? this.props.dayHeaderBorderWidth : 1) + 'px',
+      '--calendar-day-header-padding': String(typeof this.props.dayHeaderPadding === 'number' ? this.props.dayHeaderPadding : 8) + 'px',
       '--calendar-event-font-family': this.props.eventFontFamily || 'inherit',
       '--calendar-event-font-size': this.props.eventFontSize || 'inherit',
       '--calendar-event-font-style': this.props.eventFontStyle || 'normal',

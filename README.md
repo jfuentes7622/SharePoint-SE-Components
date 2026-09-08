@@ -736,16 +736,18 @@ gulp package-solution --ship
 
 See each component's own `README.md` for any component-specific build notes.
 
-## GitHub Packages
+## Package downloads
 
-Each deployable `.sppkg` can be published as a scoped npm package under [GitHub Packages](https://github.com/jfuentes7622/SharePoint-SE-Components/packages). The npm package is a distribution wrapper containing the SharePoint package, component README, solution metadata, and license; it is not intended to be installed as a JavaScript dependency.
+Each deployable `.sppkg` is distributed in a ZIP containing the SharePoint package, component README, solution metadata, and license. The workflow also publishes the same files as a scoped npm package under [GitHub Packages](https://github.com/jfuentes7622/SharePoint-SE-Components/packages), but npm is not required to download or deploy a component.
 
 1. Build the component and commit its final file from `sharepoint/solution/*.sppkg` together with its version changes.
 2. Push the commit to GitHub.
 3. Publish a GitHub release to publish every component, or run **Publish SPFx packages** from the Actions tab and choose one component or `all`.
-4. Download the `.sppkg` from the published npm package and upload it to the SharePoint app catalog.
+4. For a manual run, download the named artifact from the workflow run's **Artifacts** section. GitHub downloads it as a ZIP.
+5. For a published release, download the named `.zip` directly from the release's **Assets** section.
+6. Extract the `.sppkg` and upload it to the SharePoint app catalog.
 
-The workflow uses the component's three-part `package.json` version as the immutable GitHub package version and includes the four-part SharePoint solution version as `spfxSolutionVersion` metadata. Publishing an existing package version is skipped. Increment and rebuild a component before publishing a replacement.
+The workflow uses the component's three-part `package.json` version in the artifact and ZIP names and as the immutable GitHub package version. It includes the four-part SharePoint solution version as `spfxSolutionVersion` metadata. Publishing an existing npm package version is skipped, while a same-named release ZIP is replaced. Increment and rebuild a component before publishing a replacement.
 
 Packages use names such as `@jfuentes7622/sharepoint-se-grid-control` and are initially subject to the GitHub account's package visibility settings. No personal access token is required in Actions because the workflow publishes to its own repository with `GITHUB_TOKEN` and `packages: write` permission.
 

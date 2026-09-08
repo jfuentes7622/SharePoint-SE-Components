@@ -30,7 +30,7 @@ on:
           - Tiles
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -133,9 +133,31 @@ jobs:
           }
           $metadata | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $staging 'package.json') -Encoding utf8
 
+          $archiveName = '${{ matrix.package_name }}' + '-' + $version + '.zip'
+          $archive = Join-Path $env:RUNNER_TEMP $archiveName
+          Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -Force
+
           "package_dir=$staging" >> $env:GITHUB_OUTPUT
           "package_name=$packageName" >> $env:GITHUB_OUTPUT
           "package_version=$version" >> $env:GITHUB_OUTPUT
+          "archive_path=$archive" >> $env:GITHUB_OUTPUT
+
+      - name: Upload downloadable ZIP
+        if: github.event_name == 'release' || inputs.component == 'all' || inputs.component == matrix.project
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package_name }}-${{ steps.prepare.outputs.package_version }}
+          path: ${{ steps.prepare.outputs.package_dir }}/
+          if-no-files-found: error
+
+      - name: Attach ZIP to GitHub release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCHIVE_PATH: ${{ steps.prepare.outputs.archive_path }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" "$ARCHIVE_PATH" --clobber
 
       - name: Publish package
         if: github.event_name == 'release' || inputs.component == 'all' || inputs.component == matrix.project

@@ -90,6 +90,7 @@ export interface IListFieldDefinition {
     DisplayFormat?: number;
     Hidden?: string | boolean;
     ConfiguredWidth?: string;
+    RuntimeFilterOnly?: boolean;
 }
 export interface IListControlState {
     selectedViewId: string;
@@ -153,6 +154,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private _filterAnchorEl;
     private _pagingEndpoint;
     private _pagingRequestBody;
+    private _pagingRuntimeFilterFieldNames;
     private _scrollArrowResizeHandler;
     private _scrollArrowScrollHandler;
     constructor(props: IListControlProps);
@@ -184,6 +186,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private postJsonWithFallback(url, body);
     private buildViewIdCandidates(selectedViewId);
     private buildMinimalViewXml(viewQuery, viewFieldNames, rowLimit, scope);
+    private addFieldsToViewXml(viewXml, fieldNames);
     private loadSelectedViewXml(selectedViewId, viewFieldNames);
     private loadSelectedViewFieldNames(selectedViewId);
     private getDisplayFields();
@@ -199,7 +202,9 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private formatDateCellValue(value, field, row?);
     private isMeaningfulCellValue(value);
     private filterRenderableRows(rows, visibleFields);
-    private loadRowsFromItemsEndpoint(viewFieldNames);
+    private loadRowsFromItemsEndpoint(viewFieldNames, itemIds?);
+    private getRuntimeFilterFieldNames();
+    private mergeHydratedRows(rows, hydratedRows);
     private loadAttachmentCounts(itemIds);
     private loadRows();
     private applyFetchBatchSize(viewXml);

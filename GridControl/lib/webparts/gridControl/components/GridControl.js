@@ -329,6 +329,7 @@ var GridControl = (function (_super) {
         _this._pagingEndpoint = '';
         _this._pagingRequestBody = undefined;
         _this._pagingSchemaFieldNames = [];
+        _this._pagingRuntimeFilterFieldNames = [];
         _this._setTableWrapRef = function (el) {
             _this._tableWrapEl = el;
             _this.refreshTableViewport();
@@ -520,6 +521,10 @@ var GridControl = (function (_super) {
             this.setState({ currentPage: 0 });
         }
         if (prevProps.fetchBatchSize !== this.props.fetchBatchSize) {
+            this.loadRows();
+            return;
+        }
+        if (prevState.runtimeFilterJson !== this.state.runtimeFilterJson) {
             this.loadRows();
             return;
         }
@@ -1276,11 +1281,13 @@ var GridControl = (function (_super) {
         });
     };
     GridControl.prototype.getDisplayFields = function () {
-        var baseFields = this.state.fields;
+        var baseFields = this.state.fields.filter(function (field) {
+            return field.RuntimeFilterOnly !== true;
+        });
         if (this.state.selectedViewId === this.props.defaultViewId && this.props.viewColumns && this.props.viewColumns.length > 0) {
             var configuredByName = {};
-            for (var i = 0; i < this.state.fields.length; i += 1) {
-                var field = this.state.fields[i];
+            for (var i = 0; i < baseFields.length; i += 1) {
+                var field = baseFields[i];
                 var fieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
                 var responseName = String(field.Name || '').toLowerCase();
                 if (fieldName) {
@@ -1316,8 +1323,8 @@ var GridControl = (function (_super) {
             return baseFields;
         }
         var byName = {};
-        for (var baseIndex = 0; baseIndex < this.state.fields.length; baseIndex += 1) {
-            var baseField = this.state.fields[baseIndex];
+        for (var baseIndex = 0; baseIndex < baseFields.length; baseIndex += 1) {
+            var baseField = baseFields[baseIndex];
             var baseFieldName = String(baseField.Name || '').toLowerCase();
             byName[baseFieldName] = baseField;
             byName[String(baseField.RealFieldName || '').toLowerCase()] = baseField;
@@ -2111,7 +2118,7 @@ var GridControl = (function (_super) {
     GridControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, selectedViewXml, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, visibleFields, fieldTitleMap, fieldMetadataByName, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
+            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -2128,7 +2135,7 @@ var GridControl = (function (_super) {
                         this.setState({ loading: true, loadingMore: false, nextPageHref: '', error: null });
                         _b.label = 1;
                     case 1:
-                        _b.trys.push([1, 28, , 29]);
+                        _b.trys.push([1, 30, , 31]);
                         baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
                         selectedViewId = this.state.selectedViewId;
                         schemaFields = this.getGridSchemaFields();
@@ -2150,12 +2157,16 @@ var GridControl = (function (_super) {
                         return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, viewFieldNames)];
                     case 3:
                         selectedViewXml = _b.sent();
+                        runtimeFilterFieldNames = this.getRuntimeFilterFieldNames();
+                        this._pagingRuntimeFilterFieldNames = runtimeFilterFieldNames.slice(0);
                         body = {
                             parameters: {
                                 RenderOptions: 7
                             }
                         };
-                        body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewXml || '<View></View>');
+                        body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewId
+                            ? this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames)
+                            : (selectedViewXml || '<View></View>'));
                         this._pagingEndpoint = baseEndpoint;
                         this._pagingRequestBody = body;
                         this._pagingSchemaFieldNames = schemaFieldNames.slice(0);
@@ -2253,15 +2264,38 @@ var GridControl = (function (_super) {
                         }
                         _b.label = 21;
                     case 21:
-                        visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
-                        return [4 /*yield*/, this.loadListFieldTitleMap()];
+                        runtimeSupportFields = [];
+                        if (!(runtimeFilterFieldNames.length > 0 && rows.length > 0)) return [3 /*break*/, 23];
+                        runtimeItemIds = rows.map(function (row) { return _this.getRowItemId(row); }).filter(function (itemId) { return itemId > 0; });
+                        return [4 /*yield*/, this.loadRowsFromItemsEndpoint(runtimeFilterFieldNames, runtimeItemIds)];
                     case 22:
+                        runtimeItems = _b.sent();
+                        rows = this.mergeHydratedRows(rows, runtimeItems.rows);
+                        runtimeSupportFields = runtimeItems.fields;
+                        _b.label = 23;
+                    case 23:
+                        visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
+                        existingFieldNames = {};
+                        visibleFields.forEach(function (field) {
+                            existingFieldNames[String(field.RealFieldName || field.Name || '').toLowerCase()] = true;
+                            existingFieldNames[String(field.Name || '').toLowerCase()] = true;
+                        });
+                        normalizedRuntimeFieldNames = runtimeFilterFieldNames.map(function (name) { return name.toLowerCase(); });
+                        runtimeSupportFields.forEach(function (field) {
+                            var supportFieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
+                            if (normalizedRuntimeFieldNames.indexOf(supportFieldName) >= 0 && !existingFieldNames[supportFieldName]) {
+                                visibleFields.push(Object.assign({}, field, { RuntimeFilterOnly: true }));
+                                existingFieldNames[supportFieldName] = true;
+                            }
+                        });
+                        return [4 /*yield*/, this.loadListFieldTitleMap()];
+                    case 24:
                         fieldTitleMap = _b.sent();
                         return [4 /*yield*/, this.loadGridFieldMetadata()];
-                    case 23:
+                    case 25:
                         fieldMetadataByName = _b.sent();
                         return [4 /*yield*/, this.loadLookupOptionsByField(fieldMetadataByName, visibleFields)];
-                    case 24:
+                    case 26:
                         lookupOptionsByField = _b.sent();
                         visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
                         visibleFields = this.applyFieldTypes(visibleFields, fieldMetadataByName);
@@ -2277,15 +2311,15 @@ var GridControl = (function (_super) {
                         hasAttachmentsField = visibleFields.some(function (field) {
                             return String(field.TypeAsString || '') === 'Attachments';
                         });
-                        if (!hasAttachmentsField) return [3 /*break*/, 26];
+                        if (!hasAttachmentsField) return [3 /*break*/, 28];
                         return [4 /*yield*/, this.loadAttachmentCounts(renderableItemIds)];
-                    case 25:
-                        _a = _b.sent();
-                        return [3 /*break*/, 27];
-                    case 26:
-                        _a = {};
-                        _b.label = 27;
                     case 27:
+                        _a = _b.sent();
+                        return [3 /*break*/, 29];
+                    case 28:
+                        _a = {};
+                        _b.label = 29;
+                    case 29:
                         attachmentCountsByItemId = _a;
                         if (requestId !== this._loadRowsRequestId) {
                             this.logDiagnostic('Ignoring stale loadRows result after attachment count fetch. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
@@ -2308,8 +2342,8 @@ var GridControl = (function (_super) {
                             }
                         });
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
-                        return [3 /*break*/, 29];
-                    case 28:
+                        return [3 /*break*/, 31];
+                    case 30:
                         error_6 = _b.sent();
                         loadError = error_6;
                         if (requestId !== this._loadRowsRequestId) {
@@ -2327,8 +2361,8 @@ var GridControl = (function (_super) {
                             rows: []
                         });
                         this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
-                        return [3 /*break*/, 29];
-                    case 29: return [2 /*return*/];
+                        return [3 /*break*/, 31];
+                    case 31: return [2 /*return*/];
                 }
             });
         });
@@ -2352,7 +2386,7 @@ var GridControl = (function (_super) {
     GridControl.prototype.loadNextBatch = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, parameters, sourceParameters, parameterName, response, extracted, _a, nextRows, itemIds, hydrated, existingIds, uniqueRows, nextAttachmentCounts, hasAttachments, nextPageHref, error_7;
+            var requestId, parameters, sourceParameters, parameterName, response, extracted, _a, nextRows, itemIds, hydrated, runtimeItemIds, runtimeItems, existingIds, uniqueRows, nextAttachmentCounts, hasAttachments, nextPageHref, error_7;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -2363,7 +2397,7 @@ var GridControl = (function (_super) {
                         this.setState({ loadingMore: true });
                         _b.label = 1;
                     case 1:
-                        _b.trys.push([1, 9, , 10]);
+                        _b.trys.push([1, 11, , 12]);
                         parameters = {};
                         sourceParameters = this._pagingRequestBody.parameters || {};
                         for (parameterName in sourceParameters) {
@@ -2397,6 +2431,14 @@ var GridControl = (function (_super) {
                         }
                         _b.label = 5;
                     case 5:
+                        if (!(this._pagingRuntimeFilterFieldNames.length > 0 && nextRows.length > 0)) return [3 /*break*/, 7];
+                        runtimeItemIds = nextRows.map(function (row) { return _this.getRowItemId(row); }).filter(function (itemId) { return itemId > 0; });
+                        return [4 /*yield*/, this.loadRowsFromItemsEndpoint(this._pagingRuntimeFilterFieldNames, runtimeItemIds)];
+                    case 6:
+                        runtimeItems = _b.sent();
+                        nextRows = this.mergeHydratedRows(nextRows, runtimeItems.rows);
+                        _b.label = 7;
+                    case 7:
                         if (requestId !== this._loadRowsRequestId) {
                             return [2 /*return*/, false];
                         }
@@ -2406,12 +2448,12 @@ var GridControl = (function (_super) {
                         uniqueRows = nextRows.filter(function (row) { return !existingIds[_this.getRowItemId(row)]; });
                         nextAttachmentCounts = {};
                         hasAttachments = this.state.fields.some(function (field) { return String(field.TypeAsString || '') === 'Attachments'; });
-                        if (!hasAttachments) return [3 /*break*/, 7];
+                        if (!hasAttachments) return [3 /*break*/, 9];
                         return [4 /*yield*/, this.loadAttachmentCounts(uniqueRows.map(function (row) { return _this.getRowItemId(row); }))];
-                    case 6:
+                    case 8:
                         nextAttachmentCounts = _b.sent();
-                        _b.label = 7;
-                    case 7:
+                        _b.label = 9;
+                    case 9:
                         nextPageHref = extracted.nextHref === this.state.nextPageHref && uniqueRows.length === 0 ? '' : extracted.nextHref;
                         return [4 /*yield*/, new Promise(function (resolve) { return _this.setState({
                                 rows: _this.state.rows.concat(uniqueRows),
@@ -2419,15 +2461,15 @@ var GridControl = (function (_super) {
                                 nextPageHref: nextPageHref,
                                 loadingMore: false
                             }, function () { return resolve(true); }); })];
-                    case 8:
+                    case 10:
                         _b.sent();
                         return [2 /*return*/, uniqueRows.length > 0 || !!nextPageHref];
-                    case 9:
+                    case 11:
                         error_7 = _b.sent();
                         this.logDiagnostic('Loading next batch failed: ' + (error_7 && error_7.message ? error_7.message : String(error_7)));
                         this.setState({ loadingMore: false });
                         return [2 /*return*/, false];
-                    case 10: return [2 /*return*/];
+                    case 12: return [2 /*return*/];
                 }
             });
         });
@@ -3765,6 +3807,41 @@ var GridControl = (function (_super) {
             }
         }
         return conditions;
+    };
+    GridControl.prototype.getRuntimeFilterFieldNames = function () {
+        var conditions = [];
+        try {
+            var parsed = JSON.parse(String(this.state.runtimeFilterJson || ''));
+            conditions = Array.isArray(parsed) ? parsed : [];
+        }
+        catch (_parseError) {
+            conditions = [];
+        }
+        var fieldNames = [];
+        var seen = {};
+        for (var i = 0; i < conditions.length; i += 1) {
+            var fieldName = String(conditions[i] && conditions[i].field || '').trim();
+            var normalizedName = fieldName.toLowerCase();
+            if (fieldName && !seen[normalizedName]) {
+                fieldNames.push(fieldName);
+                seen[normalizedName] = true;
+            }
+        }
+        return fieldNames;
+    };
+    GridControl.prototype.mergeHydratedRows = function (rows, hydratedRows) {
+        var _this = this;
+        var hydratedById = {};
+        for (var i = 0; i < hydratedRows.length; i += 1) {
+            var hydratedId = this.getRowItemId(hydratedRows[i]);
+            if (hydratedId > 0) {
+                hydratedById[hydratedId] = hydratedRows[i];
+            }
+        }
+        return rows.map(function (row) {
+            var itemId = _this.getRowItemId(row);
+            return hydratedById[itemId] ? Object.assign({}, row, hydratedById[itemId]) : row;
+        });
     };
     GridControl.prototype.resolveFieldByReference = function (fieldsByKey, fieldRef) {
         var direct = fieldsByKey[fieldRef];

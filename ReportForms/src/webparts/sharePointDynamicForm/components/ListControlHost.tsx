@@ -22,6 +22,7 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
   private _configurationMarker: HTMLDivElement | null;
   private _retryHandle: number | undefined;
   private _attemptCount: number;
+  private _runtimeConfigRequestHandler: any;
 
   public constructor(props: IListControlHostProps) {
     super(props);
@@ -33,9 +34,13 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
     this._configurationMarker = null;
     this._retryHandle = undefined;
     this._attemptCount = 0;
+    this._runtimeConfigRequestHandler = this.handleRuntimeConfigRequest.bind(this);
   }
 
   public componentDidMount(): void {
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('spse:listcontrol-runtime-config-request', this._runtimeConfigRequestHandler);
+    }
     this.startDiscovery();
   }
 
@@ -58,8 +63,20 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
 
   public componentWillUnmount(): void {
     this.stopDiscovery();
+    if (typeof window !== 'undefined' && window.removeEventListener) {
+      window.removeEventListener('spse:listcontrol-runtime-config-request', this._runtimeConfigRequestHandler);
+    }
     this.dispatchRuntimeConfig(false);
     this.restoreTarget();
+  }
+
+  private handleRuntimeConfigRequest(event: any): void {
+    if (!this._targetHost) { return; }
+    var detail = event && event.detail ? event.detail : {};
+    var requestedInstanceId = String(detail.instanceId || '').toLowerCase();
+    if (requestedInstanceId && requestedInstanceId === this.getInstanceId()) {
+      this.dispatchRuntimeConfig(true);
+    }
   }
 
   private startDiscovery(): void {

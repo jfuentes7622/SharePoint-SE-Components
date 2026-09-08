@@ -102,6 +102,7 @@ export interface IListFieldDefinition {
   DisplayFormat?: number;
   Hidden?: string | boolean;
   ConfiguredWidth?: string;
+  RuntimeFilterOnly?: boolean;
 }
 
 export interface IGridFieldMetadata {
@@ -591,6 +592,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   private _pagingEndpoint: string = '';
   private _pagingRequestBody: any = undefined;
   private _pagingSchemaFieldNames: string[] = [];
+  private _pagingRuntimeFilterFieldNames: string[] = [];
   private _scrollArrowResizeHandler: any;
   private _scrollArrowScrollHandler: any;
 
@@ -748,6 +750,10 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this.setState({ currentPage: 0 });
     }
     if (prevProps.fetchBatchSize !== this.props.fetchBatchSize) {
+      this.loadRows();
+      return;
+    }
+    if (prevState.runtimeFilterJson !== this.state.runtimeFilterJson) {
       this.loadRows();
       return;
     }
@@ -1474,12 +1480,14 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private getDisplayFields(): IListFieldDefinition[] {
-    var baseFields: IListFieldDefinition[] = this.state.fields;
+    var baseFields: IListFieldDefinition[] = this.state.fields.filter(function(field: IListFieldDefinition) {
+      return field.RuntimeFilterOnly !== true;
+    });
 
     if (this.state.selectedViewId === this.props.defaultViewId && this.props.viewColumns && this.props.viewColumns.length > 0) {
       var configuredByName: { [fieldName: string]: IListFieldDefinition } = {};
-      for (var i = 0; i < this.state.fields.length; i += 1) {
-        var field = this.state.fields[i];
+      for (var i = 0; i < baseFields.length; i += 1) {
+        var field = baseFields[i];
         var fieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
         var responseName = String(field.Name || '').toLowerCase();
         if (fieldName) { configuredByName[fieldName] = field; }
@@ -1512,8 +1520,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     }
 
     var byName: { [fieldName: string]: IListFieldDefinition } = {};
-    for (var baseIndex = 0; baseIndex < this.state.fields.length; baseIndex += 1) {
-      var baseField = this.state.fields[baseIndex];
+    for (var baseIndex = 0; baseIndex < baseFields.length; baseIndex += 1) {
+      var baseField = baseFields[baseIndex];
       var baseFieldName = String(baseField.Name || '').toLowerCase();
       byName[baseFieldName] = baseField;
       byName[String(baseField.RealFieldName || '').toLowerCase()] = baseField;
@@ -2280,13 +2288,17 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       });
       var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
       var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, viewFieldNames);
+      var runtimeFilterFieldNames = this.getRuntimeFilterFieldNames();
+      this._pagingRuntimeFilterFieldNames = runtimeFilterFieldNames.slice(0);
 
       var body: any = {
         parameters: {
           RenderOptions: 7
         }
       };
-      body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewXml || '<View></View>');
+      body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewId
+        ? this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames)
+        : (selectedViewXml || '<View></View>'));
       this._pagingEndpoint = baseEndpoint;
       this._pagingRequestBody = body;
       this._pagingSchemaFieldNames = schemaFieldNames.slice(0);
@@ -2367,7 +2379,28 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         }
       }
 
+      var runtimeSupportFields: IListFieldDefinition[] = [];
+      if (runtimeFilterFieldNames.length > 0 && rows.length > 0) {
+        var runtimeItemIds = rows.map((row: any) => this.getRowItemId(row)).filter(function(itemId: number) { return itemId > 0; });
+        var runtimeItems = await this.loadRowsFromItemsEndpoint(runtimeFilterFieldNames, runtimeItemIds);
+        rows = this.mergeHydratedRows(rows, runtimeItems.rows);
+        runtimeSupportFields = runtimeItems.fields;
+      }
+
       var visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
+      var existingFieldNames: { [fieldName: string]: boolean } = {};
+      visibleFields.forEach(function(field: IListFieldDefinition) {
+        existingFieldNames[String(field.RealFieldName || field.Name || '').toLowerCase()] = true;
+        existingFieldNames[String(field.Name || '').toLowerCase()] = true;
+      });
+      var normalizedRuntimeFieldNames = runtimeFilterFieldNames.map(function(name: string) { return name.toLowerCase(); });
+      runtimeSupportFields.forEach(function(field: IListFieldDefinition) {
+        var supportFieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
+        if (normalizedRuntimeFieldNames.indexOf(supportFieldName) >= 0 && !existingFieldNames[supportFieldName]) {
+          visibleFields.push(Object.assign({}, field, { RuntimeFilterOnly: true }));
+          existingFieldNames[supportFieldName] = true;
+        }
+      });
       var fieldTitleMap = await this.loadListFieldTitleMap();
       var fieldMetadataByName = await this.loadGridFieldMetadata();
       var lookupOptionsByField = await this.loadLookupOptionsByField(fieldMetadataByName, visibleFields);
@@ -2482,6 +2515,11 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         if (hydrated.rows.length > 0) {
           nextRows = hydrated.rows;
         }
+      }
+      if (this._pagingRuntimeFilterFieldNames.length > 0 && nextRows.length > 0) {
+        var runtimeItemIds = nextRows.map((row: any) => this.getRowItemId(row)).filter(function(itemId: number) { return itemId > 0; });
+        var runtimeItems = await this.loadRowsFromItemsEndpoint(this._pagingRuntimeFilterFieldNames, runtimeItemIds);
+        nextRows = this.mergeHydratedRows(nextRows, runtimeItems.rows);
       }
       if (requestId !== this._loadRowsRequestId) {
         return false;
@@ -3852,6 +3890,39 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       }
     }
     return conditions;
+  }
+
+  private getRuntimeFilterFieldNames(): string[] {
+    var conditions: any[] = [];
+    try {
+      var parsed = JSON.parse(String(this.state.runtimeFilterJson || ''));
+      conditions = Array.isArray(parsed) ? parsed : [];
+    } catch (_parseError) {
+      conditions = [];
+    }
+    var fieldNames: string[] = [];
+    var seen: { [fieldName: string]: boolean } = {};
+    for (var i = 0; i < conditions.length; i += 1) {
+      var fieldName = String(conditions[i] && conditions[i].field || '').trim();
+      var normalizedName = fieldName.toLowerCase();
+      if (fieldName && !seen[normalizedName]) {
+        fieldNames.push(fieldName);
+        seen[normalizedName] = true;
+      }
+    }
+    return fieldNames;
+  }
+
+  private mergeHydratedRows(rows: any[], hydratedRows: any[]): any[] {
+    var hydratedById: { [itemId: number]: any } = {};
+    for (var i = 0; i < hydratedRows.length; i += 1) {
+      var hydratedId = this.getRowItemId(hydratedRows[i]);
+      if (hydratedId > 0) { hydratedById[hydratedId] = hydratedRows[i]; }
+    }
+    return rows.map((row: any) => {
+      var itemId = this.getRowItemId(row);
+      return hydratedById[itemId] ? Object.assign({}, row, hydratedById[itemId]) : row;
+    });
   }
 
   private resolveFieldByReference(fieldsByKey: { [key: string]: IListFieldDefinition }, fieldRef: string): IListFieldDefinition | undefined {

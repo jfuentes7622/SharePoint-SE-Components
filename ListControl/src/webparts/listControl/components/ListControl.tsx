@@ -95,6 +95,7 @@ export interface IListFieldDefinition {
   DisplayFormat?: number;
   Hidden?: string | boolean;
   ConfiguredWidth?: string;
+  RuntimeFilterOnly?: boolean;
 }
 
 interface IListGroupingConfig {
@@ -208,6 +209,7 @@ interface IResolvedConditionalStyle {
 
 var LIST_CONTROL_REFRESH_EVENT = 'spse:listcontrol-refresh';
 var LIST_CONTROL_RUNTIME_CONFIG_EVENT = 'spse:listcontrol-runtime-config';
+var LIST_CONTROL_RUNTIME_CONFIG_REQUEST_EVENT = 'spse:listcontrol-runtime-config-request';
 
 function escapeODataText(value: string): string {
   return value.replace(/'/g, "''");
@@ -489,6 +491,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   private _filterAnchorEl: HTMLElement;
   private _pagingEndpoint: string = '';
   private _pagingRequestBody: any = undefined;
+  private _pagingRuntimeFilterFieldNames: string[] = [];
   private _scrollArrowResizeHandler: any;
   private _scrollArrowScrollHandler: any;
 
@@ -545,6 +548,15 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       window.addEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
       window.addEventListener('resize', this._scrollArrowResizeHandler);
       window.addEventListener('scroll', this._scrollArrowScrollHandler, true);
+      var requestEvent: any;
+      var requestDetail = { instanceId: String(this.props.context && this.props.context.instanceId || '').toLowerCase() };
+      if (typeof (window as any).CustomEvent === 'function') {
+        requestEvent = new (window as any).CustomEvent(LIST_CONTROL_RUNTIME_CONFIG_REQUEST_EVENT, { detail: requestDetail });
+      } else {
+        requestEvent = document.createEvent('CustomEvent');
+        requestEvent.initCustomEvent(LIST_CONTROL_RUNTIME_CONFIG_REQUEST_EVENT, false, false, requestDetail);
+      }
+      window.dispatchEvent(requestEvent);
     }
     this.loadRows();
   }
@@ -641,6 +653,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       this.setState({ currentPage: 0 });
     }
     if (prevProps.fetchBatchSize !== this.props.fetchBatchSize) {
+      this.loadRows();
+      return;
+    }
+    if (prevState.runtimeFilterJson !== this.state.runtimeFilterJson) {
       this.loadRows();
       return;
     }
@@ -1104,6 +1120,36 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return new XMLSerializer().serializeToString(xmlDocument);
   }
 
+  private addFieldsToViewXml(viewXml: string, fieldNames: string[]): string {
+    if (!viewXml || fieldNames.length === 0) {
+      return viewXml;
+    }
+    var xmlDocument = new DOMParser().parseFromString(viewXml, 'text/xml');
+    var viewElement = xmlDocument.getElementsByTagName('View')[0];
+    if (!viewElement || xmlDocument.getElementsByTagName('parsererror').length > 0) {
+      return viewXml;
+    }
+    var viewFieldsElements = viewElement.getElementsByTagName('ViewFields');
+    var viewFieldsElement = viewFieldsElements.length > 0 ? viewFieldsElements[0] : xmlDocument.createElement('ViewFields');
+    if (viewFieldsElements.length === 0) {
+      viewElement.appendChild(viewFieldsElement);
+    }
+    var existingFields: { [fieldName: string]: boolean } = {};
+    var fieldRefs = viewFieldsElement.getElementsByTagName('FieldRef');
+    for (var i = 0; i < fieldRefs.length; i += 1) {
+      existingFields[String(fieldRefs[i].getAttribute('Name') || '').toLowerCase()] = true;
+    }
+    for (var j = 0; j < fieldNames.length; j += 1) {
+      var fieldName = String(fieldNames[j] || '').trim();
+      if (!fieldName || existingFields[fieldName.toLowerCase()]) { continue; }
+      var fieldRef = xmlDocument.createElement('FieldRef');
+      fieldRef.setAttribute('Name', fieldName);
+      viewFieldsElement.appendChild(fieldRef);
+      existingFields[fieldName.toLowerCase()] = true;
+    }
+    return new XMLSerializer().serializeToString(xmlDocument);
+  }
+
   private async loadSelectedViewXml(selectedViewId: string, viewFieldNames: string[]): Promise<string> {
     if (!selectedViewId) {
       return '';
@@ -1190,13 +1236,16 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   private getDisplayFields(): IListFieldDefinition[] {
+    var visibleStateFields = this.state.fields.filter(function(field: IListFieldDefinition) {
+      return field.RuntimeFilterOnly !== true;
+    });
     if (this.state.selectedViewId !== this.props.defaultViewId || !this.props.viewColumns || this.props.viewColumns.length === 0) {
-      return this.state.fields;
+      return visibleStateFields;
     }
 
     var byName: { [fieldName: string]: IListFieldDefinition } = {};
-    for (var i = 0; i < this.state.fields.length; i += 1) {
-      var field = this.state.fields[i];
+    for (var i = 0; i < visibleStateFields.length; i += 1) {
+      var field = visibleStateFields[i];
       var fieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
       var responseName = String(field.Name || '').toLowerCase();
       if (fieldName) { byName[fieldName] = field; }
@@ -1430,9 +1479,23 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return listValues.join('; ');
     }
 
+    if (typeof value === 'string') {
+      // RenderListDataAsStream can return Person/Lookup fields as JSON-encoded strings.
+      var trimmedValue = value.trim();
+      if (trimmedValue.length > 0 && (trimmedValue.charAt(0) === '{' || trimmedValue.charAt(0) === '[')) {
+        var parsedJsonValue = tryParseObject(trimmedValue);
+        if (parsedJsonValue && typeof parsedJsonValue === 'object') {
+          return this.stringifyCellValue(parsedJsonValue);
+        }
+      }
+    }
+
     if (typeof value === 'object') {
       if (Array.isArray((value as any).results)) {
         return this.stringifyCellValue((value as any).results);
+      }
+      if ((value as any).lookupValue !== undefined && (value as any).lookupValue !== null) {
+        return String((value as any).lookupValue);
       }
       if ((value as any).Title) {
         return String((value as any).Title);
@@ -1587,7 +1650,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return filtered;
   }
 
-  private async loadRowsFromItemsEndpoint(viewFieldNames: string[]): Promise<{ rows: any[]; fields: IListFieldDefinition[] }> {
+  private async loadRowsFromItemsEndpoint(viewFieldNames: string[], itemIds?: number[]): Promise<{ rows: any[]; fields: IListFieldDefinition[] }> {
     var fieldTypeMap = await this.loadListFieldTypeMap(viewFieldNames);
     var selectFields = ['ID'];
     var expandFields: string[] = [];
@@ -1614,6 +1677,11 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
 
     var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items?$top=200";
+    if (itemIds && itemIds.length > 0) {
+      endpoint += '&$filter=' + encodeURIComponent(itemIds.map(function(itemId: number) {
+        return 'ID eq ' + String(itemId);
+      }).join(' or '));
+    }
     if (selectFields.length > 0) {
       endpoint += '&$select=' + encodeURIComponent(selectFields.join(','));
     }
@@ -1632,6 +1700,13 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var rows = toArray(data.value);
     if (rows.length === 0) {
       rows = toArray(data && data.d && data.d.results);
+    }
+
+    if (itemIds && itemIds.length > 0 && rows.length > 1) {
+      rows.sort(function(left: any, right: any) {
+        return itemIds.indexOf(toPositiveInt(left.ID || left.Id || left.id))
+          - itemIds.indexOf(toPositiveInt(right.ID || right.Id || right.id));
+      });
     }
 
     var fields: IListFieldDefinition[] = [];
@@ -1655,6 +1730,40 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       rows: rows,
       fields: fields
     };
+  }
+
+  private getRuntimeFilterFieldNames(): string[] {
+    var conditions: any[] = [];
+    try {
+      var parsed = JSON.parse(String(this.state.runtimeFilterJson || ''));
+      conditions = Array.isArray(parsed) ? parsed : [];
+    } catch (_parseError) {
+      conditions = [];
+    }
+
+    var fieldNames: string[] = [];
+    var seen: { [fieldName: string]: boolean } = {};
+    for (var i = 0; i < conditions.length; i += 1) {
+      var fieldName = String(conditions[i] && conditions[i].field || '').trim();
+      var normalizedName = fieldName.toLowerCase();
+      if (fieldName && !seen[normalizedName]) {
+        fieldNames.push(fieldName);
+        seen[normalizedName] = true;
+      }
+    }
+    return fieldNames;
+  }
+
+  private mergeHydratedRows(rows: any[], hydratedRows: any[]): any[] {
+    var hydratedById: { [itemId: number]: any } = {};
+    for (var i = 0; i < hydratedRows.length; i += 1) {
+      var hydratedId = this.getRowItemId(hydratedRows[i]);
+      if (hydratedId > 0) { hydratedById[hydratedId] = hydratedRows[i]; }
+    }
+    return rows.map((row: any) => {
+      var itemId = this.getRowItemId(row);
+      return hydratedById[itemId] ? Object.assign({}, row, hydratedById[itemId]) : row;
+    });
   }
 
   private async loadAttachmentCounts(itemIds: number[]): Promise<{ [itemId: number]: number }> {
@@ -1711,13 +1820,17 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       var selectedViewId = this.state.selectedViewId;
       var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
       var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, viewFieldNames);
+      var runtimeFilterFieldNames = this.getRuntimeFilterFieldNames();
+      this._pagingRuntimeFilterFieldNames = runtimeFilterFieldNames.slice(0);
 
       var body: any = {
         parameters: {
           RenderOptions: 7
         }
       };
-      body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewXml || '<View></View>');
+      body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewId
+        ? this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames)
+        : (selectedViewXml || '<View></View>'));
       this._pagingEndpoint = baseEndpoint;
       this._pagingRequestBody = body;
 
@@ -1778,7 +1891,27 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         }
       }
 
+      var runtimeSupportFields: IListFieldDefinition[] = [];
+      if (runtimeFilterFieldNames.length > 0 && rows.length > 0) {
+        var runtimeItemIds = rows.map((row: any) => this.getRowItemId(row)).filter(function(itemId: number) { return itemId > 0; });
+        var runtimeItems = await this.loadRowsFromItemsEndpoint(runtimeFilterFieldNames, runtimeItemIds);
+        rows = this.mergeHydratedRows(rows, runtimeItems.rows);
+        runtimeSupportFields = runtimeItems.fields;
+      }
+
       var visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
+      var existingFieldNames: { [fieldName: string]: boolean } = {};
+      visibleFields.forEach(function(field: IListFieldDefinition) {
+        existingFieldNames[String(field.RealFieldName || field.Name || '').toLowerCase()] = true;
+        existingFieldNames[String(field.Name || '').toLowerCase()] = true;
+      });
+      runtimeSupportFields.forEach(function(field: IListFieldDefinition) {
+        var supportFieldName = String(field.RealFieldName || field.Name || '').toLowerCase();
+        if (runtimeFilterFieldNames.map(function(name: string) { return name.toLowerCase(); }).indexOf(supportFieldName) >= 0 && !existingFieldNames[supportFieldName]) {
+          visibleFields.push(Object.assign({}, field, { RuntimeFilterOnly: true }));
+          existingFieldNames[supportFieldName] = true;
+        }
+      });
       var fieldTitleMap = await this.loadListFieldTitleMap();
       var visibleFieldNames = visibleFields.map((field: IListFieldDefinition) => this.getFieldKey(field));
       var fieldTypeMap = await this.loadListFieldTypeMap(visibleFieldNames);
@@ -1876,7 +2009,13 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       if (requestId !== this._loadRowsRequestId) {
         return false;
       }
-      var nextRows = this.filterRenderableRows(extracted.rows, this.state.fields);
+      var nextRows = extracted.rows;
+      if (this._pagingRuntimeFilterFieldNames.length > 0 && nextRows.length > 0) {
+        var runtimeItemIds = nextRows.map((row: any) => this.getRowItemId(row)).filter(function(itemId: number) { return itemId > 0; });
+        var runtimeItems = await this.loadRowsFromItemsEndpoint(this._pagingRuntimeFilterFieldNames, runtimeItemIds);
+        nextRows = this.mergeHydratedRows(nextRows, runtimeItems.rows);
+      }
+      nextRows = this.filterRenderableRows(nextRows, this.state.fields);
       var existingIds: { [itemId: number]: boolean } = {};
       this.state.rows.forEach((row: any) => { existingIds[this.getRowItemId(row)] = true; });
       var uniqueRows = nextRows.filter((row: any) => !existingIds[this.getRowItemId(row)]);

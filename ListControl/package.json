@@ -1,6 +1,6 @@
 {
   "name": "list-control-se",
-  "version": "0.0.26",
+  "version": "0.0.28",
   "private": true,
   "main": "lib/index.js",
   "engines": {

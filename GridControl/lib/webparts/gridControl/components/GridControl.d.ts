@@ -95,6 +95,7 @@ export interface IListFieldDefinition {
     DisplayFormat?: number;
     Hidden?: string | boolean;
     ConfiguredWidth?: string;
+    RuntimeFilterOnly?: boolean;
 }
 export interface IGridFieldMetadata {
     internalName: string;
@@ -204,6 +205,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private _pagingEndpoint;
     private _pagingRequestBody;
     private _pagingSchemaFieldNames;
+    private _pagingRuntimeFilterFieldNames;
     private _scrollArrowResizeHandler;
     private _scrollArrowScrollHandler;
     constructor(props: IGridControlProps);
@@ -317,6 +319,8 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private rowMatchesFilter(row, field, filter);
     private getFilterCellText(row, field);
     private parsePresetFilterConditions();
+    private getRuntimeFilterFieldNames();
+    private mergeHydratedRows(rows, hydratedRows);
     private resolveFieldByReference(fieldsByKey, fieldRef);
     private rowMatchesPresetConditions(row, fieldsByKey, conditions);
     private resolvePresetFilterValue(condition);

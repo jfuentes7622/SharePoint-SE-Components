@@ -1157,12 +1157,12 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       this._lookupPermissionFields = lookupOptions.length > 0
         ? [{ key: '', text: strings.PropPermissionBaseLookupFieldClear }].concat(lookupOptions)
         : [{ key: '', text: strings.PropPermissionBaseLookupFieldNone }];
-      this._dynamicTargetLookupFields = lookupOptions.length > 0
-        ? lookupOptions
+      this._dynamicTargetLookupFields = options.length > 0
+        ? options
         : [{ key: '', text: strings.PropDynamicTargetFieldNone }];
 
       if (this.properties.dynamicItemTargetField) {
-        var hasSelectedDynamicTarget = lookupOptions.some((option: IDropdownOption) => {
+        var hasSelectedDynamicTarget = options.some((option: IDropdownOption) => {
           return String(option.key).toLowerCase() === String(this.properties.dynamicItemTargetField).toLowerCase();
         });
         if (!hasSelectedDynamicTarget) {

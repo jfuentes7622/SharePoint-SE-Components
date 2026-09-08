@@ -188,6 +188,23 @@ function normalizeFilterLogical(value: any): FilterConditionLogical {
   return String(value || '').trim().toLowerCase() === 'or' ? 'or' : 'and';
 }
 
+function getFilterTypeFromSharePointType(typeAsString: string): string {
+  var normalizedType = String(typeAsString || '').toLowerCase();
+  if (normalizedType === 'lookup' || normalizedType === 'lookupmulti' || normalizedType === 'user' || normalizedType === 'usermulti') {
+    return 'lookup';
+  }
+  if (normalizedType === 'number' || normalizedType === 'currency' || normalizedType === 'integer' || normalizedType === 'counter') {
+    return 'number';
+  }
+  if (normalizedType === 'boolean') {
+    return 'boolean';
+  }
+  if (normalizedType === 'datetime') {
+    return 'datetime';
+  }
+  return 'text';
+}
+
 function buildODataFilterClause(fieldName: string, fieldType: string, value: any, operator?: FilterConditionOperator): string {
   if (value === undefined || value === null || value === '') { return ''; }
   var op = normalizeFilterOperator(operator);
@@ -199,7 +216,8 @@ function buildODataFilterClause(fieldName: string, fieldType: string, value: any
   }
   var clause = '';
   switch (fieldType) {
-    case 'lookup': {
+    case 'lookup':
+    case 'person': {
       if (op === 'contains' || op === 'startswith' || op === 'endswith') {
         console.warn('[SharePointDynamicForm] Unsupported lookup operator for field ' + fieldName + ': ' + op + '. Falling back to eq.');
         op = 'eq';
@@ -2073,17 +2091,18 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       if (filterExpressions.length === 0) {
         var listFieldInternalName = this._listFieldInternalNameLookup[targetLower];
         var listFieldType = this._listFieldTypeLookup[targetLower];
-        if (listFieldInternalName && (listFieldType === 'lookup' || listFieldType === 'lookupmulti')) {
-          var linkedLookupId = getLookupIdValue(preferredDynamicValue);
-          var listMetadataClause = buildODataFilterClause(listFieldInternalName, 'lookup', linkedLookupId);
+        if (listFieldInternalName) {
+          var metadataFilterType = getFilterTypeFromSharePointType(listFieldType);
+          var metadataFilterValue = metadataFilterType === 'lookup' ? getLookupIdValue(preferredDynamicValue) : preferredDynamicValue;
+          var listMetadataClause = buildODataFilterClause(listFieldInternalName, metadataFilterType, metadataFilterValue);
           if (listMetadataClause) {
             filterExpressions.push(listMetadataClause);
-            console.log('[SharePointDynamicForm] Built lookup filter from bound-list metadata: ' + listMetadataClause);
+            console.log('[SharePointDynamicForm] Built filter from bound-list metadata: ' + listMetadataClause);
           }
         }
       }
       if (filterExpressions.length === 0) {
-        console.warn('[SharePointDynamicForm] NO MATCHING LOOKUP FIELD FOUND for linkedFieldTarget: ' + this.props.linkedFieldTarget);
+        console.warn('[SharePointDynamicForm] NO MATCHING FIELD FOUND for linkedFieldTarget: ' + this.props.linkedFieldTarget);
       }
     } else {
       if (!this.props.useDynamicValueAsFilter) {

@@ -28,6 +28,11 @@ on:
           - ScriptEditor
           - Tab
           - Tiles
+      release_tag:
+        description: Existing release tag to update (use latest for the newest release)
+        required: true
+        default: latest
+        type: string
 
 permissions:
   contents: write
@@ -150,14 +155,27 @@ jobs:
           path: ${{ steps.prepare.outputs.package_dir }}/
           if-no-files-found: error
 
-      - name: Attach ZIP to GitHub release
-        if: github.event_name == 'release'
+      - name: Replace ZIP on GitHub release
+        if: github.event_name == 'release' || inputs.component == 'all' || inputs.component == matrix.project
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ARCHIVE_PATH: ${{ steps.prepare.outputs.archive_path }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" "$ARCHIVE_PATH" --clobber
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+          ASSET_PREFIX: ${{ matrix.package_name }}-
+        run: |
+          if [[ -z "$RELEASE_TAG" || "$RELEASE_TAG" == "latest" ]]; then
+            RELEASE_TAG="$(gh release view --json tagName --jq .tagName)"
+          fi
+
+          gh release view "$RELEASE_TAG" >/dev/null
+
+          while IFS= read -r asset_name; do
+            [[ -z "$asset_name" ]] && continue
+            gh release delete-asset "$RELEASE_TAG" "$asset_name" --yes
+          done < <(gh release view "$RELEASE_TAG" --json assets --jq ".assets[].name | select(startswith(\"$ASSET_PREFIX\") and endswith(\".zip\"))")
+
+          gh release upload "$RELEASE_TAG" "$ARCHIVE_PATH" --clobber
 
       - name: Publish package
         if: github.event_name == 'release' || inputs.component == 'all' || inputs.component == matrix.project

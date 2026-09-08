@@ -916,6 +916,21 @@ function getLookupIdValue(value: any): string {
   return parsedLookupId > 0 ? String(parsedLookupId) : '';
 }
 
+function getItemFieldValue(item: any, fieldName: string): any {
+  if (!item || !fieldName) { return undefined; }
+  if (item[fieldName] !== undefined && item[fieldName] !== null) { return item[fieldName]; }
+  var normalizedName = String(fieldName).toLowerCase();
+  var keys = Object.keys(item);
+  for (var i = 0; i < keys.length; i += 1) {
+    if (keys[i].toLowerCase() === normalizedName && item[keys[i]] !== undefined && item[keys[i]] !== null) { return item[keys[i]]; }
+  }
+  var idName = normalizedName + 'id';
+  for (var j = 0; j < keys.length; j += 1) {
+    if (keys[j].toLowerCase() === idName) { return item[keys[j]]; }
+  }
+  return undefined;
+}
+
 function normalizeDefaultForField(field: FormField, value: any): FieldValue {
   if (value === undefined || value === null) {
     return '';
@@ -3280,12 +3295,23 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           gridRuntimeValue = gridSourceField.type === 'lookup' || gridSourceField.type === 'person'
             ? getLookupIdValue(this.state.values[gridSourceField.id])
             : this.state.values[gridSourceField.id];
+          if (!hasUsableValue(gridRuntimeValue)) {
+            var loadedGridValue = getItemFieldValue(this.state.loadedItem, gridSourceField.fieldName);
+            gridRuntimeValue = gridSourceField.type === 'lookup' || gridSourceField.type === 'person'
+              ? getLookupIdValue(loadedGridValue)
+              : loadedGridValue;
+          }
         } else if (gridSourceRef) {
           var gridLoadedItem = this.state.loadedItem || {};
           var gridSourceKey = gridConfig.gridControlFilterSourceField || '';
-          gridRuntimeValue = gridLoadedItem[gridSourceKey];
-          if ((gridRuntimeValue === undefined || gridRuntimeValue === null) && gridLoadedItem[gridSourceKey + 'Id'] !== undefined) { gridRuntimeValue = gridLoadedItem[gridSourceKey + 'Id']; }
+          gridRuntimeValue = getItemFieldValue(gridLoadedItem, gridSourceKey);
           if ((gridRuntimeValue === undefined || gridRuntimeValue === null) && gridSourceRef === 'id') { gridRuntimeValue = gridLoadedItem.ID !== undefined ? gridLoadedItem.ID : this.state.resolvedItemId; }
+        }
+        var linkedGridTarget = String(this.props.linkedFieldTarget || '').trim().toLowerCase();
+        if (!hasUsableValue(gridRuntimeValue) && this.props.useDynamicValueAsFilter && gridSourceRef === linkedGridTarget) {
+          var gridRuntimeQueryKey = String(this.props.itemIdQueryParam || 'itemid').trim() || 'itemid';
+          var gridRuntimeQueryValue = this.getUrlQueryValue(gridRuntimeQueryKey);
+          gridRuntimeValue = hasTextValue(gridRuntimeQueryValue) ? gridRuntimeQueryValue : this.props.linkedFieldValue;
         }
         var gridTargetField = String(gridConfig.gridControlFilterTargetField || '');
         var gridRuntimeFilterJson = gridSourceRef && gridTargetField ? JSON.stringify([{

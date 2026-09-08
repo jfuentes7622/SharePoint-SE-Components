@@ -966,6 +966,21 @@ function getListControlFilterValue(field: FormField | null, value: any): any {
   return value;
 }
 
+function getItemFieldValue(item: any, fieldName: string): any {
+  if (!item || !fieldName) { return undefined; }
+  if (item[fieldName] !== undefined && item[fieldName] !== null) { return item[fieldName]; }
+  var normalizedName = String(fieldName).toLowerCase();
+  var keys = Object.keys(item);
+  for (var i = 0; i < keys.length; i += 1) {
+    if (keys[i].toLowerCase() === normalizedName && item[keys[i]] !== undefined && item[keys[i]] !== null) { return item[keys[i]]; }
+  }
+  var idName = normalizedName + 'id';
+  for (var j = 0; j < keys.length; j += 1) {
+    if (keys[j].toLowerCase() === idName) { return item[keys[j]]; }
+  }
+  return undefined;
+}
+
 function normalizeDefaultForField(field: FormField, value: any): FieldValue {
   if (value === undefined || value === null) {
     return '';
@@ -3493,17 +3508,24 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         var runtimeFilterValue: any = '';
         if (filterSourceField) {
           runtimeFilterValue = getListControlFilterValue(filterSourceField, this.state.values[filterSourceField.id]);
+          if (!hasUsableValue(runtimeFilterValue)) {
+            runtimeFilterValue = getListControlFilterValue(filterSourceField, getItemFieldValue(this.state.loadedItem, filterSourceField.fieldName));
+          }
         } else if (filterSourceRef) {
           var loadedItem = this.state.loadedItem || {};
           var loadedItemKey = listControlConfig.listControlFilterSourceField || '';
-          var rawRuntimeValue = loadedItem[loadedItemKey];
-          if ((rawRuntimeValue === undefined || rawRuntimeValue === null) && loadedItem[loadedItemKey + 'Id'] !== undefined) {
-            rawRuntimeValue = loadedItem[loadedItemKey + 'Id'];
-          }
+          var rawRuntimeValue = getItemFieldValue(loadedItem, loadedItemKey);
           if ((rawRuntimeValue === undefined || rawRuntimeValue === null) && filterSourceRef === 'id') {
             rawRuntimeValue = loadedItem.ID !== undefined ? loadedItem.ID : (loadedItem.Id !== undefined ? loadedItem.Id : this.state.resolvedItemId);
           }
           runtimeFilterValue = getListControlFilterValue(null, rawRuntimeValue);
+        }
+        var linkedFilterTarget = String(this.props.linkedFieldTarget || '').trim().toLowerCase();
+        if (!hasUsableValue(runtimeFilterValue) && this.props.useDynamicValueAsFilter && filterSourceRef === linkedFilterTarget) {
+          var runtimeQueryKey = String(this.props.itemIdQueryParam || 'itemid').trim() || 'itemid';
+          var runtimeQueryValue = this.getUrlQueryValue(runtimeQueryKey);
+          var linkedRuntimeValue = hasTextValue(runtimeQueryValue) ? runtimeQueryValue : this.props.linkedFieldValue;
+          runtimeFilterValue = getListControlFilterValue(filterSourceField, linkedRuntimeValue);
         }
         if (filterSourceRef && listControlConfig.listControlFilterTargetField) {
           runtimeFilterJson = JSON.stringify([{

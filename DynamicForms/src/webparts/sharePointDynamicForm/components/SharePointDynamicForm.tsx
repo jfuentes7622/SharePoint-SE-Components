@@ -1312,6 +1312,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     var fromSchema = schema ? toPositiveInt(schema.itemId) : 0;
 
     if (this.props.mode === 'edit' || this.props.mode === 'view' || this.props.useItemId) {
+      if (this.props.useDynamicValueAsFilter && String(this.props.linkedFieldTarget || '').trim()) {
+        return fromProps || fromSchema || 0;
+      }
       // If a dynamic source is bound, prefer live dynamic ID and do not fall back
       // to stale URL/context item IDs from the hosting page.
       if (hasDynamicBinding) {

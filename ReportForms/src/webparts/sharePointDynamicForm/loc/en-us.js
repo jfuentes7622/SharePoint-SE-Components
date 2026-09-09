@@ -66,6 +66,8 @@ define([], function() {
     "PropItemIdLabel": "Item ID",
     "PropItemIdPlaceholder": "Optional: enter a fixed item ID (for edit/view)",
     "PropItemIdHelp": "Optional fixed record ID for direct open.",
+    "PropInstanceNameLabel": "Report name for navigation",
+    "PropInstanceNamePlaceholder": "Example: Request summary",
     "PropLabelPositionLabel": "Label position",
     "PropLabelTop": "Top",
     "PropLabelLeft": "Left",

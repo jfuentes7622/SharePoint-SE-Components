@@ -1,6 +1,6 @@
 {
   "name": "report-forms",
-  "version": "1.0.37",
+  "version": "1.0.40",
   "private": true,
   "main": "lib/index.js",
   "engines": {

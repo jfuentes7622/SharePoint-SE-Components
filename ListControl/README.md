@@ -26,6 +26,8 @@ Use Move up and Move down in the collection editor to control display order. Cha
 
 If the collection is empty, ListControl falls back to the selected SharePoint view's fields and order.
 
+Lookup values are normalized to their SharePoint display text. Object or JSON-shaped values containing `lookupValue`/`LookupValue` are shown as the readable lookup label rather than raw JSON.
+
 ## Display And Actions
 
 - `pageSize` controls client-side pagination; `0` or blank uses Automatic (50), and the maximum is 100 rows per page.
@@ -33,7 +35,7 @@ If the collection is empty, ListControl falls back to the selected SharePoint vi
 - The interactive column header follows page scrolling while the list is visible, stops at the bottom of the table, and keeps open filter dialogs anchored to their header buttons; horizontal scrolling remains synchronized with the columns.
 - When the table is wider than its viewport, left/right navigation arrows appear on hover or keyboard focus and move with the visible portion of the list.
 - The view selector, Refresh, Add, Edit, View, Delete, and Link to Item controls can be shown or hidden independently.
-- Link to Item can navigate to the list's default display form or an `.aspx` page discovered from the current site's Site Pages and publishing Pages libraries. It passes the selected ID through a configurable query parameter and can optionally include a return URL. Previously saved custom target URLs remain available in the dropdown.
+- Link to Item can navigate to the list's default display form or an `.aspx` page discovered from the current site's Site Pages and publishing Pages libraries. It passes the selected ID through a configurable query parameter, can optionally include a return URL, and can open in the same tab, a new tab, a sized new window, or a resizable in-page dialog. The dialog closes from its Close button or embedded callback; releasing a native resize handle does not dismiss it. Previously saved custom target URLs remain available in the dropdown.
 - Body, header, selected-row, alternating-row, table, button, and web-part-container styles are configurable in the property pane.
 - Preset filters and conditional formatting rules can be built in their property-pane designers and stored as JSON. Conditional overrides include background, foreground, font, alignment, border color/type/thickness, and square or rounded corners with a configurable radius.
 - Diagnostic logging can be enabled for data loading and runtime troubleshooting.
@@ -42,7 +44,9 @@ If the collection is empty, ListControl falls back to the selected SharePoint vi
 
 Bind the form web part's dynamic item ID setting to this web part's `Selected Item ID` dynamic property. Dynamic Form can use that value as the form item ID or assign it to a selected parent lookup column.
 
-Bind Dynamic Form's dynamic mode setting to `Selected Mode` so the Add, Edit, and View actions switch the connected form to `new`, `edit`, or `view` mode. The target form list must contain the selected parent lookup column when the item ID is used to create or filter related records instead of opening the same item directly.
+Bind Dynamic Form's dynamic mode setting to `Selected Mode` so the Add, Edit, and View actions switch the connected form to `new`, `edit`, or `view` mode. When the selected value creates or filters related records instead of opening the same SharePoint item directly, configure a supported writable target column in the form; lookup/person targets use the selected numeric item ID.
+
+When embedded in Report Forms, ListControl accepts a transient parent filter without changing its saved web-part properties. Filter target columns are hydrated by item ID even when they are absent from the selected view, and remain hidden unless they were configured for display. On mount or remount, ListControl requests the current runtime configuration so the host can immediately restore the filter.
 
 ## Commands
 
@@ -65,11 +69,11 @@ The deployable package is generated under `sharepoint/solution/`.
 ## Properties and common configuration
 
 - **Data:** `instanceName`, `listName`, `viewId`, `viewColumns`, `pageSize`, and `fetchBatchSize` define the source, identity, columns, visible page size, and progressive SharePoint cache. Blank page size means Automatic (50); fetch batches default to 500.
-- **Navigation:** view-selector, item-link, target-page, item-ID parameter, and return-URL properties control how users move between views and records.
+- **Navigation:** view-selector, item-link, target-page, item-ID parameter, return-URL, and same-tab/new-tab/new-window/dialog target properties control how users move between views and records.
 - **Actions:** refresh, add, edit, view, and delete toggles simplify the toolbar for the intended workflow; permissions still come from SharePoint.
 - **Rules:** filter and conditional-style designers store JSON definitions with field operators, date/current-user expressions, and row/column scopes.
 - **Appearance:** body/header/selected/alternate rows, table borders, web-part surface, buttons, typography, alignment, and date/time formats are configurable.
-- **Advanced:** `forceFullWidth` expands the available workspace and `enableDiagnostics` logs list, view, filter, dynamic-data, and action details.
+- **Advanced:** `forceFullWidth` expands the available workspace; embedded runtime filters can use hidden support columns and recover after remounts; `enableDiagnostics` logs list, view, filter, dynamic-data, and action details.
 
 Selecting a different list or view can rebuild the column collection. Review custom labels, ordering, and widths after changing either source setting.
 

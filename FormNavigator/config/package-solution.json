@@ -1,0 +1,17 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "SPS Form Navigator",
+    "id": "931423ad-8a3c-4d15-a97e-4268b3b32c4f",
+    "version": "1.0.0.2",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true,
+    "features": [{
+      "title": "SPS Form Navigator Feature",
+      "description": "Activates the SPS Form Navigator solution.",
+      "id": "2fc129ea-56d3-4491-a989-260831ef9cce",
+      "version": "1.0.0.2"
+    }]
+  },
+  "paths": { "zippedPackage": "solution/sps-form-navigator.sppkg" }
+}

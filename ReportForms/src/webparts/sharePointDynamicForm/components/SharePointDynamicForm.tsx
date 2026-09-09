@@ -11,7 +11,7 @@ import styles from './SharePointDynamicForm.module.scss';
 import { FormDesigner } from './FormDesigner';
 import { RichTextEditor } from './RichTextEditor';
 import { ListControlHost } from './ListControlHost';
-import { FormField, FormMode, FormSchema, FieldValue, FieldConfig, AdvancedValidationRule } from '../../../formEngine/core/types';
+import { FormField, FormMode, FormSchema, FieldValue, FieldConfig, AdvancedValidationRule, ConditionalFieldRule, ConditionalFieldStyle } from '../../../formEngine/core/types';
 import * as strings from 'SharePointDynamicFormWebPartStrings';
 
 type SPFxContext = any;
@@ -69,6 +69,7 @@ export interface SharePointDynamicFormContainerProps {
   dynamicModeReference?: string;
   dynamicPreferredSourceInstanceId?: string;
   enableDynamicDiagnostics?: boolean;
+  onRuntimeStateChange?: (state: any) => void;
 }
 
 interface ILookupOptionItem {
@@ -1136,10 +1137,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       mode: this.props.mode,
       dynamicItemId: this.props.dynamicItemId,
     });
+    this.publishRuntimeState();
     this.loadData();
   }
 
   public componentDidUpdate(prevProps: SharePointDynamicFormContainerProps): void {
+    this.publishRuntimeState();
     var requiresFullReload = (
       prevProps.formSchemaJson !== this.props.formSchemaJson ||
       prevProps.listName !== this.props.listName ||
@@ -1182,6 +1185,20 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     if (this._isMounted) {
       this.setState(nextState as SharePointDynamicFormContainerState);
     }
+  }
+
+  private publishRuntimeState(): void {
+    if (!this.props.onRuntimeStateChange) { return; }
+    this.props.onRuntimeStateChange({
+      itemId: this.state.resolvedItemId,
+      mode: 'view',
+      dirty: false,
+      completed: this.state.resolvedItemId > 0 && !this.state.loading && !this.state.error,
+      isSubmitting: false,
+      hasErrors: !!this.state.error,
+      canAdd: false,
+      canEdit: false
+    });
   }
 
   private applyLinkedFieldValue(values: IValueMap, fields: FormField[]): void {
@@ -2989,7 +3006,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     var errors: IFieldErrorMap = {};
     for (var i = 0; i < fields.length; i += 1) {
       var field = fields[i];
-      if (field.required !== true) {
+      if (field.required !== true || !this.isFieldVisible(field, schema)) {
         continue;
       }
       var value = this.state.values[field.id];
@@ -3406,6 +3423,65 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     return fileName.substring(extensionIndex + 1).toUpperCase();
   }
 
+  private getConditionalFieldValue(schema: FormSchema, fieldReference: string): any {
+    var normalizedReference = String(fieldReference || '').trim().toLowerCase();
+    var fields = getAllFields(schema);
+    for (var i = 0; i < fields.length; i += 1) {
+      var candidate = fields[i];
+      if (String(candidate.id || '').toLowerCase() === normalizedReference || String(candidate.fieldName || '').toLowerCase() === normalizedReference) {
+        return this.state.values[candidate.id];
+      }
+    }
+    return undefined;
+  }
+
+  private conditionalRuleMatches(rule: ConditionalFieldRule, schema: FormSchema): boolean {
+    if (!rule || rule.enabled === false) { return false; }
+    var candidate = this.getConditionalFieldValue(schema, rule.sourceField);
+    var candidateText = String(candidate === undefined || candidate === null ? '' : candidate).toLowerCase();
+    var expectedText = String(rule.value === undefined || rule.value === null ? '' : rule.value).toLowerCase();
+    var candidateNumber = Number(candidate);
+    var expectedNumber = Number(rule.value);
+    var comparableNumbers = candidateText !== '' && expectedText !== '' && !isNaN(candidateNumber) && !isNaN(expectedNumber);
+    switch (rule.operator) {
+      case 'ne': return candidateText !== expectedText;
+      case 'gt': return comparableNumbers ? candidateNumber > expectedNumber : candidateText > expectedText;
+      case 'ge': return comparableNumbers ? candidateNumber >= expectedNumber : candidateText >= expectedText;
+      case 'lt': return comparableNumbers ? candidateNumber < expectedNumber : candidateText < expectedText;
+      case 'le': return comparableNumbers ? candidateNumber <= expectedNumber : candidateText <= expectedText;
+      case 'contains': return candidateText.indexOf(expectedText) >= 0;
+      case 'notcontains': return candidateText.indexOf(expectedText) < 0;
+      case 'startswith': return candidateText.indexOf(expectedText) === 0;
+      case 'endswith': return expectedText === '' || candidateText.lastIndexOf(expectedText) === candidateText.length - expectedText.length;
+      default: return candidateText === expectedText;
+    }
+  }
+
+  private getMatchingConditionalRules(field: FormField, action: string, schema?: FormSchema): ConditionalFieldRule[] {
+    var currentSchema = schema || this.state.schema;
+    if (!currentSchema || !currentSchema.conditionalRules) { return []; }
+    var fieldId = String(field.id || '').toLowerCase();
+    var fieldName = String(field.fieldName || '').toLowerCase();
+    return currentSchema.conditionalRules.filter((rule: ConditionalFieldRule) => {
+      var target = String(rule.targetField || '').toLowerCase();
+      return rule.action === action && (target === fieldId || target === fieldName) && this.conditionalRuleMatches(rule, currentSchema);
+    });
+  }
+
+  private isFieldVisible(field: FormField, schema?: FormSchema): boolean {
+    var rules = this.getMatchingConditionalRules(field, 'visibility', schema);
+    return rules.length > 0 ? rules[rules.length - 1].visible !== false : field.visible !== false;
+  }
+
+  private getConditionalFieldStyle(field: FormField): ConditionalFieldStyle {
+    var result: ConditionalFieldStyle = {};
+    var rules = this.getMatchingConditionalRules(field, 'style');
+    for (var i = 0; i < rules.length; i += 1) {
+      result = Object.assign(result, rules[i].style || {});
+    }
+    return result;
+  }
+
   private renderField(field: FormField): JSX.Element | null {
     var value = this.state.values[field.id];
     var effectiveMode = this.getEffectiveMode();
@@ -3433,6 +3509,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
     // Build field wrapper styles with background and border
     var fieldWrapperStyle: React.CSSProperties = { padding: '12px', marginBottom: '16px' };
+    var conditionalStyle = this.getConditionalFieldStyle(field);
     // Determine label position: field override or theme default
     var labelPosition = field.labelPosition || (this.state.schema && this.state.schema.theme && this.state.schema.theme.labelPosition) || 'top';
     var labelWrapperStyle: React.CSSProperties = labelPosition === 'left' 
@@ -3451,6 +3528,14 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     if (field.fieldBorderStyle === 'rounded') {
       fieldWrapperStyle.borderRadius = String(field.fieldBorderRadius || 8) + 'px';
     }
+    if (conditionalStyle.backgroundColor) { fieldWrapperStyle.backgroundColor = conditionalStyle.backgroundColor; }
+    if (conditionalStyle.color) { fieldWrapperStyle.color = conditionalStyle.color; }
+    if (conditionalStyle.borderColor || conditionalStyle.borderWidth) {
+      fieldWrapperStyle.border = String(conditionalStyle.borderWidth || 1) + 'px solid ' + (conditionalStyle.borderColor || '#cccccc');
+    }
+    if (conditionalStyle.borderRadius !== undefined) { fieldWrapperStyle.borderRadius = String(conditionalStyle.borderRadius) + 'px'; }
+    if (conditionalStyle.fontSize) { fieldWrapperStyle.fontSize = conditionalStyle.fontSize; }
+    if (conditionalStyle.fontWeight) { fieldWrapperStyle.fontWeight = conditionalStyle.fontWeight; }
 
     // Build input styles with field-specific font settings; always resolved (own default when unset)
     // so a field's input never inherits font styling meant for its surrounding container.
@@ -3461,6 +3546,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       fontWeight: (field.inputFontWeight || 'normal') as any,
       color: field.inputColor || '#000000',
     };
+    if (conditionalStyle.color) { labelStyle.color = conditionalStyle.color; inputStyle.color = conditionalStyle.color; }
+    if (conditionalStyle.fontSize) { labelStyle.fontSize = conditionalStyle.fontSize; inputStyle.fontSize = conditionalStyle.fontSize; }
+    if (conditionalStyle.fontWeight) { labelStyle.fontWeight = conditionalStyle.fontWeight; inputStyle.fontWeight = conditionalStyle.fontWeight; }
+    labelBlockStyle.color = labelStyle.color;
+    labelBlockStyle.fontSize = labelStyle.fontSize;
+    labelBlockStyle.fontWeight = labelStyle.fontWeight;
     var reportValueStyle: React.CSSProperties = Object.assign({}, inputStyle, {
       padding: '8px',
       border: '1px solid #d1d1d1',
@@ -3483,7 +3574,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       console.log('[ReportFormsWebPart] Field "' + field.fieldName + '" has description: ' + description);
     }
 
-    if (field.visible === false || field.type === 'newline') {
+    if (!this.isFieldVisible(field) || field.type === 'newline') {
       return null;
     }
 
@@ -4342,7 +4433,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
             {step.showTitle !== false && step.description && <p style={Object.assign({}, stepDescriptionStyle, { textAlign: step.descriptionAlignment || 'left' })}>{step.description}</p>}
             <div style={stepContainerStyle}>
             {step.fields.map((field) => {
-              if (!field) {
+              if (!field || !this.isFieldVisible(field)) {
                 return null;
               }
               return (

@@ -14,6 +14,7 @@ All web-part property panes display the deployed solution version. Components wi
 | [Carousel](#carousel) | Web Part | Auto-playing image carousel from a library | [Carousel/README.md](Carousel/README.md) |
 | [Contact](#contact) | Web Part | Filterable staff/contact directory cards | [Contact/README.md](Contact/README.md) |
 | [Dynamic Forms](#sharepointdform-dynamic-forms) | Web Part | No-code list form designer and runtime | [DynamicForms/README.md](DynamicForms/README.md) |
+| [Form Navigator](#form-navigator) | Web Part | Grouped direct navigation across Dynamic Forms and Report Forms | [FormNavigator/README.md](FormNavigator/README.md) |
 | [Full Width Control](#full-width-control) | Web Part | Expands the containing page section | [FullWidthControl/README.md](FullWidthControl/README.md) |
 | [GridControl](#gridcontrol) | Web Part | Designer-configured editable list grid | [GridControl/README.md](GridControl/README.md) |
 | [LinkButton](#linkbutton) | Web Part | Styled hyperlink button with optional image | [LinkButton/README.md](LinkButton/README.md) |
@@ -545,6 +546,14 @@ Displays a scrolling announcement ticker (**SPS Marquee**) rendered as an animat
 | `isInDesignerMode` | Internal flag indicating whether the form is in visual designer editing mode |
 
 > Note: Many JSON-backed properties (filter, validation, defaults, conditional styles) have companion "validate" buttons/result fields in the property pane for testing JSON before saving. Expressions support field references (`field("InternalName")`), date functions (`today()`, `date(n)`), and user context (`me`, `me.email`, `me.login`, `me.id`).
+
+---
+
+## Form Navigator
+
+Coordinates multiple Dynamic Forms and Report Forms on the same modern page as grouped navigation. Targets can be organized into named categories, opened directly according to free/completed/sequential/preview policies, and styled as a vertical list, horizontal category navigation, or tree. Status icons identify active, completed, locked, and invalid targets; optional confirmation protects unsaved Dynamic Forms changes.
+
+The navigator discovers compatible web parts through SPFx dynamic data and only controls instances selected in its Forms collection. Deploy Dynamic Forms `1.0.0.96` or later and Report Forms `1.0.0.65` or later as applicable. Report Forms remain read-only and retain their own item-selection configuration. See [FormNavigator/README.md](FormNavigator/README.md) for setup and appearance settings.
 
 ---
 

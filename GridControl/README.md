@@ -104,7 +104,9 @@ GridControl also executes DForm-compatible field rule types `required`, `minLeng
 
 Bind the form web part's dynamic item ID setting to this web part's `Selected Item ID` dynamic property. Dynamic Form can use that value as the form item ID or assign it to a selected parent lookup column.
 
-Bind Dynamic Form's dynamic mode setting to `Selected Mode` so adding, selecting, or editing a row switches the connected form to `new`, `view`, or `edit` mode. The target form list must contain the selected parent lookup column when the item ID is used to create or filter related records instead of opening the same item directly.
+Bind Dynamic Form's dynamic mode setting to `Selected Mode` so adding, selecting, or editing a row switches the connected form to `new`, `view`, or `edit` mode. When the selected value creates or filters related records instead of opening the same SharePoint item directly, configure a supported writable target column in the form; lookup/person targets use the selected numeric item ID.
+
+When embedded in Dynamic Forms, GridControl accepts a transient parent filter and new-row default without changing its saved web-part properties. Filter target columns are hydrated by item ID even when they are absent from the selected view, and remain hidden unless they were configured for display. On mount or remount, GridControl requests the current runtime configuration so its host can immediately restore the parent filter, default value, and mode-based read-only state.
 
 ## Commands
 
@@ -132,7 +134,7 @@ The deployable package is generated under `sharepoint/solution/`.
 - **Behavior:** `pageSize`, `fetchBatchSize`, view selector, refresh, add/delete/history, item links, filtering, and target-page properties control grid operation. Blank page size means Automatic (50); fetch batches default to 500.
 - **Editors and validation:** text, multiline, number, Boolean, choice, multi-choice, date/time, URL, lookup, and person fields receive compatible controls; list-required fields remain required.
 - **Appearance:** body/header/selected-row, borders, alternate rows, buttons, date/time formats, web-part surface, and conditional-rule designers control display.
-- **Advanced:** `forceFullWidth` uses the available page width. `enableDiagnostics` records metadata, REST fallback, mutation, and rendering details.
+- **Advanced:** `forceFullWidth` uses the available page width. Embedded runtime filters can use hidden support columns and recover their filter/default/read-only configuration after remounts. `enableDiagnostics` records metadata, REST fallback, mutation, and rendering details.
 
 The current user needs SharePoint permissions for each enabled action. Unsupported custom field types can be displayed but should remain read-only.
 

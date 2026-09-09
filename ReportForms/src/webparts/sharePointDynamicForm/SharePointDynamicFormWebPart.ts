@@ -26,6 +26,7 @@ import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface ISharePointDynamicFormWebPartProps {
+  instanceName?: string;
   forceFullWidth?: boolean;
   fixedWidth?: number;
   formSchemaJson: string;
@@ -103,6 +104,20 @@ export interface ISharePointDynamicFormWebPartProps {
 export interface IDropdownOption {
   key: string | number;
   text: string;
+}
+
+export interface IDynamicDataPropertyDefinitionCompat {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface IDynamicDataSourceMetadataCompat {
+  title: string;
+  description?: string;
+  alias?: string;
+  componentId?: string;
+  instanceId?: string;
 }
 
 function normalizeColorValue(value: any, fallback: string): string {
@@ -309,6 +324,39 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   private _permissionLookupMessage: string = '';
   private _validationDesignerMessage: string = '';
   private _requiredDesignerMessage: string = '';
+  private _dynamicDataSourceManager: any;
+  private _navigatorActive: boolean = true;
+  private _navigatorRuntimeState: any = {};
+  private _navigatorRuntimeSnapshot: string = '';
+  private _navigatorHandler?: (event: Event) => void;
+
+  public get id(): string { return this.context.instanceId; }
+
+  public get metadata(): IDynamicDataSourceMetadataCompat {
+    var instanceName = String(this.properties.instanceName || '').trim();
+    return {
+      title: instanceName || 'SPS Report Forms',
+      description: 'Publishes Report Forms navigation state.',
+      alias: this.context.manifest.alias,
+      componentId: this.context.manifest.id,
+      instanceId: this.context.instanceId
+    };
+  }
+
+  public getPropertyDefinitions(): ReadonlyArray<IDynamicDataPropertyDefinitionCompat> {
+    return [
+      { id: 'instanceName', title: 'Report name' },
+      { id: 'listName', title: 'Configured list name' },
+      { id: 'navigationState', title: 'Report navigation state' }
+    ];
+  }
+
+  public getPropertyValue(propertyId: string): any {
+    if (propertyId === 'instanceName') { return String(this.properties.instanceName || '').trim(); }
+    if (propertyId === 'listName') { return String(this.properties.listName || '').trim(); }
+    if (propertyId === 'navigationState') { return this._navigatorRuntimeState; }
+    throw new Error('Bad property id');
+  }
   private handleColorPropertyChange(propertyPath: string, oldValue: any, newValue: any): void {
     var fallback = propertyPath === 'buttonBackgroundColor' ? '#f0f0f0' : '#000000';
     var normalized = normalizeColorValue(newValue, fallback);
@@ -329,6 +377,12 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this.refreshFullWidthLayout();
     this.tryRebindDynamicReferences();
     this.ensureDynamicValueChangeHandler();
+    var navigatorActive = this.displayMode === DisplayMode.Edit || this._navigatorActive;
+    this.domElement.style.display = navigatorActive ? '' : 'none';
+    if (!navigatorActive) {
+      ReactDom.unmountComponentAtNode(this.domElement);
+      return;
+    }
 
     var designerAvailable = this.isDesignerAvailable();
     var configuredItemId = parseInt(String(this.properties.itemId || ''), 10);
@@ -404,6 +458,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         dynamicModeReference: this.properties.dynamicItemModeReference || '',
         dynamicPreferredSourceInstanceId: this.properties.dynamicPreferredSourceInstanceId || '',
         enableDynamicDiagnostics: this.properties.enableDynamicDiagnostics !== false,
+        onRuntimeStateChange: (state: any) => this.handleRuntimeStateChanged(state),
       }
     );
 
@@ -412,6 +467,8 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
 
   protected onInit(): Promise<void> {
     this.properties.itemIdQueryParam = normalizeQueryParamName(this.properties.itemIdQueryParam, 'itemid');
+    this.initializeDynamicDataSource();
+    this.registerNavigator();
     this.getRuntimeDynamicItemProperty();
     this.getRuntimeDynamicItemModeProperty();
     this.promoteRuntimeDynamicProperties();
@@ -523,6 +580,10 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     }
 
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+    if (propertyPath === 'instanceName') {
+      this.notifyDynamicData('instanceName');
+      this.handleRuntimeStateChanged(this._navigatorRuntimeState);
+    }
     this.promoteRuntimeDynamicProperties();
     this.ensureDynamicValueChangeHandler();
 
@@ -1414,8 +1475,90 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   protected onDispose(): void {
     this.unregisterDynamicValueChangeHandler();
     this.unregisterDynamicSourceChangeHandler();
+    this.unregisterNavigator();
+    this.domElement.style.display = '';
     releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
     ReactDom.unmountComponentAtNode(this.domElement);
+  }
+
+  private initializeDynamicDataSource(): void {
+    this._dynamicDataSourceManager = (this.context as any).dynamicDataSourceManager || (this.context as any)._dynamicDataSourceManager;
+    if (this._dynamicDataSourceManager && this._dynamicDataSourceManager.initializeSource) {
+      this._dynamicDataSourceManager.initializeSource(this);
+    } else if (this._dynamicDataSourceManager && this._dynamicDataSourceManager.registerSource) {
+      this._dynamicDataSourceManager.registerSource(this);
+    }
+  }
+
+  private notifyDynamicData(propertyId: string): void {
+    if (!this._dynamicDataSourceManager) { return; }
+    if (this._dynamicDataSourceManager.notifyPropertyChanged) { this._dynamicDataSourceManager.notifyPropertyChanged(propertyId); }
+    if (this._dynamicDataSourceManager.notifySourceChanged) { this._dynamicDataSourceManager.notifySourceChanged(); }
+    else if (this._dynamicDataSourceManager.notifyDataChanged) { this._dynamicDataSourceManager.notifyDataChanged(); }
+  }
+
+  private handleRuntimeStateChanged(state: any): void {
+    var nextState = {
+      instanceId: this.context.instanceId,
+      instanceName: String(this.properties.instanceName || '').trim(),
+      listName: String(this.properties.listName || '').trim(),
+      active: this._navigatorActive,
+      itemId: toPositiveItemId(state && state.itemId),
+      mode: 'view',
+      dirty: false,
+      completed: !!(state && state.completed),
+      isSubmitting: false,
+      hasErrors: !!(state && state.hasErrors),
+      canAdd: false,
+      canEdit: false
+    };
+    var snapshot = JSON.stringify(nextState);
+    if (snapshot === this._navigatorRuntimeSnapshot) { return; }
+    this._navigatorRuntimeSnapshot = snapshot;
+    this._navigatorRuntimeState = nextState;
+    this.notifyDynamicData('navigationState');
+    if (typeof window === 'undefined') { return; }
+    var stateEvent: any;
+    if (typeof CustomEvent === 'function') {
+      stateEvent = new CustomEvent('spse:dynamicform-state-changed', { detail: nextState });
+    } else {
+      stateEvent = document.createEvent('CustomEvent');
+      stateEvent.initCustomEvent('spse:dynamicform-state-changed', false, false, nextState);
+    }
+    window.dispatchEvent(stateEvent);
+  }
+
+  private registerNavigator(): void {
+    if (typeof window === 'undefined' || this._navigatorHandler) { return; }
+    this._navigatorHandler = (event: Event) => {
+      var detail = (event as any).detail || {};
+      if (this.displayMode === DisplayMode.Edit || detail.navigatorNavigation !== true) { return; }
+      var currentId = String(this.context.instanceId || '').replace(/[{}]/g, '').toLowerCase();
+      var targetId = String(detail.targetInstanceId || '').replace(/[{}]/g, '').toLowerCase();
+      if (targetId !== currentId) {
+        var managedIds: string[] = Array.isArray(detail.managedInstanceIds) ? detail.managedInstanceIds : [];
+        var isManaged = managedIds.some(function(instanceId: string) {
+          return String(instanceId || '').replace(/[{}]/g, '').toLowerCase() === currentId;
+        });
+        if (!isManaged) { return; }
+        this._navigatorActive = false;
+        this.render();
+        this.handleRuntimeStateChanged(this._navigatorRuntimeState);
+        return;
+      }
+      this._navigatorActive = true;
+      detail.handled = true;
+      this.render();
+      this.handleRuntimeStateChanged(this._navigatorRuntimeState);
+    };
+    window.addEventListener('spse:dynamicform-wizard-navigate', this._navigatorHandler);
+  }
+
+  private unregisterNavigator(): void {
+    if (typeof window !== 'undefined' && this._navigatorHandler) {
+      window.removeEventListener('spse:dynamicform-wizard-navigate', this._navigatorHandler);
+    }
+    this._navigatorHandler = undefined;
   }
 
   private getActiveDynamicSourceId(): string {
@@ -2735,6 +2878,11 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                   placeholder: strings.PropItemIdPlaceholder,
                   value: this.properties.itemId ? String(this.properties.itemId) : '',
                   description: strings.PropItemIdHelp,
+                }),
+                PropertyPaneTextField('instanceName', {
+                  label: strings.PropInstanceNameLabel,
+                  placeholder: strings.PropInstanceNamePlaceholder,
+                  value: this.properties.instanceName || ''
                 }),
                 PropertyPaneToggle('showFieldDescription', {
                   label: strings.PropShowFieldDescriptionLabel,

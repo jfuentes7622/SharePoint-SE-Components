@@ -11,7 +11,7 @@ import styles from './SharePointDynamicForm.module.scss';
 import { FormDesigner } from './FormDesigner';
 import { RichTextEditor } from './RichTextEditor';
 import { GridControlHost } from './GridControlHost';
-import { FormField, FormMode, FormSchema, FieldValue, FieldConfig, AdvancedValidationRule } from '../../../formEngine/core/types';
+import { FormField, FormMode, FormSchema, FieldValue, FieldConfig, AdvancedValidationRule, ConditionalFieldRule, ConditionalFieldStyle } from '../../../formEngine/core/types';
 import * as strings from 'SharePointDynamicFormWebPartStrings';
 
 type SPFxContext = any;
@@ -49,6 +49,15 @@ export interface SharePointDynamicFormContainerProps {
   cancelButtonLabel?: string;
   cancelRedirectUrl?: string;
   submitRedirectUrl?: string;
+  includeItemIdOnCancel?: boolean;
+  includeItemIdOnSubmit?: boolean;
+  redirectItemIdQueryParam?: string;
+  onItemSaved?: (itemId: number) => void;
+  onRuntimeStateChange?: (state: any) => void;
+    hasPreviousWizardForm?: boolean;
+    hasNextWizardForm?: boolean;
+    onWizardBack?: () => void;
+    onWizardNext?: (itemId: number) => void;
   onSubmitMessage?: string;
   buttonTextColor?: string;
   buttonBackgroundColor?: string;
@@ -115,6 +124,7 @@ interface SharePointDynamicFormContainerState {
   canAddRecords: boolean;
   canEditRecords: boolean;
   permissionStatusMessage: string | null;
+  isDirty: boolean;
 }
 
 interface ILookupPermissionFieldMetadata {
@@ -1039,6 +1049,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   private _existingAttachments: { [fieldId: string]: IAttachmentItem[] };
   private _attachmentsMarkedForDelete: { [fieldId: string]: IAttachmentItem[] };
   private _attachmentInputRefs: { [fieldId: string]: HTMLInputElement | null };
+  private _isDocumentLibrary: boolean;
+  private _documentLibraryRootUrl: string;
 
   public constructor(props: SharePointDynamicFormContainerProps) {
     super(props);
@@ -1051,6 +1063,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     this._existingAttachments = {};
     this._attachmentsMarkedForDelete = {};
     this._attachmentInputRefs = {};
+    this._isDocumentLibrary = false;
+    this._documentLibraryRootUrl = '';
     this.state = {
       schema: null,
       values: {},
@@ -1068,6 +1082,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       canAddRecords: true,
       canEditRecords: true,
       permissionStatusMessage: null,
+      isDirty: false,
     };
 
     this.handleSubmit = this.handleSubmit.bind(this);
@@ -1091,6 +1106,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   }
 
   public componentDidUpdate(prevProps: SharePointDynamicFormContainerProps): void {
+    this.publishRuntimeState();
     var requiresFullReload = (
       prevProps.formSchemaJson !== this.props.formSchemaJson ||
       prevProps.listName !== this.props.listName ||
@@ -1133,6 +1149,20 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     if (this._isMounted) {
       this.setState(nextState as SharePointDynamicFormContainerState);
     }
+  }
+
+  private publishRuntimeState(): void {
+    if (!this.props.onRuntimeStateChange) { return; }
+    this.props.onRuntimeStateChange({
+      itemId: this.state.resolvedItemId,
+      mode: this.getEffectiveMode(),
+      dirty: this.state.isDirty,
+      completed: this.state.resolvedItemId > 0 && !this.state.isDirty && !this.state.submitError,
+      isSubmitting: this.state.isSubmitting,
+      hasErrors: Object.keys(this.state.fieldErrors || {}).length > 0 || !!this.state.submitError,
+      canAdd: this.state.canAddRecords,
+      canEdit: this.state.canEditRecords
+    });
   }
 
   private applyLinkedFieldValue(values: IValueMap, fields: FormField[]): void {
@@ -1303,6 +1333,18 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
     window.location.assign(targetUrl);
     return true;
+  }
+
+  private appendItemIdToRedirectUrl(targetUrl: string, itemId: number): string {
+    if (!targetUrl || itemId <= 0) {
+      return targetUrl;
+    }
+    var parameterName = String(this.props.redirectItemIdQueryParam || 'itemid').trim() || 'itemid';
+    var hashIndex = targetUrl.indexOf('#');
+    var hash = hashIndex >= 0 ? targetUrl.substring(hashIndex) : '';
+    var baseUrl = hashIndex >= 0 ? targetUrl.substring(0, hashIndex) : targetUrl;
+    var separator = baseUrl.indexOf('?') >= 0 ? '&' : '?';
+    return baseUrl + separator + encodeURIComponent(parameterName) + '=' + encodeURIComponent(String(itemId)) + hash;
   }
 
   private getResolvedItemId(schema?: FormSchema | null): number {
@@ -1871,6 +1913,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         canAddRecords: false,
         canEditRecords: false,
         permissionStatusMessage: strings.PermissionDeniedDefault,
+        isDirty: false,
       });
       return;
     }
@@ -1894,6 +1937,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         canAddRecords: false,
         canEditRecords: false,
         permissionStatusMessage: null,
+        isDirty: false,
       });
       return;
     }
@@ -2036,6 +2080,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         canAddRecords: permissionResult.canAdd,
         canEditRecords: permissionResult.canEdit,
         permissionStatusMessage: this.getPermissionDeniedMessage(schema),
+        isDirty: false,
       });
       console.log('[SharePointDynamicForm] Form data loaded. Resolved Item ID: ' + resolvedItemId + ', Values: ', values);
     } catch (error) {
@@ -2054,13 +2099,17 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         canAddRecords: false,
         canEditRecords: false,
         permissionStatusMessage: this.getPermissionDeniedMessage(schema),
+        isDirty: false,
       });
     }
   }
 
   private async loadItem(listName: string, itemId: number): Promise<any | null> {
+    var selectAndExpand = this._isDocumentLibrary
+      ? '?$select=*,File/Name,File/ServerRelativeUrl&$expand=File'
+      : '?$select=*,AttachmentFiles/FileName,AttachmentFiles/ServerRelativeUrl&$expand=AttachmentFiles';
     var response = await this.getWithAcceptFallback(
-      this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/items(" + itemId + ")?$select=*,AttachmentFiles/FileName,AttachmentFiles/ServerRelativeUrl&$expand=AttachmentFiles"
+      this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/items(" + itemId + ')' + selectAndExpand
     );
     if (response.status === 404) {
       this.logDiagnostic('Requested item ' + itemId + ' was not found. Falling back to new-item state.');
@@ -2380,6 +2429,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
     this._attachmentsMarkedForDelete[fieldId] = current;
     this.forceAttachmentFieldRefresh(fieldId);
+    this.setSafeState({ isDirty: true });
   }
 
   private isAttachmentMarkedForDelete(fieldId: string, attachment: IAttachmentItem): boolean {
@@ -2581,6 +2631,79 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     }
   }
 
+  private getDocumentField(schema: FormSchema): FormField | null {
+    var fields = getAllFields(schema);
+    for (var i = 0; i < fields.length; i += 1) {
+      if (fields[i].type === 'attachment' && String(fields[i].fieldName || '').toLowerCase() === 'fileleafref') {
+        return fields[i];
+      }
+    }
+    return null;
+  }
+
+  private async getDocumentItemId(serverRelativeUrl: string): Promise<number> {
+    var endpoint = this.getWebUrl() + "/_api/web/GetFileByServerRelativeUrl('"
+      + encodeURIComponent(serverRelativeUrl).replace(/'/g, '%27')
+      + "')/ListItemAllFields?$select=Id";
+    var response = await this.getWithAcceptFallback(endpoint);
+    if (!response.ok) {
+      return 0;
+    }
+    var data = await response.json();
+    var item = data && data.d ? data.d : data;
+    return this.getCreatedItemId(item);
+  }
+
+  private async saveDocumentFile(schema: FormSchema, currentItemId: number): Promise<number> {
+    var documentField = this.getDocumentField(schema);
+    if (!documentField) {
+      throw new Error(strings.FormDocumentFieldRequired);
+    }
+    var files = this.getPendingAttachments(documentField.id);
+    if (currentItemId > 0 && files.length === 0) {
+      return currentItemId;
+    }
+    if (files.length !== 1) {
+      throw new Error(strings.FormDocumentFileRequired);
+    }
+    if (!this._documentLibraryRootUrl) {
+      throw new Error(strings.FormDocumentLibraryUnavailable);
+    }
+
+    var destinationName = files[0].name;
+    if (currentItemId > 0) {
+      var existing = this._existingAttachments[documentField.id] || [];
+      if (!existing.length || !existing[0].fileName) {
+        throw new Error(strings.FormDocumentLibraryUnavailable);
+      }
+      destinationName = existing[0].fileName;
+    }
+
+    var endpoint = this.getWebUrl() + "/_api/web/GetFolderByServerRelativeUrl('"
+      + encodeURIComponent(this._documentLibraryRootUrl).replace(/'/g, '%27')
+      + "')/Files/add(url='" + encodeURIComponent(destinationName).replace(/'/g, '%27')
+      + "',overwrite=" + (currentItemId > 0 ? 'true' : 'false') + ')';
+    var response = await this.props.context.spHttpClient.post(endpoint, SPHttpClient.configurations.v1, {
+      headers: {
+        Accept: 'application/json;odata=verbose',
+        'Content-Type': 'application/octet-stream',
+        'OData-Version': '3.0',
+      },
+      body: files[0],
+    });
+    if (!response.ok) {
+      await this.logSubmitFailure(response, 'Upload document', schema.listName, { fileName: destinationName, itemId: currentItemId });
+      throw new Error(this.buildAttachmentFailureMessage(destinationName, response.statusText || strings.FormSubmitFailedDefault));
+    }
+
+    var serverRelativeUrl = this._documentLibraryRootUrl.replace(/\/$/, '') + '/' + destinationName;
+    var uploadedItemId = await this.getDocumentItemId(serverRelativeUrl);
+    if (uploadedItemId <= 0 || (currentItemId > 0 && uploadedItemId !== currentItemId)) {
+      throw new Error(strings.FormDocumentItemResolveFailed);
+    }
+    return uploadedItemId;
+  }
+
   private getCreatedItemId(responseData: any): number {
     if (responseData && typeof responseData.Id === 'number') {
       return responseData.Id;
@@ -2596,11 +2719,24 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this._listFieldNameLookup = {};
       this._listFieldInternalNameLookup = {};
       this._listFieldTypeLookup = {};
+      this._isDocumentLibrary = false;
+      this._documentLibraryRootUrl = '';
       return;
     }
 
     try {
       console.log('[SharePointDynamicForm] loadFieldDescriptions START - List: ' + schema.listName);
+      var listResponse = await this.getWithAcceptFallback(
+        this.props.context.pageContext.web.absoluteUrl + '/_api/web/lists/getByTitle(\'' + escapeODataText(schema.listName) + '\')?$select=BaseType,RootFolder/ServerRelativeUrl&$expand=RootFolder'
+      );
+      if (!listResponse.ok) {
+        throw new Error(strings.DesignerLoadFieldsFailed);
+      }
+      var listPayload = await listResponse.json();
+      var listInfo = listPayload && listPayload.d ? listPayload.d : listPayload;
+      this._isDocumentLibrary = Number(listInfo && listInfo.BaseType) === 1;
+      this._documentLibraryRootUrl = this._isDocumentLibrary && listInfo && listInfo.RootFolder
+        ? String(listInfo.RootFolder.ServerRelativeUrl || '') : '';
       
       // Get all fields from the SharePoint list
       var response = await this.getWithAcceptFallback(
@@ -2678,6 +2814,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this._listFieldNameLookup = {};
       this._listFieldInternalNameLookup = {};
       this._listFieldTypeLookup = {};
+      this._isDocumentLibrary = false;
+      this._documentLibraryRootUrl = '';
       console.error('[SharePointDynamicForm] loadFieldDescriptions ERROR: ', error);
     }
   }
@@ -2695,7 +2833,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     for (var i = 0; i < fields.length; i += 1) {
       var field = fields[i];
       if (field.type === 'attachment') {
-        var rawAttachments = item.AttachmentFiles;
+        var rawAttachments = this._isDocumentLibrary && item.File
+          ? [{ FileName: item.File.Name, ServerRelativeUrl: item.File.ServerRelativeUrl }]
+          : item.AttachmentFiles;
         var attachmentItems = rawAttachments && rawAttachments.results ? rawAttachments.results : rawAttachments;
         if (attachmentItems && attachmentItems.length) {
           this._existingAttachments[field.id] = attachmentItems.map(function(attachment: any) {
@@ -2795,6 +2935,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   }
 
   private setFieldValue(fieldId: string, value: FieldValue): void {
+    var shouldRevalidate = Object.keys(this.state.fieldErrors).length > 0;
     var values: IValueMap = {};
     var key: string;
     for (key in this.state.values) {
@@ -2811,7 +2952,19 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       }
     }
 
-    this.setState({ values: values, fieldErrors: fieldErrors });
+    this.setState({ values: values, fieldErrors: shouldRevalidate ? this.state.fieldErrors : fieldErrors, isDirty: true }, () => {
+      if (!shouldRevalidate || !this.state.schema) { return; }
+      var validationResult = this.validateForm(this.state.schema);
+      var hasErrors = Object.keys(validationResult.fieldErrors).length > 0 || validationResult.formErrors.length > 0;
+      var validationMessage = hasErrors ? strings.FormStepValidationError : null;
+      if (validationMessage && validationResult.formErrors.length > 0) {
+        validationMessage += ' ' + validationResult.formErrors.join(' ');
+      }
+      this.setState({
+        fieldErrors: validationResult.fieldErrors,
+        submitError: validationMessage
+      });
+    });
   }
 
   private resolveFieldIdByReference(schema: FormSchema, fieldRef: string): string {
@@ -2872,7 +3025,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     var errors: IFieldErrorMap = {};
     for (var i = 0; i < fields.length; i += 1) {
       var field = fields[i];
-      if (field.required !== true) {
+      if (field.required !== true || !this.isFieldVisible(field, schema)) {
         continue;
       }
       var value = this.state.values[field.id];
@@ -3055,9 +3208,15 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     try {
       var payload = this.buildSubmitPayload(schema);
       var listName = schema.listName || this.props.listName;
-      var itemId = this.getResolvedItemId(schema);
+      var itemId = this.state.resolvedItemId > 0 ? this.state.resolvedItemId : this.getResolvedItemId(schema);
+      if (effectiveMode === 'edit' && itemId <= 0) {
+        throw new Error('The record ID for this edit could not be resolved. No new record was created, and the wizard will remain on this form.');
+      }
       var wasCreate = !(effectiveMode === 'edit' && itemId > 0);
-      if (effectiveMode === 'edit' && itemId > 0) {
+      if (this._isDocumentLibrary) {
+        itemId = await this.saveDocumentFile(schema, effectiveMode === 'edit' ? itemId : 0);
+        await this.updateItem(listName, itemId, payload);
+      } else if (effectiveMode === 'edit' && itemId > 0) {
         await this.updateItem(listName, itemId, payload);
       } else {
         itemId = await this.createItem(listName, payload);
@@ -3067,22 +3226,17 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         this.logDiagnostic('Item save completed but no item ID was available for follow-up attachment upload.');
       }
 
-      if (itemId > 0) {
+      if (itemId > 0 && !this._isDocumentLibrary) {
         await this.deleteMarkedAttachments(listName, itemId, schema);
         await this.uploadAttachments(listName, itemId, schema);
       }
 
-      var savedItem = this.state.loadedItem;
-      if (wasCreate && itemId > 0) {
-        try {
-          savedItem = await this.loadItem(listName, itemId);
-        } catch (createdItemLoadError) {
-          this.logDiagnostic('Created item ' + itemId + ' could not be reloaded immediately. Continuing with its assigned ID.');
-          savedItem = null;
-        }
-        if (!savedItem) {
-          savedItem = { ID: itemId, Id: itemId };
-        }
+      var savedItem: any = null;
+      if (itemId > 0) {
+        savedItem = await this.loadItem(listName, itemId);
+      }
+      if (!savedItem) {
+        throw new Error('SharePoint did not return the saved record. The wizard will remain on this form so the save can be checked.');
       }
 
       var nextValues: IValueMap = {};
@@ -3099,9 +3253,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           this._attachmentsMarkedForDelete[attachmentFields[attachmentIndex].id] = [];
         }
       }
-      if (wasCreate && savedItem) {
-        nextValues = this.mapItemToValues(schema, savedItem, nextValues);
-      }
+      nextValues = this.mapItemToValues(schema, savedItem, nextValues);
 
       this.notifyListControlRefresh(listName, wasCreate ? 'add' : 'edit');
       console.log('[SharePointDynamicForm] handleSubmit SUCCESS - ' + (wasCreate ? 'Created' : 'Updated') + ' item ID: ' + itemId);
@@ -3115,9 +3267,17 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         isViewEditing: this.props.mode === 'view' ? false : this.state.isViewEditing,
         submitError: null,
         submitSuccess: this.props.onSubmitMessage || (effectiveMode === 'edit' ? strings.FormSubmitSuccessEdit : strings.FormSubmitSuccessNew),
+        isDirty: false,
       });
 
+      if (itemId > 0 && this.props.onItemSaved) {
+        this.props.onItemSaved(itemId);
+      }
+
       var submitRedirectTarget = this.getPreferredRedirectUrl(this.props.submitRedirectUrl);
+      if (submitRedirectTarget && this.props.includeItemIdOnSubmit === true) {
+        submitRedirectTarget = this.appendItemIdToRedirectUrl(submitRedirectTarget, itemId);
+      }
       if (submitRedirectTarget && typeof window !== 'undefined') {
         window.setTimeout(() => {
           if (!this.tryRedirect(submitRedirectTarget)) {
@@ -3168,6 +3328,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   private handleCancel(): void {
     console.log('[SharePointDynamicForm] handleCancel invoked. Mode: ' + this.props.mode + ', isViewEditing: ' + this.state.isViewEditing);
     var cancelRedirectTarget = this.getPreferredRedirectUrl(this.props.cancelRedirectUrl);
+    if (cancelRedirectTarget && this.props.includeItemIdOnCancel === true) {
+      cancelRedirectTarget = this.appendItemIdToRedirectUrl(cancelRedirectTarget, this.state.resolvedItemId);
+    }
     if (cancelRedirectTarget && typeof window !== 'undefined') {
       if (!this.tryRedirect(cancelRedirectTarget)) {
         this.setState({ submitError: strings.FormRedirectFailed, submitSuccess: null });
@@ -3204,6 +3367,65 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     );
   }
 
+  private getConditionalFieldValue(schema: FormSchema, fieldReference: string): any {
+    var normalizedReference = String(fieldReference || '').trim().toLowerCase();
+    var fields = getAllFields(schema);
+    for (var i = 0; i < fields.length; i += 1) {
+      var candidate = fields[i];
+      if (String(candidate.id || '').toLowerCase() === normalizedReference || String(candidate.fieldName || '').toLowerCase() === normalizedReference) {
+        return this.state.values[candidate.id];
+      }
+    }
+    return undefined;
+  }
+
+  private conditionalRuleMatches(rule: ConditionalFieldRule, schema: FormSchema): boolean {
+    if (!rule || rule.enabled === false) { return false; }
+    var candidate = this.getConditionalFieldValue(schema, rule.sourceField);
+    var candidateText = String(candidate === undefined || candidate === null ? '' : candidate).toLowerCase();
+    var expectedText = String(rule.value === undefined || rule.value === null ? '' : rule.value).toLowerCase();
+    var candidateNumber = Number(candidate);
+    var expectedNumber = Number(rule.value);
+    var comparableNumbers = candidateText !== '' && expectedText !== '' && !isNaN(candidateNumber) && !isNaN(expectedNumber);
+    switch (rule.operator) {
+      case 'ne': return candidateText !== expectedText;
+      case 'gt': return comparableNumbers ? candidateNumber > expectedNumber : candidateText > expectedText;
+      case 'ge': return comparableNumbers ? candidateNumber >= expectedNumber : candidateText >= expectedText;
+      case 'lt': return comparableNumbers ? candidateNumber < expectedNumber : candidateText < expectedText;
+      case 'le': return comparableNumbers ? candidateNumber <= expectedNumber : candidateText <= expectedText;
+      case 'contains': return candidateText.indexOf(expectedText) >= 0;
+      case 'notcontains': return candidateText.indexOf(expectedText) < 0;
+      case 'startswith': return candidateText.indexOf(expectedText) === 0;
+      case 'endswith': return expectedText === '' || candidateText.lastIndexOf(expectedText) === candidateText.length - expectedText.length;
+      default: return candidateText === expectedText;
+    }
+  }
+
+  private getMatchingConditionalRules(field: FormField, action: string, schema?: FormSchema): ConditionalFieldRule[] {
+    var currentSchema = schema || this.state.schema;
+    if (!currentSchema || !currentSchema.conditionalRules) { return []; }
+    var fieldId = String(field.id || '').toLowerCase();
+    var fieldName = String(field.fieldName || '').toLowerCase();
+    return currentSchema.conditionalRules.filter((rule: ConditionalFieldRule) => {
+      var target = String(rule.targetField || '').toLowerCase();
+      return rule.action === action && (target === fieldId || target === fieldName) && this.conditionalRuleMatches(rule, currentSchema);
+    });
+  }
+
+  private isFieldVisible(field: FormField, schema?: FormSchema): boolean {
+    var rules = this.getMatchingConditionalRules(field, 'visibility', schema);
+    return rules.length > 0 ? rules[rules.length - 1].visible !== false : field.visible !== false;
+  }
+
+  private getConditionalFieldStyle(field: FormField): ConditionalFieldStyle {
+    var result: ConditionalFieldStyle = {};
+    var rules = this.getMatchingConditionalRules(field, 'style');
+    for (var i = 0; i < rules.length; i += 1) {
+      result = Object.assign(result, rules[i].style || {});
+    }
+    return result;
+  }
+
   private renderField(field: FormField): JSX.Element | null {
     var value = this.state.values[field.id];
     var effectiveMode = this.getEffectiveMode();
@@ -3231,6 +3453,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
     // Build field wrapper styles with background and border
     var fieldWrapperStyle: React.CSSProperties = { padding: '12px', marginBottom: '16px' };
+    var conditionalStyle = this.getConditionalFieldStyle(field);
     // Determine label position: field override or theme default
     var labelPosition = field.labelPosition || (this.state.schema && this.state.schema.theme && this.state.schema.theme.labelPosition) || 'top';
     var labelWrapperStyle: React.CSSProperties = labelPosition === 'left' 
@@ -3249,6 +3472,18 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     if (field.fieldBorderStyle === 'rounded') {
       fieldWrapperStyle.borderRadius = String(field.fieldBorderRadius || 8) + 'px';
     }
+    if (conditionalStyle.backgroundColor) { fieldWrapperStyle.backgroundColor = conditionalStyle.backgroundColor; }
+    if (conditionalStyle.color) { fieldWrapperStyle.color = conditionalStyle.color; }
+    if (conditionalStyle.borderColor || conditionalStyle.borderWidth) {
+      fieldWrapperStyle.border = String(conditionalStyle.borderWidth || 1) + 'px solid ' + (conditionalStyle.borderColor || '#cccccc');
+    }
+    if (conditionalStyle.borderRadius !== undefined) { fieldWrapperStyle.borderRadius = String(conditionalStyle.borderRadius) + 'px'; }
+    if (conditionalStyle.fontSize) { fieldWrapperStyle.fontSize = conditionalStyle.fontSize; }
+    if (conditionalStyle.fontWeight) { fieldWrapperStyle.fontWeight = conditionalStyle.fontWeight; }
+    if (errorMessage) {
+      fieldWrapperStyle.border = '2px solid #a80000';
+      fieldWrapperStyle.boxShadow = '0 0 0 1px rgba(168, 0, 0, 0.12)';
+    }
 
     // Build input styles with field-specific font settings; always resolved (own default when unset)
     // so a field's input never inherits font styling meant for its surrounding container.
@@ -3259,6 +3494,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       fontWeight: (field.inputFontWeight || 'normal') as any,
       color: field.inputColor || '#000000',
     };
+    if (conditionalStyle.color) { labelStyle.color = conditionalStyle.color; inputStyle.color = conditionalStyle.color; }
+    if (conditionalStyle.fontSize) { labelStyle.fontSize = conditionalStyle.fontSize; inputStyle.fontSize = conditionalStyle.fontSize; }
+    if (conditionalStyle.fontWeight) { labelStyle.fontWeight = conditionalStyle.fontWeight; inputStyle.fontWeight = conditionalStyle.fontWeight; }
+    labelBlockStyle.color = labelStyle.color;
+    labelBlockStyle.fontSize = labelStyle.fontSize;
+    labelBlockStyle.fontWeight = labelStyle.fontWeight;
 
     if (isLinkedField) {
       console.log('[SharePointDynamicForm] Rendering linked field as READONLY: ' + field.fieldName + ' (ID: ' + field.id + '), Value: ' + value + ', Mode: ' + effectiveMode);
@@ -3271,7 +3512,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       console.log('[SharePointDynamicForm] Field "' + field.fieldName + '" has description: ' + description);
     }
 
-    if (field.visible === false || field.type === 'newline') {
+    if (!this.isFieldVisible(field) || field.type === 'newline') {
       return null;
     }
 
@@ -3407,7 +3648,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         });
         return (
           <div style={fieldWrapperStyle}>
-            <label style={labelWrapperStyle}>
+            <div style={labelWrapperStyle}>
               <div style={labelBlockStyle}>{field.label}{this.renderDescriptionIcon(description)}</div>
             {field.type === 'text' ? (
               <input
@@ -3441,7 +3682,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
                 ) : (
                   <div dir="ltr" style={{ direction: 'ltr', textAlign: 'left' }}>
                     <RichTextEditor
-                      value={richTextValueRaw}
+                      value={richTextValue}
                       onChange={(html) => this.setFieldValue(field.id, html)}
                       placeholder={placeholder}
                     />
@@ -3460,7 +3701,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
                 />
               )
             )}
-            </label>
+            </div>
             {this.renderFieldHelpAndError(description, errorMessage, labelPosition)}
           </div>
         );
@@ -3750,23 +3991,23 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         );
       case 'attachment':
         var existingAttachments = this._existingAttachments[field.id] || [];
-        var attachmentDeleteAllowed = this.isAttachmentDeleteAllowed(field);
+        var attachmentDeleteAllowed = !this._isDocumentLibrary && this.isAttachmentDeleteAllowed(field);
         var pendingAttachments = this.getPendingAttachments(field.id);
         return (
           <div style={fieldWrapperStyle}>
             <div style={labelBlockStyle}>{field.label}{this.renderDescriptionIcon(description)}</div>
-            {!disabled && <div style={{ marginBottom: '8px', fontSize: '12px', color: '#605e5c' }}>{strings.FieldAttachmentUploadOnSubmit}</div>}
+            {!disabled && <div style={{ marginBottom: '8px', fontSize: '12px', color: '#605e5c' }}>{this._isDocumentLibrary ? strings.FieldDocumentUploadOnSubmit : strings.FieldAttachmentUploadOnSubmit}</div>}
             {!disabled && (
               <div style={{ marginBottom: '10px' }}>
                 <input
                   ref={(input) => { this._attachmentInputRefs[field.id] = input; }}
                   type="file"
-                  multiple={true}
+                  multiple={!this._isDocumentLibrary}
                   onChange={(ev) => {
                     var files = ev.currentTarget.files;
                     var selectedFiles: File[] = [];
                     if (files) {
-                      for (var fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+                      for (var fileIndex = 0; fileIndex < files.length && (!this._isDocumentLibrary || fileIndex === 0); fileIndex += 1) {
                         selectedFiles.push(files[fileIndex]);
                       }
                     }
@@ -3957,7 +4198,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     var cancelLabel = this.props.cancelButtonLabel || strings.CommonCancel;
     var hasDynamicItemBinding = !!String(this.props.dynamicItemReference || '').trim();
     var viewBackTarget = this.getPreferredRedirectUrl(this.props.cancelRedirectUrl);
-    var showViewBackButton = this.props.mode === 'view' && this.state.resolvedItemId > 0 && !this.state.isViewEditing && !hasDynamicItemBinding && !!viewBackTarget;
+    var showViewBackButton = this.props.mode === 'view' && this.state.resolvedItemId > 0 && !this.state.isViewEditing
+      && !hasDynamicItemBinding && !this.props.hasPreviousWizardForm && !!viewBackTarget;
     var buttonTextColor = this.props.buttonTextColor || '#000000';
     var buttonBackgroundColor = this.props.buttonBackgroundColor || '#f0f0f0';
     var buttonBorderColor = this.props.buttonBorderColor || buttonBackgroundColor;
@@ -4169,7 +4411,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
             }}>{step.description}</p>}
             <div style={stepContainerStyle}>
             {step.fields.map((field) => {
-              if (!field) {
+              if (!field || !this.isFieldVisible(field)) {
                 return null;
               }
               return (
@@ -4191,7 +4433,13 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           }
           return <div>{stepsContent}</div>;
         })()}        {(this.props.mode === 'view' && this.state.resolvedItemId > 0 && !this.state.isViewEditing) && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '24px' }}>
+            <div>
+              {this.props.hasPreviousWizardForm && this.props.onWizardBack && (
+                <DefaultButton styles={defaultButtonStyles as any} onClick={this.props.onWizardBack} disabled={this.state.isSubmitting}>{strings.FormWizardBackLabel}</DefaultButton>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
             {showViewBackButton && (
               <DefaultButton
                 styles={defaultButtonStyles as any}
@@ -4208,17 +4456,28 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
             >
               {strings.FormSwitchToEditLabel}
             </PrimaryButton>
+            {this.props.hasNextWizardForm && this.props.onWizardNext && (
+              <PrimaryButton styles={primaryButtonStyles as any} onClick={() => this.props.onWizardNext!(this.state.resolvedItemId)} disabled={this.state.isSubmitting}>{strings.FormWizardNextLabel}</PrimaryButton>
+            )}
+            </div>
           </div>
         )}
 
         {canSubmit && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '24px' }}>
-            {this.props.showCancelButton !== false && (
-              <DefaultButton styles={defaultButtonStyles as any} onClick={this.handleCancel} disabled={this.state.isSubmitting}>{cancelLabel}</DefaultButton>
-            )}
-            <PrimaryButton styles={primaryButtonStyles as any} onClick={this.handleSubmit} disabled={disableSubmitButton}>
-              {this.state.isSubmitting ? strings.CommonSubmitting : submitLabel}
-            </PrimaryButton>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '24px' }}>
+            <div>
+              {this.props.hasPreviousWizardForm && this.props.onWizardBack && (
+                <DefaultButton styles={defaultButtonStyles as any} onClick={this.props.onWizardBack} disabled={this.state.isSubmitting}>{strings.FormWizardBackLabel}</DefaultButton>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {this.props.showCancelButton !== false && (
+                <DefaultButton styles={defaultButtonStyles as any} onClick={this.handleCancel} disabled={this.state.isSubmitting}>{cancelLabel}</DefaultButton>
+              )}
+              <PrimaryButton styles={primaryButtonStyles as any} onClick={this.handleSubmit} disabled={disableSubmitButton}>
+                {this.state.isSubmitting ? strings.CommonSubmitting : submitLabel}
+              </PrimaryButton>
+            </div>
           </div>
         )}
       </div>

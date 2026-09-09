@@ -33,6 +33,7 @@
       "useItemId": false,
       "itemId": 0,
       "itemIdQueryParam": "itemid",
+      "instanceName": "Report",
       "isInDesignerMode": false,
       "labelPosition": "top",
       "showFieldDescription": false,

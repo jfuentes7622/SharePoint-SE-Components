@@ -75,6 +75,29 @@ export interface FormSchema {
   submitRedirectDelayMs?: number;
   theme?: FormTheme;
   advancedValidation?: AdvancedValidationConfig;
+  conditionalRules?: ConditionalFieldRule[];
+}
+
+export interface ConditionalFieldStyle {
+  backgroundColor?: string;
+  color?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  borderRadius?: number;
+  fontSize?: number;
+  fontWeight?: 'normal' | 'bold';
+}
+
+export interface ConditionalFieldRule {
+  id: string;
+  enabled?: boolean;
+  sourceField: string;
+  operator: 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'notcontains' | 'startswith' | 'endswith';
+  value: any;
+  targetField: string;
+  action: 'style' | 'visibility';
+  visible?: boolean;
+  style?: ConditionalFieldStyle;
 }
 
 export interface AdvancedValidationConfig {

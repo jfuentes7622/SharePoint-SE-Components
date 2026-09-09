@@ -26,6 +26,7 @@ import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface ISharePointDynamicFormWebPartProps {
+  instanceName?: string;
   forceFullWidth?: boolean;
   fixedWidth?: number;
   formSchemaJson: string;
@@ -59,6 +60,13 @@ export interface ISharePointDynamicFormWebPartProps {
   cancelButtonLabel?: string;
   cancelRedirectUrl?: string;
   submitRedirectUrl?: string;
+  cancelRedirectPageUrl?: string;
+  submitRedirectPageUrl?: string;
+  includeItemIdOnCancel?: boolean;
+  includeItemIdOnSubmit?: boolean;
+  redirectItemIdQueryParam?: string;
+  wizardPreviousFormInstanceId?: string;
+  wizardNextFormInstanceId?: string;
   onSubmitMessage?: string;
   buttonTextColor?: string;
   buttonBackgroundColor?: string;
@@ -103,6 +111,20 @@ export interface ISharePointDynamicFormWebPartProps {
 export interface IDropdownOption {
   key: string | number;
   text: string;
+}
+
+export interface IDynamicDataPropertyDefinitionCompat {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface IDynamicDataSourceMetadataCompat {
+  title: string;
+  description?: string;
+  alias?: string;
+  componentId?: string;
+  instanceId?: string;
 }
 
 function normalizeColorValue(value: any, fallback: string): string {
@@ -269,13 +291,17 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   private static readonly GRID_CONTROL_ALIAS: string = 'GridControlWebPart';
   private static readonly CALENDAR_COMPONENT_ID: string = '7e7cc010-893d-4d1f-b120-4659c2fc2806';
   private static readonly CALENDAR_ALIAS: string = 'CalendarWebPart';
+  private static readonly DYNAMIC_FORM_COMPONENT_ID: string = 'da1a4e74-6fba-498c-8cda-af20071f7ed3';
+  private static readonly DYNAMIC_FORM_ALIAS: string = 'SharePointDynamicFormWebPart';
 
   private _isDarkTheme: boolean = false;
   private _lists: IDropdownOption[] = [];
+  private _sitePages: IDropdownOption[] = [];
   private _listFields: IDropdownOption[] = [];
   private _dynamicTargetLookupFields: IDropdownOption[] = [];
   private _lookupPermissionFields: IDropdownOption[] = [];
   private _listControlSources: IDropdownOption[] = [];
+    private _dynamicFormSources: IDropdownOption[] = [];
   private _isInDesignerMode: boolean = false;
   private _runtimeDynamicItemId?: DynamicProperty<number | string>;
   private _runtimeDynamicItemRef?: string;
@@ -308,6 +334,69 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   private _permissionLookupMessage: string = '';
   private _validationDesignerMessage: string = '';
   private _requiredDesignerMessage: string = '';
+  private _selectedItemId: number = 0;
+  private _selectedMode: string = 'view';
+  private _dynamicDataSourceManager: any;
+  private _wizardActive: boolean = true;
+  private _wizardIncomingItemId: number = 0;
+  private _wizardPreviousItemId: number = 0;
+  private _wizardOpenSavedItem: boolean = false;
+  private _wizardNavigateHandler?: (event: Event) => void;
+  private _navigatorRuntimeState: any = {};
+  private _navigatorRuntimeSnapshot: string = '';
+
+  private getRedirectPageOptions(configuredPageUrl: string | undefined): IDropdownOption[] {
+    var baseOptions: IDropdownOption[] = [
+      { key: '', text: strings.PropRedirectNone },
+      { key: '__custom__', text: strings.PropRedirectCustomUrl }
+    ];
+    var options: IDropdownOption[] = baseOptions.concat(this._sitePages);
+    var configured = String(configuredPageUrl || '').trim();
+    if (configured && configured !== '__custom__'
+      && !options.some(function(option: IDropdownOption) { return String(option.key) === configured; })) {
+      options.push({ key: configured, text: configured + ' (' + strings.PropRedirectSavedPage + ')' });
+    }
+    return options;
+  }
+
+  private getConfiguredRedirectUrl(pageUrl: string | undefined, customUrl: string | undefined): string {
+    var selectedPage = String(pageUrl || '').trim();
+    return selectedPage && selectedPage !== '__custom__' ? selectedPage : String(customUrl || '').trim();
+  }
+
+  public get id(): string {
+    return this.context.instanceId;
+  }
+
+  public get metadata(): IDynamicDataSourceMetadataCompat {
+    var instanceName = String(this.properties.instanceName || '').trim();
+    return {
+      title: instanceName || 'SPS Dynamic Forms',
+      description: 'Publishes the most recently saved Dynamic Forms item.',
+      alias: this.context.manifest.alias,
+      componentId: this.context.manifest.id,
+      instanceId: this.context.instanceId
+    };
+  }
+
+  public getPropertyDefinitions(): ReadonlyArray<IDynamicDataPropertyDefinitionCompat> {
+    return [
+      { id: 'instanceName', title: 'Form name' },
+      { id: 'listName', title: 'Configured list name' },
+      { id: 'selectedItemId', title: 'Saved item ID' },
+      { id: 'selectedMode', title: 'Saved item mode' },
+      { id: 'navigationState', title: 'Form navigation state' }
+    ];
+  }
+
+  public getPropertyValue(propertyId: string): any {
+    if (propertyId === 'instanceName') { return String(this.properties.instanceName || '').trim(); }
+    if (propertyId === 'listName') { return String(this.properties.listName || '').trim(); }
+    if (propertyId === 'selectedItemId') { return this._selectedItemId; }
+    if (propertyId === 'selectedMode') { return this._selectedMode; }
+    if (propertyId === 'navigationState') { return this._navigatorRuntimeState; }
+    throw new Error('Bad property id');
+  }
 
   private handleColorPropertyChange(propertyPath: string, oldValue: any, newValue: any): void {
     var fallback = propertyPath === 'buttonBackgroundColor' ? '#f0f0f0' : '#000000';
@@ -325,6 +414,14 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this.tryRebindDynamicReferences();
     this.ensureDynamicValueChangeHandler();
 
+    var hasPreviousWizardForm = !!String(this.properties.wizardPreviousFormInstanceId || '').trim();
+    var wizardActive = this.displayMode === DisplayMode.Edit || this._wizardActive;
+    this.domElement.style.display = wizardActive ? '' : 'none';
+    if (!wizardActive) {
+      ReactDom.unmountComponentAtNode(this.domElement);
+      return;
+    }
+
     var designerAvailable = this.isDesignerAvailable();
     var configuredItemId = parseInt(String(this.properties.itemId || ''), 10);
     var safeItemId = !isNaN(configuredItemId) && configuredItemId > 0 ? configuredItemId : 0;
@@ -339,12 +436,22 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         dynamicItemIdValue = 0;
       }
     }
+    if (this._wizardOpenSavedItem && this._wizardIncomingItemId > 0) {
+      dynamicItemRawValue = this._wizardIncomingItemId;
+      dynamicItemIdValue = this._wizardIncomingItemId;
+    } else if ((dynamicItemRawValue === undefined || dynamicItemRawValue === null || dynamicItemRawValue === '') && this._wizardIncomingItemId > 0) {
+      dynamicItemRawValue = this._wizardIncomingItemId;
+      dynamicItemIdValue = this._wizardIncomingItemId;
+    }
     var useDynamicItemAsItemId = this.properties.useDynamicItemIdAsItemId !== false;
-    var useDynamicValueAsFilter = useDynamicItemAsItemId ? false : true;
+    var useDynamicValueAsFilter = this._wizardOpenSavedItem ? false : (hasPreviousWizardForm ? true : (useDynamicItemAsItemId ? false : true));
     var safeDynamicItemId = !isNaN(dynamicItemIdValue) && dynamicItemIdValue > 0 ? dynamicItemIdValue : 0;
     var dynamicModeProperty = this.getRuntimeDynamicItemModeProperty();
     var effectiveMode: FormMode = this.properties.mode || 'new';
-    if (dynamicModeProperty && dynamicModeProperty.tryGetValue) {
+    if (this._wizardOpenSavedItem && safeDynamicItemId > 0) {
+      effectiveMode = 'view';
+    }
+    if (!this._wizardOpenSavedItem && dynamicModeProperty && dynamicModeProperty.tryGetValue) {
       try {
         effectiveMode = toFormMode(dynamicModeProperty.tryGetValue(), effectiveMode);
       } catch (_dynamicModeError) {
@@ -361,7 +468,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         labelPosition: this.properties.labelPosition || 'top',
         listName: this.properties.listName || '',
         mode: effectiveMode,
-        dynamicItemId: useDynamicItemAsItemId ? safeDynamicItemId : 0,
+        dynamicItemId: this._wizardOpenSavedItem ? safeDynamicItemId : (hasPreviousWizardForm ? 0 : (useDynamicItemAsItemId ? safeDynamicItemId : 0)),
         linkedFieldTarget: this.properties.dynamicItemTargetField || '',
         permissionBaseLookupField: this.properties.permissionBaseLookupField || '',
         permissionScope: this.properties.permissionScope || 'list',
@@ -385,9 +492,18 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         editSubmitButtonLabel: this.properties.editSubmitButtonLabel,
         showCancelButton: this.properties.showCancelButton,
         cancelButtonLabel: this.properties.cancelButtonLabel,
-        cancelRedirectUrl: this.properties.cancelRedirectUrl,
-        submitRedirectUrl: this.properties.submitRedirectUrl,
+        cancelRedirectUrl: this.getConfiguredRedirectUrl(this.properties.cancelRedirectPageUrl, this.properties.cancelRedirectUrl),
+        submitRedirectUrl: this.getConfiguredRedirectUrl(this.properties.submitRedirectPageUrl, this.properties.submitRedirectUrl),
         onSubmitMessage: this.properties.onSubmitMessage,
+        includeItemIdOnCancel: this.properties.includeItemIdOnCancel === true,
+        includeItemIdOnSubmit: this.properties.includeItemIdOnSubmit === true,
+        redirectItemIdQueryParam: normalizeQueryParamName(this.properties.redirectItemIdQueryParam, 'itemid'),
+        onItemSaved: (itemId: number) => this.handleItemSaved(itemId),
+        onRuntimeStateChange: (state: any) => this.handleRuntimeStateChanged(state),
+        hasPreviousWizardForm: this.displayMode !== DisplayMode.Edit && hasPreviousWizardForm,
+        hasNextWizardForm: this.displayMode !== DisplayMode.Edit && !!String(this.properties.wizardNextFormInstanceId || '').trim(),
+        onWizardBack: this.displayMode !== DisplayMode.Edit ? () => this.navigateWizard(this.properties.wizardPreviousFormInstanceId || '', this._wizardPreviousItemId || this._wizardIncomingItemId, true) : undefined,
+        onWizardNext: this.displayMode !== DisplayMode.Edit ? (itemId: number) => this.navigateWizard(this.properties.wizardNextFormInstanceId || '', itemId, false) : undefined,
         buttonTextColor: normalizeColorValue(this.properties.buttonTextColor, '#000000'),
         buttonBackgroundColor: normalizeColorValue(this.properties.buttonBackgroundColor, '#f0f0f0'),
         buttonBorderColor: normalizeColorValue(this.properties.buttonBorderColor, '#f0f0f0'),
@@ -414,6 +530,10 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
 
   protected onInit(): Promise<void> {
     this.properties.itemIdQueryParam = normalizeQueryParamName(this.properties.itemIdQueryParam, 'itemid');
+    this.properties.redirectItemIdQueryParam = normalizeQueryParamName(this.properties.redirectItemIdQueryParam, 'itemid');
+    this.initializeDynamicDataSource();
+    this._wizardActive = !String(this.properties.wizardPreviousFormInstanceId || '').trim();
+    this.registerWizardNavigation();
     this.getRuntimeDynamicItemProperty();
     this.getRuntimeDynamicItemModeProperty();
     this.promoteRuntimeDynamicProperties();
@@ -421,13 +541,15 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this.registerDynamicSourceChangeHandler();
 
     return this._getEnvironmentMessage().then(() => {
-      return this.loadLists().then(() => {
+      return Promise.all([this.loadLists(), this.loadSitePages()]).then(() => {
         if (this.properties.listName) {
           return this.loadListFields(this.properties.listName).then(() => {
             this.refreshAvailableListControlSources();
+            this.refreshAvailableDynamicFormSources();
           });
         }
         this.refreshAvailableListControlSources();
+        this.refreshAvailableDynamicFormSources();
         return Promise.resolve();
       });
     });
@@ -437,7 +559,11 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     if (this.properties.listName && this._listFields.length === 0) {
       this.loadListFields(this.properties.listName);
     }
+    if (this._sitePages.length === 0) {
+      this.loadSitePages();
+    }
     this.refreshAvailableListControlSources();
+    this.refreshAvailableDynamicFormSources();
   }
 
   protected onAfterPropertyPaneChangesApplied(): void {
@@ -474,6 +600,11 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     } else if (propertyPath === 'dynamicItemMode') {
       this.properties.dynamicItemModeReference = incomingReference || '';
       this.applyDynamicModeReference(this.properties.dynamicItemModeReference || '');
+        } else if (propertyPath === 'wizardPreviousFormInstanceId') {
+          this._wizardActive = !String(newValue || '').trim();
+          this._wizardIncomingItemId = 0;
+          this._wizardPreviousItemId = 0;
+          this._wizardOpenSavedItem = false;
     } else if (propertyPath === 'useDynamicItemIdAsItemId') {
       var usesDynamicItemIdDirectly = newValue !== false;
       this.properties.useDynamicValueAsFilter = !usesDynamicItemIdDirectly;
@@ -526,6 +657,22 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
     this.promoteRuntimeDynamicProperties();
     this.ensureDynamicValueChangeHandler();
+
+    if (propertyPath === 'instanceName') {
+      this.notifyDynamicData('instanceName');
+      this.notifyDynamicSourceChanged();
+    }
+
+    if (propertyPath === 'wizardPreviousFormInstanceId' || propertyPath === 'wizardNextFormInstanceId') {
+      this.context.propertyPane.refresh();
+      this.render();
+    }
+
+    if (propertyPath === 'cancelRedirectPageUrl' || propertyPath === 'submitRedirectPageUrl'
+      || propertyPath === 'includeItemIdOnCancel' || propertyPath === 'includeItemIdOnSubmit') {
+      this.context.propertyPane.refresh();
+      this.render();
+    }
 
     if ((propertyPath === 'dynamicItemId' || propertyPath === 'dynamicItemMode' || propertyPath === 'dynamicPreferredSourceInstanceId') && !incomingReference) {
       this.enforceAllowedDynamicSources();
@@ -870,6 +1017,39 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     }
 
     this._listControlSources = options;
+    this.context.propertyPane.refresh();
+  }
+
+  private refreshAvailableDynamicFormSources(): void {
+    var provider = (this.context as any).dynamicDataProvider || (this.context as any)._dynamicDataProvider;
+    var options: IDropdownOption[] = [{ key: '', text: strings.PropWizardFormNone }];
+    if (provider && provider.getAvailableSources) {
+      var availableSources = provider.getAvailableSources() || [];
+      for (var i = 0; i < availableSources.length; i += 1) {
+        var source = availableSources[i];
+        if (!source || !source.metadata || String(source.id) === String(this.context.instanceId)) { continue; }
+        var componentId = String(source.metadata.componentId || '').toLowerCase();
+        var alias = String(source.metadata.alias || '').toLowerCase();
+        if (componentId !== SharePointDynamicFormWebPart.DYNAMIC_FORM_COMPONENT_ID
+          && alias !== SharePointDynamicFormWebPart.DYNAMIC_FORM_ALIAS.toLowerCase()) { continue; }
+        var instanceName = '';
+        if (source.getPropertyValue) {
+          try { instanceName = String(source.getPropertyValue('instanceName') || '').trim(); } catch (_nameError) { instanceName = ''; }
+        }
+        var legacySourceId = String(source.id);
+        var sourceInstanceId = String(source.metadata.instanceId || legacySourceId);
+        if (sourceInstanceId !== legacySourceId) {
+          if (String(this.properties.wizardPreviousFormInstanceId || '') === legacySourceId) {
+            this.properties.wizardPreviousFormInstanceId = sourceInstanceId;
+          }
+          if (String(this.properties.wizardNextFormInstanceId || '') === legacySourceId) {
+            this.properties.wizardNextFormInstanceId = sourceInstanceId;
+          }
+        }
+        options.push({ key: sourceInstanceId, text: String(instanceName || source.metadata.title || sourceInstanceId) + ' (' + sourceInstanceId + ')' });
+      }
+    }
+    this._dynamicFormSources = options;
     this.context.propertyPane.refresh();
   }
 
@@ -1276,6 +1456,47 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     }
   }
 
+  private async loadSitePages(): Promise<void> {
+    try {
+      var webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
+      var libraryData = await this.getJsonWithAcceptFallback(
+        webUrl + '/_api/web/lists?$select=Id,Title,BaseTemplate&$filter=(BaseTemplate eq 119 or BaseTemplate eq 850)'
+      );
+      var libraries = libraryData && libraryData.value ? libraryData.value
+        : (libraryData && libraryData.d && libraryData.d.results ? libraryData.d.results : []);
+      var pagesByUrl: { [url: string]: IDropdownOption } = {};
+      for (var libraryIndex = 0; libraryIndex < libraries.length; libraryIndex += 1) {
+        var libraryId = String(libraries[libraryIndex].Id || '').replace(/[{}]/g, '');
+        if (!libraryId) { continue; }
+        try {
+          var pageData = await this.getJsonWithAcceptFallback(
+            webUrl + "/_api/web/lists(guid'" + libraryId + "')/items?$select=File/Name,File/ServerRelativeUrl&$expand=File&$top=5000"
+          );
+          var pages = pageData && pageData.value ? pageData.value
+            : (pageData && pageData.d && pageData.d.results ? pageData.d.results : []);
+          pages.filter(function(page: any) {
+            return page.File && page.File.ServerRelativeUrl && /\.aspx(?:$|[?#])/i.test(String(page.File.ServerRelativeUrl));
+          }).forEach(function(page: any) {
+            var pageUrl = String(page.File.ServerRelativeUrl);
+            pagesByUrl[pageUrl.toLowerCase()] = {
+              key: pageUrl,
+              text: String(page.File.Name || pageUrl) + ' (' + pageUrl + ')'
+            };
+          });
+        } catch (pageError) {
+          this.pushDynamicDiagnostic('Failed to load pages from library "' + String(libraries[libraryIndex].Title || '') + '": '
+            + String(pageError && pageError.message ? pageError.message : pageError));
+        }
+      }
+      this._sitePages = Object.keys(pagesByUrl).map(function(key: string) { return pagesByUrl[key]; })
+        .sort(function(left: IDropdownOption, right: IDropdownOption) { return String(left.text).localeCompare(String(right.text)); });
+      this.context.propertyPane.refresh();
+    } catch (error) {
+      this._sitePages = [];
+      this.pushDynamicDiagnostic('Failed to load Site Pages: ' + String(error && error.message ? error.message : error));
+    }
+  }
+
   private async handleLoadFilterLookupItems(): Promise<void> {
     var fieldName = String(this.properties.filterDesignerField || '');
     var listId = this._fieldLookupListByInternalName[fieldName];
@@ -1384,6 +1605,14 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     return response;
   }
 
+  private async getJsonWithAcceptFallback(url: string): Promise<any> {
+    var response = await this.getWithAcceptFallback(url);
+    if (!response.ok) {
+      throw new Error('HTTP ' + String(response.status) + ' while loading ' + url);
+    }
+    return response.json();
+  }
+
   private _getEnvironmentMessage(): Promise<string> {
     return Promise.resolve(strings.AppSharePointEnvironment);
   }
@@ -1408,8 +1637,153 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   protected onDispose(): void {
     this.unregisterDynamicValueChangeHandler();
     this.unregisterDynamicSourceChangeHandler();
+    this.unregisterWizardNavigation();
+    this.domElement.style.display = '';
     releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
     ReactDom.unmountComponentAtNode(this.domElement);
+  }
+
+  private initializeDynamicDataSource(): void {
+    this._dynamicDataSourceManager = (this.context as any).dynamicDataSourceManager || (this.context as any)._dynamicDataSourceManager;
+    if (this._dynamicDataSourceManager && this._dynamicDataSourceManager.initializeSource) {
+      this._dynamicDataSourceManager.initializeSource(this);
+    } else if (this._dynamicDataSourceManager && this._dynamicDataSourceManager.registerSource) {
+      this._dynamicDataSourceManager.registerSource(this);
+    }
+  }
+
+  private notifyDynamicSourceChanged(): void {
+    if (!this._dynamicDataSourceManager) { return; }
+    if (this._dynamicDataSourceManager.notifySourceChanged) {
+      this._dynamicDataSourceManager.notifySourceChanged();
+    } else if (this._dynamicDataSourceManager.notifyDataChanged) {
+      this._dynamicDataSourceManager.notifyDataChanged();
+    }
+  }
+
+  private notifyDynamicData(propertyId: string): void {
+    if (!this._dynamicDataSourceManager) { return; }
+    if (this._dynamicDataSourceManager.notifyPropertyChanged) {
+      this._dynamicDataSourceManager.notifyPropertyChanged(propertyId);
+    }
+    this.notifyDynamicSourceChanged();
+  }
+
+  private handleItemSaved(itemId: number): void {
+    this._selectedItemId = itemId > 0 ? itemId : 0;
+    this._selectedMode = 'view';
+    this.notifyDynamicData('selectedItemId');
+    this.notifyDynamicData('selectedMode');
+    var submitRedirectTarget = this.getConfiguredRedirectUrl(this.properties.submitRedirectPageUrl, this.properties.submitRedirectUrl);
+    if (this.displayMode !== DisplayMode.Edit && this.properties.wizardNextFormInstanceId && !submitRedirectTarget) {
+      this.navigateWizard(this.properties.wizardNextFormInstanceId, this._selectedItemId, false);
+    }
+  }
+
+  private handleRuntimeStateChanged(state: any): void {
+    var nextState = {
+      instanceId: this.context.instanceId,
+      instanceName: String(this.properties.instanceName || '').trim(),
+      listName: String(this.properties.listName || '').trim(),
+      active: this._wizardActive,
+      itemId: toPositiveItemId(state && state.itemId),
+      mode: String(state && state.mode || this._selectedMode || 'view'),
+      dirty: !!(state && state.dirty),
+      completed: !!(state && state.completed),
+      isSubmitting: !!(state && state.isSubmitting),
+      hasErrors: !!(state && state.hasErrors),
+      canAdd: !!(state && state.canAdd),
+      canEdit: !!(state && state.canEdit)
+    };
+    var snapshot = JSON.stringify(nextState);
+    if (snapshot === this._navigatorRuntimeSnapshot) { return; }
+    this._navigatorRuntimeSnapshot = snapshot;
+    this._navigatorRuntimeState = nextState;
+    this.notifyDynamicData('navigationState');
+    if (typeof window === 'undefined') { return; }
+    var event: any;
+    if (typeof CustomEvent === 'function') {
+      event = new CustomEvent('spse:dynamicform-state-changed', { detail: nextState });
+    } else {
+      event = document.createEvent('CustomEvent');
+      event.initCustomEvent('spse:dynamicform-state-changed', false, false, nextState);
+    }
+    window.dispatchEvent(event);
+  }
+
+  private registerWizardNavigation(): void {
+    if (typeof window === 'undefined' || this._wizardNavigateHandler) { return; }
+    this._wizardNavigateHandler = (event: Event) => {
+      var detail = (event as any).detail || {};
+      if (this.displayMode === DisplayMode.Edit) { return; }
+      var targetInstanceId = String(detail.targetInstanceId || '').toLowerCase();
+      var currentInstanceId = String(this.context.instanceId || '').toLowerCase();
+      var isTarget = targetInstanceId === currentInstanceId || targetInstanceId.indexOf(currentInstanceId) >= 0;
+      if (!isTarget) {
+        if (detail.navigatorNavigation === true) {
+          var managedInstanceIds: string[] = Array.isArray(detail.managedInstanceIds) ? detail.managedInstanceIds : [];
+          var isManaged = managedInstanceIds.some(function(instanceId: string) {
+            return String(instanceId || '').toLowerCase() === currentInstanceId;
+          });
+          if (!isManaged) { return; }
+          this._wizardActive = false;
+          this.render();
+          this.handleRuntimeStateChanged(this._navigatorRuntimeState);
+        }
+        return;
+      }
+      var incomingItemId = toPositiveItemId(detail.itemId);
+      if (incomingItemId > 0) { this._wizardIncomingItemId = incomingItemId; }
+      this._wizardOpenSavedItem = detail.openSavedItem === true;
+      var configuredPreviousId = String(this.properties.wizardPreviousFormInstanceId || '').toLowerCase();
+      var sourceInstanceId = String(detail.sourceInstanceId || '').toLowerCase();
+      if (!this._wizardOpenSavedItem && incomingItemId > 0 && configuredPreviousId && sourceInstanceId
+        && (sourceInstanceId === configuredPreviousId || configuredPreviousId.indexOf(sourceInstanceId) >= 0)) {
+        this._wizardPreviousItemId = incomingItemId;
+      }
+      this._wizardActive = true;
+      detail.handled = true;
+      this.render();
+      this.handleRuntimeStateChanged(this._navigatorRuntimeState);
+    };
+    window.addEventListener('spse:dynamicform-wizard-navigate', this._wizardNavigateHandler);
+  }
+
+  private unregisterWizardNavigation(): void {
+    if (typeof window !== 'undefined' && this._wizardNavigateHandler) {
+      window.removeEventListener('spse:dynamicform-wizard-navigate', this._wizardNavigateHandler);
+    }
+    this._wizardNavigateHandler = undefined;
+  }
+
+  private navigateWizard(targetInstanceId: string, itemId: number, openSavedItem: boolean): void {
+    var targetId = String(targetInstanceId || '').trim();
+    if (this.displayMode === DisplayMode.Edit || !targetId || typeof window === 'undefined') { return; }
+    if (openSavedItem && itemId <= 0) {
+      console.warn('[SharePointDynamicFormWebPart] Wizard Back could not restore the previous form because its item ID was unavailable.');
+      return;
+    }
+    var event: any;
+    var detail = {
+      targetInstanceId: targetId,
+      sourceInstanceId: this.context.instanceId,
+      itemId: itemId > 0 ? itemId : (openSavedItem ? 0 : this._selectedItemId),
+      openSavedItem: openSavedItem === true,
+      handled: false
+    };
+    if (typeof CustomEvent === 'function') {
+      event = new CustomEvent('spse:dynamicform-wizard-navigate', { detail: detail });
+    } else {
+      event = document.createEvent('CustomEvent');
+      event.initCustomEvent('spse:dynamicform-wizard-navigate', false, false, detail);
+    }
+    window.dispatchEvent(event);
+    if (!detail.handled) {
+      console.warn('[SharePointDynamicFormWebPart] Wizard target was not found: ' + targetId);
+      return;
+    }
+    this._wizardActive = false;
+    this.render();
   }
 
   private getActiveDynamicSourceId(): string {
@@ -1482,6 +1856,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       this._dynamicSourcesChangedHandler = () => {
         this.pushDynamicDiagnostic('Dynamic available sources changed event received. Retrying binding.');
         this.refreshAvailableListControlSources();
+        this.refreshAvailableDynamicFormSources();
         this.tryRebindDynamicReferences();
         this.promoteRuntimeDynamicProperties();
         this.render();
@@ -2551,6 +2926,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     var filterConditionOptions: IDropdownOption[] = [{ key: '', text: strings.PropFilterDesignerExistingNone }];
     var defaultEntryOptions: IDropdownOption[] = [{ key: '', text: strings.PropDefaultDesignerExistingNone }];
     var validationRuleOptions: IDropdownOption[] = [{ key: '', text: 'No validation rules in JSON' }];
+    var submitRedirectPageOptions = this.getRedirectPageOptions(this.properties.submitRedirectPageUrl);
+    var cancelRedirectPageOptions = this.getRedirectPageOptions(this.properties.cancelRedirectPageUrl);
+  var dynamicFormOptions = this._dynamicFormSources.length > 0 ? this._dynamicFormSources : [{ key: '', text: strings.PropWizardFormNone }];
 
     try {
       var existingConditions = this.parseFilterJsonArray(this.properties.filterJson);
@@ -2727,6 +3105,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                     label: strings.PropDynamicItemTargetFieldLabel,
                     options: dynamicTargetFieldOptions,
                     selectedKey: this.properties.dynamicItemTargetField || '',
+                  }),
+                  PropertyPaneLabel('dynamicItemTargetFieldHelp', {
+                    text: strings.PropDynamicItemTargetFieldHelp
                   })
                 ] : []),
                 PropertyPaneTextField('itemId', {
@@ -2734,6 +3115,27 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                   placeholder: strings.PropItemIdPlaceholder,
                   value: this.properties.itemId ? String(this.properties.itemId) : '',
                   description: strings.PropItemIdHelp,
+                }),
+                PropertyPaneTextField('instanceName', {
+                  label: strings.PropInstanceNameLabel,
+                  placeholder: strings.PropInstanceNamePlaceholder,
+                  value: this.properties.instanceName || ''
+                }),
+                PropertyPaneDropdown('wizardPreviousFormInstanceId', {
+                  label: strings.PropWizardPreviousFormLabel,
+                  options: dynamicFormOptions,
+                  selectedKey: this.properties.wizardPreviousFormInstanceId || ''
+                }),
+                PropertyPaneLabel('wizardPreviousFormHelp', {
+                  text: strings.PropWizardPreviousFormHelp
+                }),
+                PropertyPaneDropdown('wizardNextFormInstanceId', {
+                  label: strings.PropWizardNextFormLabel,
+                  options: dynamicFormOptions,
+                  selectedKey: this.properties.wizardNextFormInstanceId || ''
+                }),
+                PropertyPaneLabel('wizardNextFormHelp', {
+                  text: strings.PropWizardNextFormHelp
                 }),
                 PropertyPaneToggle('showFieldDescription', {
                   label: strings.PropShowFieldDescriptionLabel,
@@ -2793,16 +3195,49 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                     value: this.properties.cancelButtonLabel,
                   })
                 ] : []),
-                PropertyPaneTextField('cancelRedirectUrl', {
-                  label: strings.PropCancelRedirectUrlLabel,
-                  placeholder: strings.PropCancelRedirectUrlPlaceholder,
-                  value: this.properties.cancelRedirectUrl,
+                PropertyPaneDropdown('cancelRedirectPageUrl', {
+                  label: strings.PropCancelRedirectPageLabel,
+                  options: cancelRedirectPageOptions,
+                  selectedKey: this.properties.cancelRedirectPageUrl || (this.properties.cancelRedirectUrl ? '__custom__' : '')
                 }),
-                PropertyPaneTextField('submitRedirectUrl', {
-                  label: strings.PropSubmitRedirectUrlLabel,
-                  placeholder: strings.PropSubmitRedirectUrlPlaceholder,
-                  value: this.properties.submitRedirectUrl,
+                ...((this.properties.cancelRedirectPageUrl === '__custom__' || (!this.properties.cancelRedirectPageUrl && !!this.properties.cancelRedirectUrl)) ? [
+                  PropertyPaneTextField('cancelRedirectUrl', {
+                    label: strings.PropCancelRedirectUrlLabel,
+                    placeholder: strings.PropCancelRedirectUrlPlaceholder,
+                    value: this.properties.cancelRedirectUrl,
+                  })
+                ] : []),
+                PropertyPaneToggle('includeItemIdOnCancel', {
+                  label: strings.PropIncludeItemIdOnCancelLabel,
+                  onText: strings.PropToggleOn,
+                  offText: strings.PropToggleOff,
+                  checked: this.properties.includeItemIdOnCancel === true
                 }),
+                PropertyPaneDropdown('submitRedirectPageUrl', {
+                  label: strings.PropSubmitRedirectPageLabel,
+                  options: submitRedirectPageOptions,
+                  selectedKey: this.properties.submitRedirectPageUrl || (this.properties.submitRedirectUrl ? '__custom__' : '')
+                }),
+                ...((this.properties.submitRedirectPageUrl === '__custom__' || (!this.properties.submitRedirectPageUrl && !!this.properties.submitRedirectUrl)) ? [
+                  PropertyPaneTextField('submitRedirectUrl', {
+                    label: strings.PropSubmitRedirectUrlLabel,
+                    placeholder: strings.PropSubmitRedirectUrlPlaceholder,
+                    value: this.properties.submitRedirectUrl,
+                  })
+                ] : []),
+                PropertyPaneToggle('includeItemIdOnSubmit', {
+                  label: strings.PropIncludeItemIdOnSubmitLabel,
+                  onText: strings.PropToggleOn,
+                  offText: strings.PropToggleOff,
+                  checked: this.properties.includeItemIdOnSubmit === true
+                }),
+                ...((this.properties.includeItemIdOnCancel === true || this.properties.includeItemIdOnSubmit === true) ? [
+                  PropertyPaneTextField('redirectItemIdQueryParam', {
+                    label: strings.PropRedirectItemIdQueryParamLabel,
+                    placeholder: 'itemid',
+                    value: this.properties.redirectItemIdQueryParam || 'itemid'
+                  })
+                ] : []),
                 PropertyPaneTextField('onSubmitMessage', {
                   label: strings.PropSubmitSuccessMessageLabel,
                   placeholder: strings.PropSubmitSuccessMessagePlaceholder,

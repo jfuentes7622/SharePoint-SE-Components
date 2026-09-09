@@ -1,0 +1,13 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/spfx-serve.schema.json",
+  "port": 4321,
+  "https": true,
+  "serveConfigurations": {
+    "default": {
+      "pageUrl": "https://dod365.sharepoint-mil.us/teams/EUCOM-Sandbox/_layouts/workbench.aspx"
+    },
+    "navinLab": {
+      "pageUrl": "https://sharepoint.lab.navintechnologies.com/_layouts/workbench.aspx"
+    }
+  }
+}

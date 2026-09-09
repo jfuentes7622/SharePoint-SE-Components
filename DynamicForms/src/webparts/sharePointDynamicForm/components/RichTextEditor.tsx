@@ -8,64 +8,49 @@ export interface RichTextEditorProps {
 }
 
 export class RichTextEditor extends React.Component<RichTextEditorProps> {
-  private editorRef: HTMLTextAreaElement;
+  private editorRef: HTMLDivElement;
 
-  private handleChange = (ev: React.ChangeEvent<HTMLTextAreaElement>) => {
-    this.props.onChange(ev.currentTarget.value);
+  public componentDidMount(): void {
+    this.updateEditorHtml();
   }
 
-  private wrapSelection = (beforeTag: string, afterTag: string = '') => {
-    if (!this.editorRef) return;
-
-    const textarea = this.editorRef;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const text = textarea.value;
-    const selectedText = text.substring(start, end) || 'text';
-    const before = text.substring(0, start);
-    const after = text.substring(end);
-
-    const newText = before + beforeTag + selectedText + (afterTag || beforeTag.replace('<', '</')) + after;
-    this.props.onChange(newText);
-
-    // Reset focus and cursor position
-    setTimeout(() => {
-      if (this.editorRef) {
-        this.editorRef.focus();
-        this.editorRef.selectionStart = start + beforeTag.length;
-        this.editorRef.selectionEnd = start + beforeTag.length + selectedText.length;
-      }
-    }, 0);
+  public componentDidUpdate(): void {
+    if (typeof document !== 'undefined' && document.activeElement === this.editorRef) {
+      return;
+    }
+    this.updateEditorHtml();
   }
 
-  private insertTag = (tag: string) => {
-    this.wrapSelection(`<${tag}>`, `</${tag}>`);
+  private updateEditorHtml(): void {
+    if (this.editorRef && this.editorRef.innerHTML !== String(this.props.value || '')) {
+      this.editorRef.innerHTML = String(this.props.value || '');
+    }
   }
 
-  private insertDiv = (alignment: 'left' | 'center' | 'right') => {
-    const alignStyle = alignment === 'left' ? '' : ` style="text-align:${alignment};"`;
-    this.wrapSelection(`<div${alignStyle}>`, '</div>');
+  private applyCommand(command: string, value?: string): void {
+    if (!this.editorRef) {
+      return;
+    }
+    this.editorRef.focus();
+    document.execCommand(command, false, value || undefined);
+    this.props.onChange(this.editorRef.innerHTML);
   }
 
-  private insertList = (ordered: boolean) => {
-    if (!this.editorRef) return;
-    const tag = ordered ? 'ol' : 'ul';
-    this.wrapSelection(`<${tag}><li>`, `</li></${tag}>`);
+  private handleInput = () => {
+    if (this.editorRef) {
+      this.props.onChange(this.editorRef.innerHTML);
+    }
   }
 
   private insertImage = () => {
     const url = prompt('Enter image URL:');
     if (url) {
-      this.wrapSelection(`<img src="${url}" alt="image" />`);
+      this.applyCommand('insertImage', url);
     }
   }
 
   private clearFormatting = () => {
-    if (!this.editorRef) return;
-    // Simple removal of common HTML tags
-    const text = this.editorRef.value;
-    const cleaned = text.replace(/<[^>]*>/g, '');
-    this.props.onChange(cleaned);
+    this.applyCommand('removeFormat');
   }
 
   public render() {
@@ -90,28 +75,32 @@ export class RichTextEditor extends React.Component<RichTextEditorProps> {
           {/* Text Format */}
           <div style={{ display: 'flex', flexDirection: 'row', gap: '2px', marginRight: '4px' }}>
             <button
-              onClick={() => this.insertTag('b')}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('bold'); }}
               title="Bold"
               style={this.getButtonStyle()}
             >
               <strong>B</strong>
             </button>
             <button
-              onClick={() => this.insertTag('i')}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('italic'); }}
               title="Italic"
               style={this.getButtonStyle()}
             >
               <em>I</em>
             </button>
             <button
-              onClick={() => this.insertTag('u')}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('underline'); }}
               title="Underline"
               style={this.getButtonStyle()}
             >
               <u>U</u>
             </button>
             <button
-              onClick={() => this.insertTag('s')}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('strikeThrough'); }}
               title="Strikethrough"
               style={this.getButtonStyle()}
             >
@@ -125,21 +114,24 @@ export class RichTextEditor extends React.Component<RichTextEditorProps> {
           {/* Alignment */}
           <div style={{ display: 'flex', flexDirection: 'row', gap: '2px', marginRight: '4px' }}>
             <button
-              onClick={() => this.insertDiv('left')}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('justifyLeft'); }}
               title="Align Left"
               style={this.getButtonStyle()}
             >
               ≡
             </button>
             <button
-              onClick={() => this.insertDiv('center')}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('justifyCenter'); }}
               title="Align Center"
               style={this.getButtonStyle()}
             >
               ⋮
             </button>
             <button
-              onClick={() => this.insertDiv('right')}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('justifyRight'); }}
               title="Align Right"
               style={this.getButtonStyle()}
             >
@@ -153,14 +145,16 @@ export class RichTextEditor extends React.Component<RichTextEditorProps> {
           {/* Lists */}
           <div style={{ display: 'flex', flexDirection: 'row', gap: '2px', marginRight: '4px' }}>
             <button
-              onClick={() => this.insertList(false)}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('insertUnorderedList'); }}
               title="Bullet List"
               style={this.getButtonStyle()}
             >
               •
             </button>
             <button
-              onClick={() => this.insertList(true)}
+              type="button"
+              onMouseDown={(ev) => { ev.preventDefault(); this.applyCommand('insertOrderedList'); }}
               title="Numbered List"
               style={this.getButtonStyle()}
             >
@@ -174,6 +168,7 @@ export class RichTextEditor extends React.Component<RichTextEditorProps> {
           {/* Other */}
           <div style={{ display: 'flex', flexDirection: 'row', gap: '2px' }}>
             <button
+              type="button"
               onClick={this.insertImage}
               title="Insert Image"
               style={this.getButtonStyle()}
@@ -181,6 +176,7 @@ export class RichTextEditor extends React.Component<RichTextEditorProps> {
               🖼
             </button>
             <button
+              type="button"
               onClick={this.clearFormatting}
               title="Clear Formatting"
               style={this.getButtonStyle()}
@@ -190,20 +186,21 @@ export class RichTextEditor extends React.Component<RichTextEditorProps> {
           </div>
         </div>
 
-        {/* Editor Area - Textarea to avoid RTL issues */}
-        <textarea
-          ref={(el) => { this.editorRef = el as HTMLTextAreaElement; }}
-          onChange={this.handleChange}
+        <div
+          ref={(el) => { this.editorRef = el as HTMLDivElement; }}
+          contentEditable={true}
+          onInput={this.handleInput}
+          onBlur={this.handleInput}
+          data-placeholder={this.props.placeholder || ''}
           style={{
             padding: '12px',
             minHeight: '300px',
             maxHeight: '600px',
             overflowY: 'auto',
-            fontFamily: 'Courier New, monospace',
+            fontFamily: "'Segoe UI', Arial, sans-serif",
             fontSize: '13px',
             lineHeight: '1.6',
             outline: 'none',
-            resize: 'vertical',
             border: 'none',
             width: '100%',
             boxSizing: 'border-box',
@@ -211,9 +208,7 @@ export class RichTextEditor extends React.Component<RichTextEditorProps> {
             backgroundColor: '#ffffff',
             color: '#000000'
           }}
-          value={this.props.value}
-          placeholder="Enter your HTML content here. Use toolbar buttons to format selected text."
-        />
+        ></div>
       </div>
     );
   }

@@ -18,6 +18,7 @@ on:
           - Carousel
           - Contact
           - DynamicForms
+          - FormNavigator
           - FullWidthControl
           - GridControl
           - LinkButton
@@ -61,6 +62,8 @@ jobs:
             package_name: sharepoint-se-contact
           - project: DynamicForms
             package_name: sharepoint-se-dynamic-forms
+          - project: FormNavigator
+            package_name: sharepoint-se-form-navigator
           - project: FullWidthControl
             package_name: sharepoint-se-full-width-control
           - project: GridControl

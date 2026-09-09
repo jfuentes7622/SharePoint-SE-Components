@@ -2,7 +2,7 @@ import * as React from 'react';
 import { MessageBar, MessageBarType } from 'office-ui-fabric-react';
 import { SPHttpClient } from '@microsoft/sp-http';
 import styles from './SharePointDynamicForm.module.scss';
-import { FormField, FormSchema, FormStep, SPFieldInfo, SPFieldType, FieldConfig, FieldType } from '../../../formEngine/core/types';
+import { ConditionalFieldRule, FormField, FormSchema, FormStep, SPFieldInfo, SPFieldType, FieldConfig, FieldType } from '../../../formEngine/core/types';
 import * as strings from 'SharePointDynamicFormWebPartStrings';
 import { RichTextEditor } from './RichTextEditor';
 
@@ -32,7 +32,8 @@ interface FormDesignerState {
   fieldsError: string | null;
   selectedStepIndex: number;
   selectedFieldId: string | null;
-  activeDesignerTab: 'form' | 'container';
+  selectedConditionalRuleId: string | null;
+  activeDesignerTab: 'form' | 'container' | 'conditional';
 }
 
 interface ISPFieldResponse {
@@ -255,6 +256,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       fieldsError: null,
       selectedStepIndex: 0,
       selectedFieldId: null,
+      selectedConditionalRuleId: null,
       activeDesignerTab: 'form',
     };
 
@@ -326,6 +328,15 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
     this.setState({ loadingFields: true, fieldsError: null });
     try {
+      var listResponse = await this.getWithAcceptFallback(
+        this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')?$select=BaseType"
+      );
+      if (!listResponse.ok) {
+        throw new Error(strings.DesignerLoadFieldsFailed);
+      }
+      var listData = await listResponse.json();
+      var listInfo = listData && listData.d ? listData.d : listData;
+      var isDocumentLibrary = Number(listInfo && listInfo.BaseType) === 1;
       var response = await this.getWithAcceptFallback(
         this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=Id,InternalName,Title,Description,TypeAsString,RichText,Required,ReadOnlyField,Hidden,FromBaseType,Choices,LookupList,LookupField,AllowMultipleValues,MaxLength,TextField,TermSetId,DisplayFormat"
       );
@@ -345,6 +356,9 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
         });
       var mapped = fields
         .filter(function(field) {
+          if (isDocumentLibrary && field.InternalName === 'FileLeafRef') {
+            return false;
+          }
           var isAttachmentField = field.InternalName === 'Attachments';
           var isCommonSystemField = field.InternalName === 'Author' || field.InternalName === 'Editor'
             || field.InternalName === 'Created' || field.InternalName === 'Modified';
@@ -376,6 +390,18 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
             displayFormat: String(field.DisplayFormat) === '0' ? 'dateOnly' : 'dateTime',
           } as SPFieldInfo;
         });
+
+      if (isDocumentLibrary) {
+        mapped.unshift({
+          id: '__dynamicforms_document__',
+          internalName: 'FileLeafRef',
+          title: strings.PropertyFieldTypeDocument,
+          description: strings.PropertyFieldTypeDocumentDescription,
+          type: SPFieldType.Attachments,
+          required: true,
+          readOnly: false,
+        } as SPFieldInfo);
+      }
 
       this.setState({ spFields: mapped, reportListFields: reportListFields, loadingFields: false, fieldsError: null });
     } catch (error) {
@@ -560,6 +586,163 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
   private updateForm(mutator: (schema: FormSchema) => FormSchema): void {
     var nextSchema = copySchema(this.props.schema);
     this.updateSchema(mutator(nextSchema), this.state.selectedFieldId);
+  }
+
+  private getConditionalRuleFields(): FormField[] {
+    var fields: FormField[] = [];
+    for (var stepIndex = 0; stepIndex < this.props.schema.steps.length; stepIndex += 1) {
+      var stepFields = this.props.schema.steps[stepIndex].fields;
+      for (var fieldIndex = 0; fieldIndex < stepFields.length; fieldIndex += 1) {
+        if (stepFields[fieldIndex] && stepFields[fieldIndex]!.type !== 'newline') {
+          fields.push(stepFields[fieldIndex]!);
+        }
+      }
+    }
+    return fields;
+  }
+
+  private addConditionalRule(): void {
+    var fields = this.getConditionalRuleFields();
+    if (fields.length === 0) { return; }
+    var ruleId = createId('condition');
+    this.updateForm(function(schema) {
+      schema.conditionalRules = schema.conditionalRules || [];
+      schema.conditionalRules.push({
+        id: ruleId,
+        enabled: true,
+        sourceField: fields[0].id,
+        operator: 'eq',
+        value: '',
+        targetField: fields.length > 1 ? fields[1].id : fields[0].id,
+        action: 'style',
+        visible: true,
+        style: { backgroundColor: '#fff1f0', color: '#000000', borderColor: '#d13438', borderWidth: 1 }
+      });
+      return schema;
+    });
+    this.setState({ selectedConditionalRuleId: ruleId });
+  }
+
+  private updateConditionalRule(ruleId: string, mutator: (rule: ConditionalFieldRule) => void): void {
+    this.updateForm(function(schema) {
+      var rules = schema.conditionalRules || [];
+      for (var i = 0; i < rules.length; i += 1) {
+        if (rules[i].id === ruleId) { mutator(rules[i]); break; }
+      }
+      return schema;
+    });
+  }
+
+  private removeConditionalRule(ruleId: string): void {
+    this.updateForm(function(schema) {
+      schema.conditionalRules = (schema.conditionalRules || []).filter(function(rule) { return rule.id !== ruleId; });
+      return schema;
+    });
+    if (this.state.selectedConditionalRuleId === ruleId) { this.setState({ selectedConditionalRuleId: null }); }
+  }
+
+  private moveConditionalRule(ruleId: string, direction: number): void {
+    this.updateForm(function(schema) {
+      var rules = schema.conditionalRules || [];
+      var index = rules.map(function(rule) { return rule.id; }).indexOf(ruleId);
+      var targetIndex = index + direction;
+      if (index >= 0 && targetIndex >= 0 && targetIndex < rules.length) {
+        var moved = rules.splice(index, 1)[0];
+        rules.splice(targetIndex, 0, moved);
+      }
+      return schema;
+    });
+  }
+
+  private getConditionalFieldLabel(fieldReference: string): string {
+    var normalized = String(fieldReference || '').toLowerCase();
+    var fields = this.getConditionalRuleFields();
+    for (var i = 0; i < fields.length; i += 1) {
+      if (String(fields[i].id || '').toLowerCase() === normalized || String(fields[i].fieldName || '').toLowerCase() === normalized) {
+        return fields[i].label;
+      }
+    }
+    return fieldReference || '(field)';
+  }
+
+  private renderConditionalRulesCanvas(): JSX.Element {
+    var rules = this.props.schema.conditionalRules || [];
+    return (
+      <div className={styles.designerCanvas}>
+        <div className={styles.designerTabs}>
+          <button type="button" className={styles.designerTab} onClick={() => this.setState({ activeDesignerTab: 'form', selectedConditionalRuleId: null })}>Fields</button>
+          <button type="button" className={styles.designerTabActive}>Conditional styling</button>
+          <button type="button" className={styles.designerActionButton} disabled={this.getConditionalRuleFields().length === 0} onClick={() => this.addConditionalRule()}>Add rule</button>
+        </div>
+        <div className={styles.designerCanvasBody}>
+          <div className={styles.designerStepHeader}><div className={styles.designerStepTitle}>Conditional styling and visibility</div><div className={styles.designerStepDescription}>Rules are applied from top to bottom. When rules conflict, the last matching rule wins.</div></div>
+          {rules.length === 0 && <div className={styles.designerEmptyState}>No conditional rules configured.</div>}
+          {rules.map((rule, index) => (
+            <div key={rule.id} className={rule.id === this.state.selectedConditionalRuleId ? styles.designerFieldCardActive : styles.designerFieldCard}>
+              <div className={styles.designerFieldInfo}>
+                <div className={styles.designerFieldLabel}>{'Rule ' + String(index + 1) + ': If ' + this.getConditionalFieldLabel(rule.sourceField) + ' ' + rule.operator + ' "' + String(rule.value || '') + '"'}</div>
+                <div className={styles.designerFieldMeta}>{(rule.action === 'visibility' ? 'Set ' + this.getConditionalFieldLabel(rule.targetField) + ' ' + (rule.visible === false ? 'hidden' : 'visible') : 'Apply style to ' + this.getConditionalFieldLabel(rule.targetField)) + (rule.enabled === false ? ' (disabled)' : '')}</div>
+              </div>
+              <div className={styles.designerFieldActions}>
+                <button type="button" className={styles.designerInlineButton} onClick={() => this.moveConditionalRule(rule.id, -1)} disabled={index === 0}>Move up</button>
+                <button type="button" className={styles.designerInlineButton} onClick={() => this.moveConditionalRule(rule.id, 1)} disabled={index === rules.length - 1}>Move down</button>
+                <button type="button" className={styles.designerInlineButton} onClick={() => this.setState({ selectedConditionalRuleId: rule.id })}>Edit</button>
+                <button type="button" className={styles.designerInlineButtonDanger} onClick={() => this.removeConditionalRule(rule.id)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  private renderConditionalRules(): JSX.Element {
+    var fields = this.getConditionalRuleFields();
+    var rules = this.props.schema.conditionalRules || [];
+    var selectedRule: ConditionalFieldRule | null = null;
+    for (var ruleIndex = 0; ruleIndex < rules.length; ruleIndex += 1) {
+      if (rules[ruleIndex].id === this.state.selectedConditionalRuleId) { selectedRule = rules[ruleIndex]; break; }
+    }
+    var fieldOptions = fields.map(function(field) {
+      return <option key={field.id} value={field.id}>{field.label + ' (' + field.fieldName + ')'}</option>;
+    });
+    if (!selectedRule) {
+      return <div className={styles.designerPanel}><div className={styles.designerPanelSection}><div className={styles.designerPanelTitle}>Rule editor</div><div className={styles.designerPanelHint}>Select a rule in the center panel to edit it.</div></div></div>;
+    }
+    var rule = selectedRule;
+    var style = rule.style || {};
+    return (
+      <div className={styles.designerPanel}><div className={styles.designerPanelSection}>
+              <div className={styles.designerPanelTitle}>Edit conditional rule</div>
+              <label className={styles.designerCheckboxRow}><input type="checkbox" checked={rule.enabled !== false} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.enabled = ev.currentTarget.checked; })} /><span>Enabled</span></label>
+              <label className={styles.designerFormLabel}>If field</label>
+              <select className={styles.designerInput} value={rule.sourceField} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.sourceField = ev.currentTarget.value; })}>{fieldOptions}</select>
+              <label className={styles.designerFormLabel}>Operator</label>
+              <select className={styles.designerInput} value={rule.operator} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.operator = ev.currentTarget.value as any; })}>
+                <option value="eq">Equals</option><option value="ne">Does not equal</option><option value="gt">Greater than</option><option value="ge">Greater than or equal</option><option value="lt">Less than</option><option value="le">Less than or equal</option><option value="contains">Contains</option><option value="notcontains">Does not contain</option><option value="startswith">Starts with</option><option value="endswith">Ends with</option>
+              </select>
+              <label className={styles.designerFormLabel}>Value</label>
+              <input className={styles.designerInput} type="text" value={String(rule.value === undefined || rule.value === null ? '' : rule.value)} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = ev.currentTarget.value; })} />
+              <label className={styles.designerFormLabel}>Target field</label>
+              <select className={styles.designerInput} value={rule.targetField} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.targetField = ev.currentTarget.value; })}>{fieldOptions}</select>
+              <label className={styles.designerFormLabel}>Action</label>
+              <select className={styles.designerInput} value={rule.action} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.action = ev.currentTarget.value as any; })}>
+                <option value="style">Apply style</option><option value="visibility">Set visibility</option>
+              </select>
+              {rule.action === 'visibility' ? <div>
+                <label className={styles.designerFormLabel}>Visibility when condition is met</label>
+                <select className={styles.designerInput} value={rule.visible === false ? 'hidden' : 'visible'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.visible = ev.currentTarget.value !== 'hidden'; })}><option value="visible">Visible</option><option value="hidden">Hidden</option></select>
+              </div> : <div>
+                <label className={styles.designerFormLabel}>Background color</label><input className={styles.designerInput} type="color" value={style.backgroundColor || '#ffffff'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { backgroundColor: ev.currentTarget.value }); })} />
+                <label className={styles.designerFormLabel}>Text color</label><input className={styles.designerInput} type="color" value={style.color || '#000000'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { color: ev.currentTarget.value }); })} />
+                <label className={styles.designerFormLabel}>Border color</label><input className={styles.designerInput} type="color" value={style.borderColor || '#cccccc'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { borderColor: ev.currentTarget.value }); })} />
+                <label className={styles.designerFormLabel}>Border width</label><input className={styles.designerInput} type="number" min={0} max={10} value={String(style.borderWidth === undefined ? 1 : style.borderWidth)} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { borderWidth: parseInt(ev.currentTarget.value, 10) || 0 }); })} />
+                <label className={styles.designerFormLabel}>Corner radius</label><input className={styles.designerInput} type="number" min={0} max={40} value={String(style.borderRadius || 0)} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { borderRadius: parseInt(ev.currentTarget.value, 10) || 0 }); })} />
+                <label className={styles.designerFormLabel}>Font size</label><input className={styles.designerInput} type="number" min={8} max={48} value={String(style.fontSize || 14)} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { fontSize: parseInt(ev.currentTarget.value, 10) || 14 }); })} />
+                <label className={styles.designerCheckboxRow}><input type="checkbox" checked={style.fontWeight === 'bold'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { fontWeight: ev.currentTarget.checked ? 'bold' : 'normal' }); })} /><span>Bold</span></label>
+              </div>}
+      </div></div>
+    );
   }
 
   private updateSelectedField(mutator: (field: FormField) => FormField): void {
@@ -1133,6 +1316,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
               {step.title}
             </button>
           ))}
+          <button type="button" className={styles.designerTab} onClick={() => this.setState({ activeDesignerTab: 'conditional', selectedFieldId: null })}>Conditional styling</button>
           <button type="button" className={styles.designerActionButton} onClick={() => this.addStep()}>{strings.DesignerAddStep}</button>
           <button
             type="button"
@@ -2872,6 +3056,12 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
           >
             Container
           </button>
+          <button
+            className={activeTab === 'conditional' ? styles.designerTabActive : styles.designerTab}
+            onClick={() => this.setState({ activeDesignerTab: 'conditional' })}
+          >
+            Conditional styling
+          </button>
         </div>
 
         {activeTab === 'form' && <div>
@@ -3111,18 +3301,20 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
         {this.renderStepContainerSettings()}
         </div>}
+        {activeTab === 'conditional' && this.renderConditionalRules()}
       </div>
     );
   }
 
   public render(): JSX.Element {
     var selectedField = this.getSelectedField();
+    var conditionalMode = this.state.activeDesignerTab === 'conditional';
 
     return (
       <div className={styles.designerWorkspace}>
         {this.renderPalette()}
-        {this.renderCanvas()}
-        {selectedField ? this.renderFieldEditor(selectedField) : this.renderStepEditor()}
+        {conditionalMode ? this.renderConditionalRulesCanvas() : this.renderCanvas()}
+        {conditionalMode ? this.renderConditionalRules() : (selectedField ? this.renderFieldEditor(selectedField) : this.renderStepEditor())}
       </div>
     );
   }

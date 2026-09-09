@@ -65,6 +65,8 @@ declare interface ISharePointDynamicFormWebPartStrings {
   PropItemIdLabel: string;
   PropItemIdPlaceholder: string;
   PropItemIdHelp: string;
+  PropInstanceNameLabel: string;
+  PropInstanceNamePlaceholder: string;
   PropLabelPositionLabel: string;
   PropLabelTop: string;
   PropLabelLeft: string;

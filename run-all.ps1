@@ -1,4 +1,4 @@
-﻿$projects = @("Accordion", "BannerClock", "Calendar", "Carousel", "Contact", "DynamicForms", "FullWidthControl", "GridControl", "LinkButton", "ListControl", "Marquee", "PrintControl", "ReportForms", "ScriptEditor", "Tab", "Tiles")
+﻿$projects = @("Accordion", "BannerClock", "Calendar", "Carousel", "Contact", "DynamicForms", "FormNavigator", "FullWidthControl", "GridControl", "LinkButton", "ListControl", "Marquee", "PrintControl", "ReportForms", "ScriptEditor", "Tab", "Tiles")
 $rootDir = "D:\Source\SharePoint-SE-Components"
 $results = @()
 

@@ -3,7 +3,7 @@
   "solution": {
     "name": "SPS Report Forms",
     "id": "1eb4368e-06af-4aef-97f3-7b42fa15f434",
-    "version": "1.0.0.62",
+    "version": "1.0.0.65",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "features": [
@@ -11,7 +11,7 @@
         "title": "SPS Report Forms Feature",
         "description": "Activates the elements of the SPS Report Forms solution.",
         "id": "b0803cb4-3860-418d-b1b4-d3f613b7c93c",
-        "version": "1.0.0.62"
+        "version": "1.0.0.65"
       }
     ]
   },

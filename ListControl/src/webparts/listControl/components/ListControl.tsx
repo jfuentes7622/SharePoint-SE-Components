@@ -33,6 +33,7 @@ export interface IListControlProps {
   showView: boolean;
   showDelete: boolean;
   showLinkToItem: boolean;
+  linkOpenBehavior: string;
   linkTargetPageUrl: string;
   linkTargetIdParam: string;
   includeReturnUrlParam: boolean;
@@ -571,34 +572,24 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
   }
 
-  private async openDefaultDisplayForm(row: any): Promise<void> {
-    var itemId = this.getRowItemId(row);
-    if (itemId <= 0) {
+  private openItemLinkDialog(itemLinkUrl: string): void {
+    if (!itemLinkUrl) {
       return;
     }
-    this.setState({ displayFormLoading: true, displayFormError: '' });
-    try {
-      var metadataUrl = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
-        + "')?$select=RootFolder/ServerRelativeUrl&$expand=RootFolder";
-      var response = await this.getJsonWithFallback(metadataUrl);
-      if (!response.ok) {
-        throw new Error('HTTP ' + String(response.status) + ' ' + response.statusText);
-      }
-      var payload = await response.json();
-      var list = payload && payload.d ? payload.d : payload;
-      var rootFolderUrl = String(list && list.RootFolder && list.RootFolder.ServerRelativeUrl || '').replace(/\/$/, '');
-      var webUrl = this.getWebUrl();
-      var originMatch = webUrl.match(/^https?:\/\/[^/]+/i);
-      var formUrl = String(originMatch ? originMatch[0] : '') + rootFolderUrl + '/DispForm.aspx';
-      formUrl = appendQueryParam(formUrl, 'ID', String(itemId));
-      formUrl = appendQueryParam(formUrl, 'IsDlg', '1');
-      this.setState({ displayFormUrl: formUrl, displayFormLoading: false });
-    } catch (error) {
-      this.setState({
-        displayFormLoading: false,
-        displayFormError: String(error && error.message ? error.message : error)
-      });
-    }
+    this.setState({
+      displayFormUrl: appendQueryParam(itemLinkUrl, 'IsDlg', '1'),
+      displayFormLoading: false,
+      displayFormError: ''
+    });
+  }
+
+  private openItemLinkWindow(itemLinkUrl: string): void {
+    var width = 1100;
+    var height = 800;
+    var left = typeof window !== 'undefined' ? Math.max(0, Math.round((window.screen.availWidth - width) / 2)) : 0;
+    var top = typeof window !== 'undefined' ? Math.max(0, Math.round((window.screen.availHeight - height) / 2)) : 0;
+    var openedWindow = window.open(itemLinkUrl, '_blank', 'noopener,noreferrer,resizable=yes,scrollbars=yes,width=' + width + ',height=' + height + ',left=' + left + ',top=' + top);
+    if (openedWindow) { openedWindow.opener = null; }
   }
 
   private closeDefaultDisplayForm(): void {
@@ -3209,6 +3200,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           var urlCell = this.getUrlCellValue(row, field);
           var showItemLink = this.props.showLinkToItem && this.isTitleField(field);
           var itemLinkUrl = showItemLink ? this.getItemLinkUrl(row) : '';
+          var linkOpenBehavior = String(this.props.linkOpenBehavior || 'self');
           var itemLinkText = showItemLink ? this.getCellPlainText(row, field) : '';
           var cellFieldKey = this.getFieldKey(field);
           var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
@@ -3232,11 +3224,16 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                 <a
                   className="lc-item-link"
                   href={itemLinkUrl}
+                  target={linkOpenBehavior === 'newTab' ? '_blank' : undefined}
+                  rel={linkOpenBehavior === 'newTab' ? 'noopener noreferrer' : undefined}
                   onClick={(ev) => {
                     ev.stopPropagation();
-                    if (!String(this.props.linkTargetPageUrl || '').trim()) {
+                    if (linkOpenBehavior === 'dialog') {
                       ev.preventDefault();
-                      this.openDefaultDisplayForm(row);
+                      this.openItemLinkDialog(itemLinkUrl);
+                    } else if (linkOpenBehavior === 'newWindow') {
+                      ev.preventDefault();
+                      this.openItemLinkWindow(itemLinkUrl);
                     }
                   }}
                 >
@@ -3395,7 +3392,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return (
       <div className="lc-root" style={containerStyle}>
         {(this.state.displayFormUrl || this.state.displayFormLoading || this.state.displayFormError)
-          && <div className="lc-form-dialog-backdrop" role="presentation" onClick={() => this.closeDefaultDisplayForm()}>
+          && <div className="lc-form-dialog-backdrop" role="presentation">
             <section className="lc-form-dialog" role="dialog" aria-modal="true" aria-label="Item details"
               onClick={(event) => event.stopPropagation()}>
               <button type="button" className="lc-form-dialog-close" aria-label="Close item details"

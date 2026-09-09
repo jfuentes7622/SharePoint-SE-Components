@@ -31,6 +31,7 @@ export interface IListControlWebPartProps {
     showView: boolean;
     showDelete: boolean;
     showLinkToItem: boolean;
+    linkOpenBehavior: string;
     linkTargetPageUrl: string;
     linkTargetIdParam: string;
     includeReturnUrlParam: boolean;

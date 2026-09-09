@@ -29,6 +29,7 @@ export interface IListControlProps {
     showView: boolean;
     showDelete: boolean;
     showLinkToItem: boolean;
+    linkOpenBehavior: string;
     linkTargetPageUrl: string;
     linkTargetIdParam: string;
     includeReturnUrlParam: boolean;
@@ -160,7 +161,8 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     constructor(props: IListControlProps);
     componentDidMount(): void;
     componentWillUnmount(): void;
-    private openDefaultDisplayForm(row);
+    private openItemLinkDialog(itemLinkUrl);
+    private openItemLinkWindow(itemLinkUrl);
     private closeDefaultDisplayForm();
     private setDisplayFormFrameRef;
     componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void;

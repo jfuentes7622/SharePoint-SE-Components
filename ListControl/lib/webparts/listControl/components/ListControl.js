@@ -414,51 +414,25 @@ var ListControl = (function (_super) {
             window.removeEventListener('scroll', this._scrollArrowScrollHandler, true);
         }
     };
-    ListControl.prototype.openDefaultDisplayForm = function (row) {
-        return __awaiter(this, void 0, void 0, function () {
-            var itemId, metadataUrl, response, payload, list, rootFolderUrl, webUrl, originMatch, formUrl, error_1;
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        itemId = this.getRowItemId(row);
-                        if (itemId <= 0) {
-                            return [2 /*return*/];
-                        }
-                        this.setState({ displayFormLoading: true, displayFormError: '' });
-                        _a.label = 1;
-                    case 1:
-                        _a.trys.push([1, 4, , 5]);
-                        metadataUrl = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
-                            + "')?$select=RootFolder/ServerRelativeUrl&$expand=RootFolder";
-                        return [4 /*yield*/, this.getJsonWithFallback(metadataUrl)];
-                    case 2:
-                        response = _a.sent();
-                        if (!response.ok) {
-                            throw new Error('HTTP ' + String(response.status) + ' ' + response.statusText);
-                        }
-                        return [4 /*yield*/, response.json()];
-                    case 3:
-                        payload = _a.sent();
-                        list = payload && payload.d ? payload.d : payload;
-                        rootFolderUrl = String(list && list.RootFolder && list.RootFolder.ServerRelativeUrl || '').replace(/\/$/, '');
-                        webUrl = this.getWebUrl();
-                        originMatch = webUrl.match(/^https?:\/\/[^/]+/i);
-                        formUrl = String(originMatch ? originMatch[0] : '') + rootFolderUrl + '/DispForm.aspx';
-                        formUrl = appendQueryParam(formUrl, 'ID', String(itemId));
-                        formUrl = appendQueryParam(formUrl, 'IsDlg', '1');
-                        this.setState({ displayFormUrl: formUrl, displayFormLoading: false });
-                        return [3 /*break*/, 5];
-                    case 4:
-                        error_1 = _a.sent();
-                        this.setState({
-                            displayFormLoading: false,
-                            displayFormError: String(error_1 && error_1.message ? error_1.message : error_1)
-                        });
-                        return [3 /*break*/, 5];
-                    case 5: return [2 /*return*/];
-                }
-            });
+    ListControl.prototype.openItemLinkDialog = function (itemLinkUrl) {
+        if (!itemLinkUrl) {
+            return;
+        }
+        this.setState({
+            displayFormUrl: appendQueryParam(itemLinkUrl, 'IsDlg', '1'),
+            displayFormLoading: false,
+            displayFormError: ''
         });
+    };
+    ListControl.prototype.openItemLinkWindow = function (itemLinkUrl) {
+        var width = 1100;
+        var height = 800;
+        var left = typeof window !== 'undefined' ? Math.max(0, Math.round((window.screen.availWidth - width) / 2)) : 0;
+        var top = typeof window !== 'undefined' ? Math.max(0, Math.round((window.screen.availHeight - height) / 2)) : 0;
+        var openedWindow = window.open(itemLinkUrl, '_blank', 'noopener,noreferrer,resizable=yes,scrollbars=yes,width=' + width + ',height=' + height + ',left=' + left + ',top=' + top);
+        if (openedWindow) {
+            openedWindow.opener = null;
+        }
     };
     ListControl.prototype.closeDefaultDisplayForm = function () {
         var _this = this;
@@ -1152,7 +1126,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadListFieldTypeMap = function (viewFieldNames) {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, data, fields, requested, i, map, j, field, internalName, displayFormat, error_2;
+            var endpoint, response, data, fields, requested, i, map, j, field, internalName, displayFormat, error_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -1196,8 +1170,8 @@ var ListControl = (function (_super) {
                         }
                         return [2 /*return*/, map];
                     case 4:
-                        error_2 = _a.sent();
-                        this.logDiagnostic('loadListFieldTypeMap failed: ' + (error_2 && error_2.message ? error_2.message : String(error_2)));
+                        error_1 = _a.sent();
+                        this.logDiagnostic('loadListFieldTypeMap failed: ' + (error_1 && error_1.message ? error_1.message : String(error_1)));
                         return [2 /*return*/, {}];
                     case 5: return [2 /*return*/];
                 }
@@ -1206,7 +1180,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.loadListFieldTitleMap = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, data, fields, map, i, field, internalName, title, error_3;
+            var endpoint, response, data, fields, map, i, field, internalName, title, error_2;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -1236,8 +1210,8 @@ var ListControl = (function (_super) {
                         }
                         return [2 /*return*/, map];
                     case 3:
-                        error_3 = _a.sent();
-                        this.logDiagnostic('loadListFieldTitleMap failed: ' + (error_3 && error_3.message ? error_3.message : String(error_3)));
+                        error_2 = _a.sent();
+                        this.logDiagnostic('loadListFieldTitleMap failed: ' + (error_2 && error_2.message ? error_2.message : String(error_2)));
                         return [2 /*return*/, {}];
                     case 4: return [2 /*return*/];
                 }
@@ -1643,7 +1617,7 @@ var ListControl = (function (_super) {
     ListControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, fieldTitleMap, visibleFieldNames, fieldTypeMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _a, error_4, loadError;
+            var requestId, baseEndpoint, selectedViewId, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, fieldTitleMap, visibleFieldNames, fieldTypeMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _a, error_3, loadError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -1815,8 +1789,8 @@ var ListControl = (function (_super) {
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
                         return [3 /*break*/, 24];
                     case 23:
-                        error_4 = _b.sent();
-                        loadError = error_4;
+                        error_3 = _b.sent();
+                        loadError = error_3;
                         if (requestId !== this._loadRowsRequestId) {
                             this.logDiagnostic('Ignoring stale loadRows failure. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
                             return [2 /*return*/];
@@ -1855,7 +1829,7 @@ var ListControl = (function (_super) {
     ListControl.prototype.loadNextBatch = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, parameters, sourceParameters, parameterName, response, extracted, _a, nextRows, runtimeItemIds, runtimeItems, existingIds, uniqueRows, nextAttachmentCounts, hasAttachments, nextPageHref, error_5;
+            var requestId, parameters, sourceParameters, parameterName, response, extracted, _a, nextRows, runtimeItemIds, runtimeItems, existingIds, uniqueRows, nextAttachmentCounts, hasAttachments, nextPageHref, error_4;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -1921,8 +1895,8 @@ var ListControl = (function (_super) {
                         _b.sent();
                         return [2 /*return*/, uniqueRows.length > 0 || !!nextPageHref];
                     case 9:
-                        error_5 = _b.sent();
-                        this.logDiagnostic('Loading next batch failed: ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
+                        error_4 = _b.sent();
+                        this.logDiagnostic('Loading next batch failed: ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
                         this.setState({ loadingMore: false });
                         return [2 /*return*/, false];
                     case 10: return [2 /*return*/];
@@ -1971,7 +1945,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.deleteSelected = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, error_6, deleteError;
+            var endpoint, response, error_5, deleteError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2006,8 +1980,8 @@ var ListControl = (function (_super) {
                         _a.sent();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_6 = _a.sent();
-                        deleteError = error_6;
+                        error_5 = _a.sent();
+                        deleteError = error_5;
                         this.setState({
                             deleting: false,
                             error: deleteError && deleteError.message ? deleteError.message : strings.RuntimeDeleteFailed
@@ -2997,15 +2971,20 @@ var ListControl = (function (_super) {
             var urlCell = _this.getUrlCellValue(row, field);
             var showItemLink = _this.props.showLinkToItem && _this.isTitleField(field);
             var itemLinkUrl = showItemLink ? _this.getItemLinkUrl(row) : '';
+            var linkOpenBehavior = String(_this.props.linkOpenBehavior || 'self');
             var itemLinkText = showItemLink ? _this.getCellPlainText(row, field) : '';
             var cellFieldKey = _this.getFieldKey(field);
             var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
             var mergedCellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
-            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) {
+            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, target: linkOpenBehavior === 'newTab' ? '_blank' : undefined, rel: linkOpenBehavior === 'newTab' ? 'noopener noreferrer' : undefined, onClick: function (ev) {
                     ev.stopPropagation();
-                    if (!String(_this.props.linkTargetPageUrl || '').trim()) {
+                    if (linkOpenBehavior === 'dialog') {
                         ev.preventDefault();
-                        _this.openDefaultDisplayForm(row);
+                        _this.openItemLinkDialog(itemLinkUrl);
+                    }
+                    else if (linkOpenBehavior === 'newWindow') {
+                        ev.preventDefault();
+                        _this.openItemLinkWindow(itemLinkUrl);
                     }
                 } }, itemLinkText || strings.RuntimeView)) : (markup ? React.createElement("span", { dangerouslySetInnerHTML: markup }) : null)));
         })));
@@ -3127,7 +3106,7 @@ var ListControl = (function (_super) {
         };
         return (React.createElement("div", { className: "lc-root", style: containerStyle },
             (this.state.displayFormUrl || this.state.displayFormLoading || this.state.displayFormError)
-                && React.createElement("div", { className: "lc-form-dialog-backdrop", role: "presentation", onClick: function () { return _this.closeDefaultDisplayForm(); } },
+                && React.createElement("div", { className: "lc-form-dialog-backdrop", role: "presentation" },
                     React.createElement("section", { className: "lc-form-dialog", role: "dialog", "aria-modal": "true", "aria-label": "Item details", onClick: function (event) { return event.stopPropagation(); } },
                         React.createElement("button", { type: "button", className: "lc-form-dialog-close", "aria-label": "Close item details", title: "Close item details", onClick: function () { return _this.closeDefaultDisplayForm(); } }, "\u00D7"),
                         this.state.displayFormLoading && React.createElement("div", { className: "lc-form-dialog-message" }, "Loading item..."),

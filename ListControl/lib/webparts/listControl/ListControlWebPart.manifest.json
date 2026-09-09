@@ -30,6 +30,7 @@
         "fetchBatchSize": 500,
         "showViewSelector": true,
         "showLinkToItem": false,
+        "linkOpenBehavior": "self",
         "linkTargetPageUrl": "",
         "linkTargetIdParam": "itemid",
         "includeReturnUrlParam": false,

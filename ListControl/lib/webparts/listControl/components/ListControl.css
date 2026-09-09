@@ -397,10 +397,14 @@
 .lc-form-dialog {
   position: relative;
   box-sizing: border-box;
-  width: 100%;
-  max-width: 740px;
+  width: 740px;
+  min-width: 280px;
+  max-width: calc(100vw - 32px);
   height: 690px;
+  min-height: 240px;
   max-height: calc(100vh - 32px);
+  overflow: hidden;
+  resize: both;
   padding: 18px;
   border: 1px solid #8a8886;
   border-radius: 6px;

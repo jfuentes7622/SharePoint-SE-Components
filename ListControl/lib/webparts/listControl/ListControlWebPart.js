@@ -209,6 +209,7 @@ var ListControlWebPart = (function (_super) {
             showView: this.properties.showView !== false,
             showDelete: this.properties.showDelete !== false,
             showLinkToItem: this.properties.showLinkToItem === true,
+            linkOpenBehavior: this.properties.linkOpenBehavior || 'self',
             linkTargetPageUrl: this.properties.linkTargetPageUrl === '__defaultForm__'
                 ? '' : (this.properties.linkTargetPageUrl || ''),
             linkTargetIdParam: this.properties.linkTargetIdParam || 'itemid',
@@ -905,6 +906,16 @@ var ListControlWebPart = (function (_super) {
                                     checked: this.properties.showLinkToItem === true
                                 })
                             ], (this.properties.showLinkToItem === true ? [
+                                sp_webpart_base_1.PropertyPaneDropdown('linkOpenBehavior', {
+                                    label: strings.PropLinkOpenBehaviorLabel,
+                                    options: [
+                                        { key: 'self', text: strings.PropLinkOpenBehaviorSelf },
+                                        { key: 'newTab', text: strings.PropLinkOpenBehaviorNewTab },
+                                        { key: 'newWindow', text: strings.PropLinkOpenBehaviorNewWindow },
+                                        { key: 'dialog', text: strings.PropLinkOpenBehaviorDialog }
+                                    ],
+                                    selectedKey: this.properties.linkOpenBehavior || 'self'
+                                }),
                                 sp_webpart_base_1.PropertyPaneDropdown('linkTargetPageUrl', {
                                     label: strings.PropLinkTargetPageUrlLabel,
                                     options: this.getTargetPageOptions(),

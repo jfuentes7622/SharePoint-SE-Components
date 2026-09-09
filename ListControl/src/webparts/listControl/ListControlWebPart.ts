@@ -55,6 +55,7 @@ export interface IListControlWebPartProps {
   showView: boolean;
   showDelete: boolean;
   showLinkToItem: boolean;
+  linkOpenBehavior: string;
   linkTargetPageUrl: string;
   linkTargetIdParam: string;
   includeReturnUrlParam: boolean;
@@ -304,6 +305,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       showView: this.properties.showView !== false,
       showDelete: this.properties.showDelete !== false,
       showLinkToItem: this.properties.showLinkToItem === true,
+      linkOpenBehavior: this.properties.linkOpenBehavior || 'self',
       linkTargetPageUrl: this.properties.linkTargetPageUrl === '__defaultForm__'
         ? '' : (this.properties.linkTargetPageUrl || ''),
       linkTargetIdParam: this.properties.linkTargetIdParam || 'itemid',
@@ -976,6 +978,16 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
                   checked: this.properties.showLinkToItem === true
                 }),
                 ...(this.properties.showLinkToItem === true ? [
+                  PropertyPaneDropdown('linkOpenBehavior', {
+                    label: strings.PropLinkOpenBehaviorLabel,
+                    options: [
+                      { key: 'self', text: strings.PropLinkOpenBehaviorSelf },
+                      { key: 'newTab', text: strings.PropLinkOpenBehaviorNewTab },
+                      { key: 'newWindow', text: strings.PropLinkOpenBehaviorNewWindow },
+                      { key: 'dialog', text: strings.PropLinkOpenBehaviorDialog }
+                    ],
+                    selectedKey: this.properties.linkOpenBehavior || 'self'
+                  }),
                   PropertyPaneDropdown('linkTargetPageUrl', {
                     label: strings.PropLinkTargetPageUrlLabel,
                     options: this.getTargetPageOptions(),

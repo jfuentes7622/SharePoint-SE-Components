@@ -30,6 +30,11 @@ declare interface IListControlWebPartStrings {
   PropShowViewSelectorLabel: string;
   PropShowViewAsDropdownLabel: string;
   PropShowLinkToItemLabel: string;
+  PropLinkOpenBehaviorLabel: string;
+  PropLinkOpenBehaviorSelf: string;
+  PropLinkOpenBehaviorNewTab: string;
+  PropLinkOpenBehaviorNewWindow: string;
+  PropLinkOpenBehaviorDialog: string;
   PropLinkTargetPageUrlLabel: string;
   PropLinkTargetPageUrlPlaceholder: string;
   PropLinkTargetDefaultFormOption: string;

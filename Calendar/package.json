@@ -1,6 +1,7 @@
 {
   "name": "sps-calendar",
   "version": "1.1.5",
+  "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "engines": {
     "node": ">=0.10.0"

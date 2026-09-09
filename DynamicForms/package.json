@@ -1,6 +1,7 @@
 {
   "name": "dynamic-form",
   "version": "1.0.36",
+  "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "main": "lib/index.js",
   "engines": {

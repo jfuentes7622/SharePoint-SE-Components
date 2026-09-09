@@ -1,6 +1,7 @@
 {
   "name": "grid-control-se",
   "version": "0.0.39",
+  "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "main": "lib/index.js",
   "engines": {

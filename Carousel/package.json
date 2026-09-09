@@ -1,6 +1,7 @@
 {
   "name": "carousel",
   "version": "0.0.4",
+  "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "engines": {
     "node": ">=0.10.0"

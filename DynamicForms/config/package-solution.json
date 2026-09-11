@@ -3,7 +3,7 @@
   "solution": {
     "name": "SPS Dynamic Forms",
     "id": "a2c59f79-b03b-419b-9028-bbd5dc3d0efd",
-    "version": "1.0.0.96",
+    "version": "1.0.0.100",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "features": [
@@ -11,7 +11,7 @@
         "title": "Dynamic Forms Feature",
         "description": "Activates the elements of the Dynamic Forms solution.",
         "id": "79f4696a-5676-49c1-a364-ed8be624b194",
-        "version": "1.0.0.96"
+        "version": "1.0.0.100"
       }
     ]
   },

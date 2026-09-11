@@ -92,11 +92,13 @@ export interface ConditionalFieldRule {
   id: string;
   enabled?: boolean;
   sourceField: string;
-  operator: 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'notcontains' | 'startswith' | 'endswith';
+  operator: 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'between';
   value: any;
   targetField: string;
-  action: 'style' | 'visibility';
+  targetFields?: string[];
+  action: 'style' | 'visibility' | 'disable';
   visible?: boolean;
+  disabled?: boolean;
   style?: ConditionalFieldStyle;
 }
 
@@ -115,6 +117,7 @@ export interface AdvancedValidationRule {
 export interface FormTheme {
   layout?: 'stack' | 'grid';
   columns?: number;
+  fieldVerticalSpacing?: number; // vertical space between fields in pixels
   labelPosition?: 'top' | 'left';
   // Font settings for form title/name
   fontSize?: number; // in pixels

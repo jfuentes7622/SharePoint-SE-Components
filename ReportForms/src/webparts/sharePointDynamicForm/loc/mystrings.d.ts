@@ -7,6 +7,8 @@ declare interface ISharePointDynamicFormWebPartStrings {
   PropertyGroupButtons: string;
   PropertyGroupConfigIO: string;
   PropListLabel: string;
+  PropRepeatForAllItemsLabel: string;
+  PropRepeatForAllItemsHelp: string;
   PropModeLabel: string;
   PropModeNew: string;
   PropModeEdit: string;
@@ -140,6 +142,8 @@ declare interface ISharePointDynamicFormWebPartStrings {
   CommonSave: string;
   CommonSaving: string;
   CommonLoading: string;
+  RuntimeRepeatNoItems: string;
+  RuntimeRepeatLoadFailed: string;
   CommonRetry: string;
   CommonContinueEditing: string;
   CommonReadOnly: string;

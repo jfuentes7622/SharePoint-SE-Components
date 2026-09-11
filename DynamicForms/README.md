@@ -55,6 +55,7 @@ SharePoint Dynamic Form is a SharePoint Framework (SPFx) web part that provides 
 | WYSIWYG Preview | See form layout in real-time |
 | Field Configuration | Configure field properties inline |
 | Layout Control | Grid and stack layout options |
+| Field Spacing | Set form-level vertical spacing between fields from 0 to 100 pixels |
 
 ### Rich Field Types (15+)
 
@@ -104,7 +105,9 @@ Detailed permission-source diagnostics remain in the browser console and are not
 - **Readonly Rules**: Control field editability
 - **Value Actions**: Auto-set field values
 
-The designer also provides a dedicated **Conditional styling** workspace. Each ordered rule compares a source field with a value and either applies styles to a target field or sets its visibility. Style actions can control background, text, border, corner radius, font size, and font weight. Use **Move up** and **Move down** to set precedence: matching styles are merged in rule order, and the last matching rule wins when rules set the same style or visibility property.
+Form Layout's **Vertical space between fields (px)** is the sole runtime gap between field wrappers in stacked and grid layouts. Values from 0 through 100 are honored directly; transparent runtime wrappers do not add a hidden minimum margin or padding. Fields with a configured background, border, conditional box style, or validation error retain padding inside their visible box.
+
+The designer also provides a dedicated **Conditional styling** workspace. Each ordered rule compares a source field with a value and can apply styles, set visibility, or set the disabled state. The value editor follows the source-field type: lookup fields load selectable target-list items, Choice fields list their configured choices, Yes/No fields offer True/False, numeric fields use a number input, and Date/Time fields use a date picker with an inclusive **Between** option. Lookup conditions save and compare item IDs, including multi-value lookup candidates. **Target fields** is a multi-select list, so one rule can affect several fields; hold Ctrl while clicking to select multiple fields. Style actions can control background, text, border, corner radius, font size, and font weight. Disable actions make matching fields non-editable, and conditionally disabled required fields do not block submission. Use **Move up** and **Move down** to set precedence: matching styles are merged in rule order, and the last matching visibility or disabled-state rule wins. Existing rules with one `targetField` and existing static values remain compatible.
 
 Required and targeted validation failures keep their existing message and add a red border around the complete field. After a failed save, validation reruns as values change, including cross-field rules. When the field becomes valid, the red validation override is removed and its configured or conditional border is rendered again.
 
@@ -116,6 +119,7 @@ Required and targeted validation failures keep their existing message and add a 
 - Custom step titles and descriptions
 - Move container left/right controls reorder wizard steps without deleting or recreating them.
 - Form-level and per-container themes can independently set description font size, family, weight, and color.
+- Form Layout includes **Vertical space between fields (px)**. It applies to stacked fields and grid rows without changing horizontal grid spacing.
 
 ### SharePoint Integration
 

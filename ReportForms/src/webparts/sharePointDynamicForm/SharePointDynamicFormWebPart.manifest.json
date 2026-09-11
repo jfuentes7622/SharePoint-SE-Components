@@ -20,6 +20,7 @@
       "forceFullWidth": false,
       "fixedWidth": 800,
       "listName": "",
+      "repeatForAllItems": false,
       "mode": "view",
       "dynamicItemId": "",
       "dynamicItemIdReference": "",

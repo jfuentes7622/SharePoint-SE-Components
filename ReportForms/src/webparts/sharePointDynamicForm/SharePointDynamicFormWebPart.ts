@@ -20,7 +20,8 @@ import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
 
 import * as strings from 'SharePointDynamicFormWebPartStrings';
 import { FormSchema, FormMode } from '../../formEngine/core/types';
-import { SharePointDynamicFormContainer } from './components/SharePointDynamicForm';
+import { SharePointDynamicFormContainer, SharePointDynamicFormContainerProps } from './components/SharePointDynamicForm';
+import { RepeatedReportForms } from './components/RepeatedReportForms';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
@@ -31,6 +32,7 @@ export interface ISharePointDynamicFormWebPartProps {
   fixedWidth?: number;
   formSchemaJson: string;
   listName: string;
+  repeatForAllItems?: boolean;
   mode: FormMode;
   dynamicItemId?: any;
   dynamicItemIdReference?: string;
@@ -402,9 +404,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     var useDynamicValueAsFilter = useDynamicItemAsItemId ? false : true;
     var safeDynamicItemId = !isNaN(dynamicItemIdValue) && dynamicItemIdValue > 0 ? dynamicItemIdValue : 0;
     var effectiveMode: FormMode = 'view';
-    const element: React.ReactElement<any> = React.createElement(
-      SharePointDynamicFormContainer,
-      {
+    var reportProps: SharePointDynamicFormContainerProps = {
         isInDesignerMode: designerAvailable ? (this.properties.isInDesignerMode || false) : false,
         isDesignerAvailable: designerAvailable,
         onToggleDesignerMode: () => this.toggleDesignerMode(),
@@ -459,8 +459,11 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         dynamicPreferredSourceInstanceId: this.properties.dynamicPreferredSourceInstanceId || '',
         enableDynamicDiagnostics: this.properties.enableDynamicDiagnostics !== false,
         onRuntimeStateChange: (state: any) => this.handleRuntimeStateChanged(state),
-      }
-    );
+      };
+    var repeatAtRuntime = this.properties.repeatForAllItems === true && this.displayMode !== DisplayMode.Edit;
+    const element: React.ReactElement<any> = repeatAtRuntime
+      ? React.createElement(RepeatedReportForms, { reportProps: reportProps })
+      : React.createElement(SharePointDynamicFormContainer, reportProps);
 
     ReactDom.render(element, this.domElement);
   }
@@ -2803,6 +2806,15 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                   options: this._lists,
                   selectedKey: this.properties.listName,
                 }),
+                PropertyPaneCheckbox('repeatForAllItems', {
+                  text: strings.PropRepeatForAllItemsLabel,
+                  checked: this.properties.repeatForAllItems === true,
+                }),
+                ...(this.properties.repeatForAllItems ? [
+                  PropertyPaneLabel('repeatForAllItemsHelp', {
+                    text: strings.PropRepeatForAllItemsHelp
+                  })
+                ] : []),
                 PropertyPaneLabel('viewOnlyMode', {
                   text: 'Mode: View only'
                 }),

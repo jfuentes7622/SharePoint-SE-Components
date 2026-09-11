@@ -15,13 +15,16 @@ Do not upgrade Microsoft SPFx packages independently. SharePoint Server Subscrip
 ## Behavior
 
 - One Report Forms instance is connected to one SharePoint list.
+- **Repeat report for every list item** is off by default. When enabled, published/runtime view loads every item ID from the selected list in ascending order and renders the configured report once per item. SharePoint paging links are followed so the feature is not limited to the first response page.
 - The selected item can come from an item ID, an `itemid` URL query parameter, or a dynamic-data connection to ListControl, GridControl, or Calendar. When **Use dynamic item ID as form item ID** is off, the incoming or URL value filters the configured writable target column instead of being treated as SharePoint `ID`; supported targets include text, number, Boolean, DateTime, lookup, and person columns.
 - Multiple instances can be placed on one page and connected to the same or different dynamic-data sources.
 - Runtime fields are always rendered in View mode.
 - Add, Edit, Save, Cancel, defaults, record-filter, and validation property pages are not exposed.
 - The visual designer remains available while editing the SharePoint page so authors can select fields and configure the report layout.
+- Form Layout includes **Vertical space between fields (px)** from 0 to 100 pixels. It is the sole runtime gap between field wrappers in stacked and grid layouts, with no hidden minimum margin or transparent-wrapper padding. Fields with a visible background, border, conditional box style, or validation border retain padding inside that box. Horizontal grid spacing is unchanged.
 - Date/Time fields support built-in date, date/time, and time-only output plus custom format strings. Custom formats can preserve default text case or force the final output to uppercase or lowercase.
-- The designer's **Conditional styling** workspace creates ordered field rules that either apply background, text, border, corner, and font styles or set target-field visibility. Use Move up/down to control precedence; the last matching rule wins for the same style or visibility property. Hidden fields are removed from the layout so visible fields reflow without gaps.
+- Lookup fields display their configured lookup values. Multi-value lookups render those display values as a comma-separated list rather than exposing SharePoint item IDs.
+- The designer's **Conditional styling** workspace creates ordered field rules that apply background, text, border, corner, and font styles or set visibility. Rule values follow the source-field type: lookup items, configured choices, True/False, numbers, and dates use native selectors instead of free text. Date rules also support an inclusive **Between** range, and lookup rules compare selected item IDs including multi-value candidates. **Target fields** is a multi-select list, so one rule can affect several fields; hold Ctrl while clicking to select multiple fields. Use Move up/down to control precedence; the last matching rule wins for the same style or visibility property. Existing single-target rules and static values remain compatible. Hidden fields are removed from the layout so visible fields reflow without gaps.
 - A custom **List Control** field can place a separately configured ListControl web part inside the report layout. The complete web-part host is moved at runtime and returned to its original page position when the report unmounts.
 - SharePoint list and item permissions are still enforced by SharePoint. Report permission checks use `ViewListItems`, not Add or Edit permissions.
 
@@ -32,6 +35,8 @@ Do not upgrade Microsoft SPFx packages independently. SharePoint Server Subscrip
 3. Open the visual designer from the web part while the page is in edit mode.
 4. Add and arrange the fields that should appear in the report.
 5. Select a fixed item ID, use the configured URL query parameter, or connect the dynamic item source to another supported web part.
+
+To show the same report for the complete list, enable **Repeat report for every list item** in Basic settings. Repeat mode applies only at runtime; page edit mode continues to show one report and one visual designer. Fixed item ID, URL item ID, dynamic selection, and record-filter selection are ignored while repeating because the selected list supplies the record set.
 
 ### Navigate multiple reports
 
@@ -64,6 +69,20 @@ npx gulp package-solution --ship
 ```
 
 The deployable package is generated at `sharepoint/solution/sps-report-forms.sppkg`.
+
+## Troubleshooting script-resource errors
+
+Errors for `e47c4f0e-0f0d-49d5-bcab-7a4d05742037_<version>/SharePointDynamicFormWebPartStrings` or `/PropertyControlStrings` occur before Report Forms reads list data. They indicate that SharePoint could not load an SPFx localization asset, not that the user lacks access to the report list.
+
+Property-pane version `1.0.0.62` and loader component version `1.0.37` identify the same outdated Report Forms package. The current package is solution `1.0.0.71` with component `1.0.46`.
+
+1. Replace `sps-report-forms.sppkg` in the tenant App Catalog and approve the replacement/deployment.
+2. Confirm the App Catalog displays solution version `1.0.0.71`.
+3. Apply any available Report Forms update under the target site's **Site contents**.
+4. Clear site data for the SharePoint tenant, including its service worker/cache, close all tenant tabs, and retest in a new InPrivate window.
+5. In browser developer tools, inspect the failed localization `.js` request. A `404` indicates a stale manifest requesting a removed hashed filename. A `401` or `403` requires a SharePoint administrator to restore the tenant App Catalog and `ClientSideAssets` library to the organization's standard inherited/read-access configuration.
+
+The historical `1.0.37` package contained its localization files, but their generated hashes differ from the current release. A browser retaining the old component manifest can continue requesting obsolete filenames after an App Catalog package upgrade.
 
 ## Project Identity
 

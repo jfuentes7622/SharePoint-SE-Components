@@ -3025,7 +3025,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     var errors: IFieldErrorMap = {};
     for (var i = 0; i < fields.length; i += 1) {
       var field = fields[i];
-      if (field.required !== true || !this.isFieldVisible(field, schema)) {
+      if (field.required !== true || !this.isFieldVisible(field, schema) || field.disabled === true || this.isFieldConditionallyDisabled(field)) {
         continue;
       }
       var value = this.state.values[field.id];
@@ -3382,13 +3382,27 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   private conditionalRuleMatches(rule: ConditionalFieldRule, schema: FormSchema): boolean {
     if (!rule || rule.enabled === false) { return false; }
     var candidate = this.getConditionalFieldValue(schema, rule.sourceField);
-    var candidateText = String(candidate === undefined || candidate === null ? '' : candidate).toLowerCase();
+    var candidateValues = this.getConditionalComparisonValues(candidate);
+    var candidateText = candidateValues.join(',').toLowerCase();
     var expectedText = String(rule.value === undefined || rule.value === null ? '' : rule.value).toLowerCase();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(expectedText) && candidateValues.length === 1 && /^\d{4}-\d{2}-\d{2}/.test(candidateValues[0])) {
+      candidateValues = [candidateValues[0].substring(0, 10)];
+      candidateText = candidateValues[0].toLowerCase();
+    }
     var candidateNumber = Number(candidate);
     var expectedNumber = Number(rule.value);
     var comparableNumbers = candidateText !== '' && expectedText !== '' && !isNaN(candidateNumber) && !isNaN(expectedNumber);
     switch (rule.operator) {
-      case 'ne': return candidateText !== expectedText;
+      case 'between':
+        var range: any = rule.value || {};
+        var candidateDate = String(candidate || '').substring(0, 10);
+        var fromDate = String(range.from || '').substring(0, 10);
+        var toDate = String(range.to || '').substring(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(candidateDate) || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) { return false; }
+        var rangeStart = fromDate < toDate ? fromDate : toDate;
+        var rangeEnd = fromDate > toDate ? fromDate : toDate;
+        return candidateDate >= rangeStart && candidateDate <= rangeEnd;
+      case 'ne': return !candidateValues.some(function(value) { return value.toLowerCase() === expectedText; });
       case 'gt': return comparableNumbers ? candidateNumber > expectedNumber : candidateText > expectedText;
       case 'ge': return comparableNumbers ? candidateNumber >= expectedNumber : candidateText >= expectedText;
       case 'lt': return comparableNumbers ? candidateNumber < expectedNumber : candidateText < expectedText;
@@ -3397,8 +3411,27 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       case 'notcontains': return candidateText.indexOf(expectedText) < 0;
       case 'startswith': return candidateText.indexOf(expectedText) === 0;
       case 'endswith': return expectedText === '' || candidateText.lastIndexOf(expectedText) === candidateText.length - expectedText.length;
-      default: return candidateText === expectedText;
+      default: return candidateValues.some(function(value) { return value.toLowerCase() === expectedText; });
     }
+  }
+
+  private getConditionalComparisonValues(value: any): string[] {
+    if (value === undefined || value === null) { return ['']; }
+    if (Array.isArray(value)) {
+      var arrayValues: string[] = [];
+      for (var i = 0; i < value.length; i += 1) { arrayValues = arrayValues.concat(this.getConditionalComparisonValues(value[i])); }
+      return arrayValues;
+    }
+    if (typeof value === 'object') {
+      if (value.results && Array.isArray(value.results)) { return this.getConditionalComparisonValues(value.results); }
+      var idValue = value.selectedItemId !== undefined ? value.selectedItemId
+        : value.lookupId !== undefined ? value.lookupId
+          : value.LookupId !== undefined ? value.LookupId
+            : value.Id !== undefined ? value.Id
+              : value.ID !== undefined ? value.ID : value.id;
+      return idValue !== undefined ? [String(idValue)] : [String(value)];
+    }
+    return [String(value)];
   }
 
   private getMatchingConditionalRules(field: FormField, action: string, schema?: FormSchema): ConditionalFieldRule[] {
@@ -3407,8 +3440,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     var fieldId = String(field.id || '').toLowerCase();
     var fieldName = String(field.fieldName || '').toLowerCase();
     return currentSchema.conditionalRules.filter((rule: ConditionalFieldRule) => {
-      var target = String(rule.targetField || '').toLowerCase();
-      return rule.action === action && (target === fieldId || target === fieldName) && this.conditionalRuleMatches(rule, currentSchema);
+      var targets = rule.targetFields && rule.targetFields.length > 0 ? rule.targetFields : [rule.targetField];
+      var targetsField = targets.some(function(target) {
+        var normalizedTarget = String(target || '').toLowerCase();
+        return normalizedTarget === fieldId || normalizedTarget === fieldName;
+      });
+      return rule.action === action && targetsField && this.conditionalRuleMatches(rule, currentSchema);
     });
   }
 
@@ -3426,6 +3463,11 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     return result;
   }
 
+  private isFieldConditionallyDisabled(field: FormField): boolean {
+    var rules = this.getMatchingConditionalRules(field, 'disable');
+    return rules.length > 0 && rules[rules.length - 1].disabled !== false;
+  }
+
   private renderField(field: FormField): JSX.Element | null {
     var value = this.state.values[field.id];
     var effectiveMode = this.getEffectiveMode();
@@ -3437,7 +3479,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       (field.fieldName && field.fieldName.toLowerCase() === linkedFieldTarget)
     );
     
-    var disabled = effectiveMode === 'view' || field.readOnly === true || field.disabled === true || isLinkedField;
+    var disabled = effectiveMode === 'view' || field.readOnly === true || field.disabled === true || isLinkedField || this.isFieldConditionallyDisabled(field);
     var errorMessage = this.state.fieldErrors[field.id];
     var placeholder = field.config && field.config.placeholder ? field.config.placeholder : undefined;
     var description = this.props.showFieldDescription ? (field.description || (field.config && field.config.helpText) || '') : '';
@@ -3452,7 +3494,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     };
 
     // Build field wrapper styles with background and border
-    var fieldWrapperStyle: React.CSSProperties = { padding: '12px', marginBottom: '16px' };
+    var fieldWrapperStyle: React.CSSProperties = {};
     var conditionalStyle = this.getConditionalFieldStyle(field);
     // Determine label position: field override or theme default
     var labelPosition = field.labelPosition || (this.state.schema && this.state.schema.theme && this.state.schema.theme.labelPosition) || 'top';
@@ -3483,6 +3525,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     if (errorMessage) {
       fieldWrapperStyle.border = '2px solid #a80000';
       fieldWrapperStyle.boxShadow = '0 0 0 1px rgba(168, 0, 0, 0.12)';
+    }
+    if (fieldWrapperStyle.backgroundColor || fieldWrapperStyle.border) {
+      fieldWrapperStyle.padding = '12px';
     }
 
     // Build input styles with field-specific font settings; always resolved (own default when unset)
@@ -3595,7 +3640,6 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           return null;
         }
         var customImageWrapperStyle: React.CSSProperties = {
-          marginBottom: '16px',
           textAlign: (customImageConfig.imageAlignment || 'left') as any
         };
         var customImageStyle: React.CSSProperties = {
@@ -3622,7 +3666,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         // Custom richtext fields render as content divs, not form inputs
         // Always visible, never editable, for informational purposes
         var richTextStyle: React.CSSProperties = {
-          padding: '12px', marginBottom: '16px', wordBreak: 'break-word', lineHeight: '1.6',
+          wordBreak: 'break-word', lineHeight: '1.6',
           fontSize: field.inputFontSize || 14,
           fontFamily: field.inputFontFamily || DEFAULT_THEME_FONT_FAMILY,
           fontWeight: (field.inputFontWeight || 'normal') as any,
@@ -3635,6 +3679,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         if (field.fieldBorderStyle === 'rounded') {
           richTextStyle.borderRadius = String(field.fieldBorderRadius || 8) + 'px';
         }
+        if (richTextStyle.backgroundColor || richTextStyle.border) { richTextStyle.padding = '12px'; }
         var richTextContent = decodeHtmlEntities(String(field.defaultValue || ''));
         return <div style={richTextStyle} dangerouslySetInnerHTML={{ __html: richTextContent } as any} />;
       case 'text':
@@ -4344,6 +4389,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         {(() => {
           var formGridLayout = !!(schema.theme && schema.theme.layout === 'grid' && schema.theme.columns && schema.theme.columns > 1);
           var formColumns = formGridLayout ? (schema.theme.columns || 2) : 1;
+          var fieldVerticalSpacing = schema.theme && schema.theme.fieldVerticalSpacing !== undefined
+            ? Math.max(0, Math.min(100, schema.theme.fieldVerticalSpacing))
+            : 16;
           var stepsContent = schema.steps.map((step) => {
             if (step.visible === false) {
               return null;
@@ -4357,7 +4405,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
             ? {
               display: 'grid',
               gridTemplateColumns: 'repeat(' + String(stepColumns) + ', minmax(0, 1fr))',
-              gap: '16px',
+              columnGap: '16px',
+              rowGap: String(fieldVerticalSpacing) + 'px',
               marginBottom: '24px',
             }
             : { marginBottom: '24px' };
@@ -4415,7 +4464,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
                 return null;
               }
               return (
-                <div key={field.id} style={gridLayout ? (field.startNewRow === true ? { gridColumn: '1 / -1' } : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) }) : { marginBottom: '16px' }}>
+                <div key={field.id} style={gridLayout ? (field.startNewRow === true ? { gridColumn: '1 / -1' } : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) }) : { marginBottom: String(fieldVerticalSpacing) + 'px' }}>
                   {this.renderField(field)}
                 </div>
               );

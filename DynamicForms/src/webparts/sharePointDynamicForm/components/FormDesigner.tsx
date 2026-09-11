@@ -33,6 +33,9 @@ interface FormDesignerState {
   selectedStepIndex: number;
   selectedFieldId: string | null;
   selectedConditionalRuleId: string | null;
+  conditionalLookupOptions: Array<{ key: string; text: string }>;
+  conditionalLookupFieldId: string;
+  conditionalLookupLoading: boolean;
   activeDesignerTab: 'form' | 'container' | 'conditional';
 }
 
@@ -257,6 +260,9 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       selectedStepIndex: 0,
       selectedFieldId: null,
       selectedConditionalRuleId: null,
+      conditionalLookupOptions: [],
+      conditionalLookupFieldId: '',
+      conditionalLookupLoading: false,
       activeDesignerTab: 'form',
     };
 
@@ -283,6 +289,11 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
     if (prevState.selectedFieldId !== this.state.selectedFieldId) {
       this.loadSelectedGridControlFields();
+    }
+
+    if (prevState.selectedConditionalRuleId !== this.state.selectedConditionalRuleId) {
+      var selectedRule = this.getSelectedConditionalRule();
+      this.loadConditionalLookupOptions(selectedRule ? selectedRule.sourceField : '');
     }
   }
 
@@ -601,6 +612,57 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     return fields;
   }
 
+  private getConditionalField(fieldReference: string): FormField | null {
+    var normalized = String(fieldReference || '').toLowerCase();
+    var fields = this.getConditionalRuleFields();
+    for (var i = 0; i < fields.length; i += 1) {
+      if (String(fields[i].id || '').toLowerCase() === normalized || String(fields[i].fieldName || '').toLowerCase() === normalized) {
+        return fields[i];
+      }
+    }
+    return null;
+  }
+
+  private getSelectedConditionalRule(): ConditionalFieldRule | null {
+    var rules = this.props.schema.conditionalRules || [];
+    for (var i = 0; i < rules.length; i += 1) {
+      if (rules[i].id === this.state.selectedConditionalRuleId) { return rules[i]; }
+    }
+    return null;
+  }
+
+  private async loadConditionalLookupOptions(fieldReference: string): Promise<void> {
+    var field = this.getConditionalField(fieldReference);
+    if (!field || field.type !== 'lookup' || !field.config || !field.config.lookupList) {
+      this.setState({ conditionalLookupOptions: [], conditionalLookupFieldId: '', conditionalLookupLoading: false });
+      return;
+    }
+    this.setState({ conditionalLookupOptions: [], conditionalLookupFieldId: field.id, conditionalLookupLoading: true });
+    try {
+      var lookupList = String(field.config.lookupList);
+      var lookupField = String(field.config.lookupField || 'Title');
+      var cleanLookupList = lookupList.replace(/^\{|\}$/g, '');
+      var listPath = /^\{?[0-9a-f]{8}-[0-9a-f-]{27}\}?$/i.test(lookupList)
+        ? "/_api/web/lists(guid'" + cleanLookupList + "')"
+        : "/_api/web/lists/getByTitle('" + escapeODataText(lookupList) + "')";
+      var response = await this.getWithAcceptFallback(this.getWebUrl() + listPath + '/items?$select=' + encodeURIComponent('Id,' + lookupField) + '&$top=5000');
+      if (!response.ok) { throw new Error('Unable to load lookup items.'); }
+      var data = await response.json();
+      var items: any[] = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+      var options = items.map(function(item) {
+        var itemId = item.Id !== undefined ? item.Id : item.ID;
+        return { key: String(itemId), text: String(item[lookupField] || item.Title || itemId) };
+      });
+      if (this.state.conditionalLookupFieldId === field.id) {
+        this.setState({ conditionalLookupOptions: options, conditionalLookupLoading: false });
+      }
+    } catch (_error) {
+      if (this.state.conditionalLookupFieldId === field.id) {
+        this.setState({ conditionalLookupOptions: [], conditionalLookupLoading: false });
+      }
+    }
+  }
+
   private addConditionalRule(): void {
     var fields = this.getConditionalRuleFields();
     if (fields.length === 0) { return; }
@@ -614,6 +676,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
         operator: 'eq',
         value: '',
         targetField: fields.length > 1 ? fields[1].id : fields[0].id,
+        targetFields: [fields.length > 1 ? fields[1].id : fields[0].id],
         action: 'style',
         visible: true,
         style: { backgroundColor: '#fff1f0', color: '#000000', borderColor: '#d13438', borderWidth: 1 }
@@ -665,6 +728,34 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     return fieldReference || '(field)';
   }
 
+  private getConditionalRuleTargets(rule: ConditionalFieldRule): string[] {
+    var configuredTargets = rule.targetFields && rule.targetFields.length > 0
+      ? rule.targetFields
+      : [rule.targetField];
+    var targets: string[] = [];
+    var seen: { [target: string]: boolean } = {};
+    for (var i = 0; i < configuredTargets.length; i += 1) {
+      var target = String(configuredTargets[i] || '').trim();
+      var targetKey = target.toLowerCase();
+      if (target && !seen[targetKey]) {
+        seen[targetKey] = true;
+        targets.push(target);
+      }
+    }
+    return targets;
+  }
+
+  private getConditionalRuleTargetLabels(rule: ConditionalFieldRule): string {
+    return this.getConditionalRuleTargets(rule).map((target) => this.getConditionalFieldLabel(target)).join(', ');
+  }
+
+  private getConditionalRuleValueLabel(rule: ConditionalFieldRule): string {
+    if (rule.operator === 'between' && rule.value && typeof rule.value === 'object') {
+      return String(rule.value.from || '') + ' through ' + String(rule.value.to || '');
+    }
+    return String(rule.value === undefined || rule.value === null ? '' : rule.value);
+  }
+
   private renderConditionalRulesCanvas(): JSX.Element {
     var rules = this.props.schema.conditionalRules || [];
     return (
@@ -680,8 +771,12 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
           {rules.map((rule, index) => (
             <div key={rule.id} className={rule.id === this.state.selectedConditionalRuleId ? styles.designerFieldCardActive : styles.designerFieldCard}>
               <div className={styles.designerFieldInfo}>
-                <div className={styles.designerFieldLabel}>{'Rule ' + String(index + 1) + ': If ' + this.getConditionalFieldLabel(rule.sourceField) + ' ' + rule.operator + ' "' + String(rule.value || '') + '"'}</div>
-                <div className={styles.designerFieldMeta}>{(rule.action === 'visibility' ? 'Set ' + this.getConditionalFieldLabel(rule.targetField) + ' ' + (rule.visible === false ? 'hidden' : 'visible') : 'Apply style to ' + this.getConditionalFieldLabel(rule.targetField)) + (rule.enabled === false ? ' (disabled)' : '')}</div>
+                <div className={styles.designerFieldLabel}>{'Rule ' + String(index + 1) + ': If ' + this.getConditionalFieldLabel(rule.sourceField) + ' ' + rule.operator + ' "' + this.getConditionalRuleValueLabel(rule) + '"'}</div>
+                <div className={styles.designerFieldMeta}>{(rule.action === 'visibility'
+                  ? 'Set ' + this.getConditionalRuleTargetLabels(rule) + ' ' + (rule.visible === false ? 'hidden' : 'visible')
+                  : rule.action === 'disable'
+                    ? 'Set ' + this.getConditionalRuleTargetLabels(rule) + ' ' + (rule.disabled === false ? 'enabled' : 'disabled')
+                    : 'Apply style to ' + this.getConditionalRuleTargetLabels(rule)) + (rule.enabled === false ? ' (disabled)' : '')}</div>
               </div>
               <div className={styles.designerFieldActions}>
                 <button type="button" className={styles.designerInlineButton} onClick={() => this.moveConditionalRule(rule.id, -1)} disabled={index === 0}>Move up</button>
@@ -711,27 +806,58 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     }
     var rule = selectedRule;
     var style = rule.style || {};
+    var selectedTargetFields = this.getConditionalRuleTargets(rule);
+    var sourceField = this.getConditionalField(rule.sourceField);
+    var sourceChoices = sourceField && sourceField.config && sourceField.config.choices ? sourceField.config.choices : [];
+    var isDateSource = !!sourceField && sourceField.type === 'datetime';
+    var dateRangeValue: any = rule.value && typeof rule.value === 'object' ? rule.value : { from: '', to: '' };
     return (
       <div className={styles.designerPanel}><div className={styles.designerPanelSection}>
               <div className={styles.designerPanelTitle}>Edit conditional rule</div>
               <label className={styles.designerCheckboxRow}><input type="checkbox" checked={rule.enabled !== false} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.enabled = ev.currentTarget.checked; })} /><span>Enabled</span></label>
               <label className={styles.designerFormLabel}>If field</label>
-              <select className={styles.designerInput} value={rule.sourceField} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.sourceField = ev.currentTarget.value; })}>{fieldOptions}</select>
+              <select className={styles.designerInput} value={rule.sourceField} onChange={(ev) => {
+                var sourceFieldId = ev.currentTarget.value;
+                this.updateConditionalRule(rule.id, function(next) { next.sourceField = sourceFieldId; next.value = ''; if (next.operator === 'between') { next.operator = 'eq'; } });
+                this.loadConditionalLookupOptions(sourceFieldId);
+              }}>{fieldOptions}</select>
               <label className={styles.designerFormLabel}>Operator</label>
               <select className={styles.designerInput} value={rule.operator} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.operator = ev.currentTarget.value as any; })}>
-                <option value="eq">Equals</option><option value="ne">Does not equal</option><option value="gt">Greater than</option><option value="ge">Greater than or equal</option><option value="lt">Less than</option><option value="le">Less than or equal</option><option value="contains">Contains</option><option value="notcontains">Does not contain</option><option value="startswith">Starts with</option><option value="endswith">Ends with</option>
+                <option value="eq">Equals</option><option value="ne">Does not equal</option><option value="gt">Greater than</option><option value="ge">Greater than or equal</option><option value="lt">Less than</option><option value="le">Less than or equal</option><option value="contains">Contains</option><option value="notcontains">Does not contain</option><option value="startswith">Starts with</option><option value="endswith">Ends with</option>{isDateSource && <option value="between">Between (inclusive)</option>}
               </select>
               <label className={styles.designerFormLabel}>Value</label>
-              <input className={styles.designerInput} type="text" value={String(rule.value === undefined || rule.value === null ? '' : rule.value)} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = ev.currentTarget.value; })} />
-              <label className={styles.designerFormLabel}>Target field</label>
-              <select className={styles.designerInput} value={rule.targetField} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.targetField = ev.currentTarget.value; })}>{fieldOptions}</select>
+              {isDateSource && rule.operator === 'between' ? <div>
+                <input className={styles.designerInput} type="date" value={String(dateRangeValue.from || '')} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = { from: ev.currentTarget.value, to: dateRangeValue.to || '' }; })} />
+                <label className={styles.designerFormLabel}>Through</label>
+                <input className={styles.designerInput} type="date" value={String(dateRangeValue.to || '')} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = { from: dateRangeValue.from || '', to: ev.currentTarget.value }; })} />
+              </div> : sourceField && sourceField.type === 'lookup' ? <select className={styles.designerInput} value={String(rule.value || '')} disabled={this.state.conditionalLookupLoading} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = ev.currentTarget.value; })}><option value="">{this.state.conditionalLookupLoading ? 'Loading lookup items...' : 'Select an item'}</option>{this.state.conditionalLookupOptions.map(function(option) { return <option key={option.key} value={option.key}>{option.text}</option>; })}</select>
+                : sourceField && (sourceField.type === 'dropdown' || sourceField.type === 'multiselect') ? <select className={styles.designerInput} value={String(rule.value || '')} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = ev.currentTarget.value; })}><option value="">Select a choice</option>{sourceChoices.map(function(choice) { return <option key={choice} value={choice}>{choice}</option>; })}</select>
+                  : sourceField && sourceField.type === 'boolean' ? <select className={styles.designerInput} value={String(rule.value === true || rule.value === 'true' ? 'true' : rule.value === false || rule.value === 'false' ? 'false' : '')} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = ev.currentTarget.value === 'true'; })}><option value="">Select true or false</option><option value="true">True</option><option value="false">False</option></select>
+                    : isDateSource ? <input className={styles.designerInput} type="date" value={String(rule.value || '')} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = ev.currentTarget.value; })} />
+                      : <input className={styles.designerInput} type={sourceField && sourceField.type === 'number' ? 'number' : 'text'} value={String(rule.value === undefined || rule.value === null ? '' : rule.value)} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.value = ev.currentTarget.value; })} />}
+              <label className={styles.designerFormLabel}>Target fields</label>
+              <div className={styles.designerPanelHint}>Select one or more fields. Hold Ctrl while clicking to select multiple fields.</div>
+              <select className={styles.designerInput} multiple={true} size={Math.min(8, Math.max(3, fields.length))} value={selectedTargetFields} onChange={(ev) => {
+                var selectedTargets: string[] = [];
+                for (var optionIndex = 0; optionIndex < ev.currentTarget.options.length; optionIndex += 1) {
+                  var option = ev.currentTarget.options[optionIndex];
+                  if (option.selected) { selectedTargets.push(option.value); }
+                }
+                this.updateConditionalRule(rule.id, function(next) {
+                  next.targetFields = selectedTargets;
+                  next.targetField = selectedTargets.length > 0 ? selectedTargets[0] : '';
+                });
+              }}>{fieldOptions}</select>
               <label className={styles.designerFormLabel}>Action</label>
               <select className={styles.designerInput} value={rule.action} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.action = ev.currentTarget.value as any; })}>
-                <option value="style">Apply style</option><option value="visibility">Set visibility</option>
+                <option value="style">Apply style</option><option value="visibility">Set visibility</option><option value="disable">Set disabled state</option>
               </select>
               {rule.action === 'visibility' ? <div>
                 <label className={styles.designerFormLabel}>Visibility when condition is met</label>
                 <select className={styles.designerInput} value={rule.visible === false ? 'hidden' : 'visible'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.visible = ev.currentTarget.value !== 'hidden'; })}><option value="visible">Visible</option><option value="hidden">Hidden</option></select>
+              </div> : rule.action === 'disable' ? <div>
+                <label className={styles.designerFormLabel}>Field state when condition is met</label>
+                <select className={styles.designerInput} value={rule.disabled === false ? 'enabled' : 'disabled'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.disabled = ev.currentTarget.value !== 'enabled'; })}><option value="disabled">Disabled</option><option value="enabled">Enabled</option></select>
               </div> : <div>
                 <label className={styles.designerFormLabel}>Background color</label><input className={styles.designerInput} type="color" value={style.backgroundColor || '#ffffff'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { backgroundColor: ev.currentTarget.value }); })} />
                 <label className={styles.designerFormLabel}>Text color</label><input className={styles.designerInput} type="color" value={style.color || '#000000'} onChange={(ev) => this.updateConditionalRule(rule.id, function(next) { next.style = Object.assign({}, next.style || {}, { color: ev.currentTarget.value }); })} />
@@ -990,6 +1116,9 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     // Form-level layout for containers
     var formGridLayout = !!(schema.theme && schema.theme.layout === 'grid' && schema.theme.columns && schema.theme.columns > 1);
     var formColumns = formGridLayout ? (schema.theme.columns || 2) : 1;
+    var fieldVerticalSpacing = schema.theme && schema.theme.fieldVerticalSpacing !== undefined
+      ? Math.max(0, Math.min(100, schema.theme.fieldVerticalSpacing))
+      : 16;
     var formLayoutStyle: React.CSSProperties = formGridLayout
       ? { display: 'grid', gridTemplateColumns: 'repeat(' + String(formColumns) + ', minmax(0, 1fr))', gap: '16px' }
       : {};
@@ -1027,7 +1156,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
               var stepTheme = getStepTheme(schema, step);
               var previewGrid = stepTheme.layout === 'grid' && stepTheme.columns > 1;
               var stepContainerStyle: React.CSSProperties = previewGrid
-                ? { display: 'grid', gridTemplateColumns: 'repeat(' + String(stepTheme.columns) + ', minmax(0, 1fr))', gap: '12px' }
+                ? { display: 'grid', gridTemplateColumns: 'repeat(' + String(stepTheme.columns) + ', minmax(0, 1fr))', columnGap: '12px', rowGap: String(fieldVerticalSpacing) + 'px' }
                 : {};
 
               // Font settings always resolve to their own default when unset so the preview never
@@ -1087,7 +1216,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                           ? (field.startNewRow === true
                             ? { gridColumn: '1 / -1' }
                             : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
-                          : { marginBottom: '8px' };
+                          : { marginBottom: String(fieldVerticalSpacing) + 'px' };
                         var richTextStyle: React.CSSProperties = {
                           border: '1px dashed #c8c6c4',
                           borderRadius: '0px',
@@ -1121,7 +1250,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                       if (field.type === 'gridcontrol') {
                         var gridControlCellStyle: React.CSSProperties = previewGrid
                           ? (field.startNewRow === true ? { gridColumn: '1 / -1' } : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
-                          : { marginBottom: '8px' };
+                          : { marginBottom: String(fieldVerticalSpacing) + 'px' };
                         var gridControlName = field.config && field.config.gridControlSourceName ? field.config.gridControlSourceName : 'No Grid Control selected';
                         return (
                           <div key={field.id} style={gridControlCellStyle}>
@@ -1136,7 +1265,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                       if (field.type === 'customimage' || field.type === 'divider') {
                         var customCellStyle: React.CSSProperties = previewGrid
                           ? (field.startNewRow === true ? { gridColumn: '1 / -1' } : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
-                          : { marginBottom: '8px' };
+                          : { marginBottom: String(fieldVerticalSpacing) + 'px' };
                         var customConfig = field.config || {};
                         if (field.type === 'customimage') {
                           var previewImageUrl = String(customConfig.imageUrl || '').trim();
@@ -1161,7 +1290,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                         ? (field.startNewRow === true
                           ? { gridColumn: '1 / -1' }
                           : { gridColumn: 'span ' + String(Math.max(1, field.columnSpan || 1)) })
-                        : { marginBottom: '8px' };
+                        : { marginBottom: String(fieldVerticalSpacing) + 'px' };
 
                       // Field wrapper style
                       var fieldWrapperStyle: React.CSSProperties = {
@@ -3169,6 +3298,21 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
               } else if (!schema.theme.layout) {
                 schema.theme.layout = 'grid';
               }
+              return schema;
+            })}
+          />
+
+          <label className={styles.designerFormLabel}>Vertical space between fields (px)</label>
+          <input
+            className={styles.designerInput}
+            type="number"
+            min={0}
+            max={100}
+            value={String(this.props.schema.theme && this.props.schema.theme.fieldVerticalSpacing !== undefined ? this.props.schema.theme.fieldVerticalSpacing : 16)}
+            onChange={(ev) => this.updateForm(function(schema) {
+              if (!schema.theme) schema.theme = {};
+              var parsed = parseInt(ev.currentTarget.value, 10);
+              schema.theme.fieldVerticalSpacing = isNaN(parsed) ? 16 : Math.max(0, Math.min(100, parsed));
               return schema;
             })}
           />

@@ -982,6 +982,16 @@ function getItemFieldValue(item: any, fieldName: string): any {
   return undefined;
 }
 
+function getODataResponseItems(data: any): any[] {
+  if (data && Array.isArray(data.value)) { return data.value; }
+  if (data && data.d && Array.isArray(data.d.results)) { return data.d.results; }
+  if (data && Array.isArray(data.results)) { return data.results; }
+  var candidate = data && data.value ? data.value
+    : (data && data.d && data.d.results ? data.d.results
+      : (data && data.results ? data.results : (data && data.d ? data.d : data)));
+  return candidate && (candidate.Id !== undefined || candidate.ID !== undefined) ? [candidate] : [];
+}
+
 function normalizeDefaultForField(field: FormField, value: any): FieldValue {
   if (value === undefined || value === null) {
     return '';
@@ -1086,6 +1096,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   private _listFieldNameLookup: { [lowerInternalName: string]: boolean };
   private _listFieldInternalNameLookup: { [lowerInternalName: string]: string };
   private _listFieldTypeLookup: { [lowerInternalName: string]: string };
+  private _listLookupMetadata: { [lowerInternalName: string]: { lookupList: string; lookupField: string } };
   private _lookupDisplayValues: { [fieldId: string]: string[] };
   private _urlFieldDescriptions: { [fieldId: string]: string };
   private _existingAttachments: { [fieldId: string]: IAttachmentItem[] };
@@ -1099,6 +1110,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     this._listFieldNameLookup = {};
     this._listFieldInternalNameLookup = {};
     this._listFieldTypeLookup = {};
+    this._listLookupMetadata = {};
     this._lookupDisplayValues = {};
     this._urlFieldDescriptions = {};
     this._existingAttachments = {};
@@ -1244,7 +1256,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         return;
       }
 
-      var values = this.mapItemToValues(schema, item, this.state.values || {});
+      var values = this.mapItemToValues(schema, item, this.state.values || {}, this.state.lookupOptions);
       await this.loadAttachmentMetadata(listName, resolvedItemId, fields);
       this.applyLinkedFieldValue(values, fields);
 
@@ -2044,6 +2056,11 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
             console.log('[ReportFormsWebPart] ✗ SKIPPING lookup load: field.config or lookupList not set for ' + field.fieldName);
             lookupOptions[field.id] = [];
           }
+        } else if (field.type === 'text' && this._listFieldTypeLookup[String(field.fieldName || '').toLowerCase()] === 'lookupmulti') {
+          var textLookupMetadata = this._listLookupMetadata[String(field.fieldName || '').toLowerCase()];
+          lookupOptions[field.id] = textLookupMetadata
+            ? await this.loadLookupOptions(textLookupMetadata.lookupList, textLookupMetadata.lookupField)
+            : [];
         } else if (field.type === 'person') {
           try {
             lookupOptions[field.id] = await this.loadPersonOptions();
@@ -2073,7 +2090,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         var itemListName = schema.listName || this.props.listName;
         loadedItem = await this.loadItem(itemListName, resolvedItemId);
         if (loadedItem) {
-          values = this.mapItemToValues(schema, loadedItem, values);
+          values = this.mapItemToValues(schema, loadedItem, values, lookupOptions);
           await this.loadAttachmentMetadata(itemListName, resolvedItemId, fields);
         } else {
           // Item no longer exists; continue as a new form instead of failing load.
@@ -2316,14 +2333,11 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       }
       
       var data = await response.json();
-      var items = (data && data.value) ? data.value : [];
-      if (!items || items.length === 0) {
-        items = data && data.d && data.d.results ? data.d.results : [];
-      }
+      var items = getODataResponseItems(data);
       console.log('[ReportFormsWebPart] FILTER RESULTS: ' + items.length + ' item(s) found');
       
-      if (items.length > 0 && items[0].Id) {
-        var resolvedId = toPositiveInt(items[0].Id);
+      if (items.length > 0 && (items[0].Id || items[0].ID)) {
+        var resolvedId = toPositiveInt(items[0].Id !== undefined ? items[0].Id : items[0].ID);
         console.log('[ReportFormsWebPart] FILTER SUCCESS: Resolved to item ID ' + resolvedId);
         return resolvedId;
       } else {
@@ -2371,9 +2385,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         return 0;
       }
       var data = await response.json();
-      var items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
-      if (items && items.length > 0 && items[0].Id) {
-        var resolvedId = toPositiveInt(items[0].Id);
+      var items = getODataResponseItems(data);
+      if (items.length > 0 && (items[0].Id || items[0].ID)) {
+        var resolvedId = toPositiveInt(items[0].Id !== undefined ? items[0].Id : items[0].ID);
         console.log('[ReportFormsWebPart] LOOKUP FILTER RETRY SUCCESS: Resolved to item ID ' + resolvedId);
         return resolvedId;
       }
@@ -2409,10 +2423,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       }
       
       var data = await response.json();
-      var items = data && data.value ? data.value : [];
-      if (!items || items.length === 0) {
-        items = data && data.d && data.d.results ? data.d.results : [];
-      }
+      var items = getODataResponseItems(data);
       console.log('[ReportFormsWebPart] REST returned ' + items.length + ' items from lookup list');
       
       var mappedItems = items.map(function(item: any) {
@@ -2744,6 +2755,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this._listFieldNameLookup = {};
       this._listFieldInternalNameLookup = {};
       this._listFieldTypeLookup = {};
+      this._listLookupMetadata = {};
       return;
     }
 
@@ -2776,12 +2788,19 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       var fieldNameLookup: { [lowerInternalName: string]: boolean } = {};
       var fieldInternalNameLookup: { [lowerInternalName: string]: string } = {};
       var fieldTypeLookup: { [lowerInternalName: string]: string } = {};
+      var listLookupMetadata: { [lowerInternalName: string]: { lookupList: string; lookupField: string } } = {};
       fields.forEach((field: any) => {
         if (field.InternalName) {
           var lowerInternalName = String(field.InternalName).toLowerCase();
           fieldNameLookup[lowerInternalName] = true;
           fieldInternalNameLookup[lowerInternalName] = String(field.InternalName);
           fieldTypeLookup[lowerInternalName] = String(field.TypeAsString || '').toLowerCase();
+          if (String(field.TypeAsString || '').toLowerCase() === 'lookupmulti' && field.LookupList) {
+            listLookupMetadata[lowerInternalName] = {
+              lookupList: String(field.LookupList),
+              lookupField: String(field.LookupField || 'Title')
+            };
+          }
           fieldMetaMap[field.InternalName] = {
             description: field.Description || undefined,
             richText: field.TypeAsString === 'Note' && field.RichText === true,
@@ -2795,6 +2814,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this._listFieldNameLookup = fieldNameLookup;
   this._listFieldInternalNameLookup = fieldInternalNameLookup;
   this._listFieldTypeLookup = fieldTypeLookup;
+  this._listLookupMetadata = listLookupMetadata;
 
       // Update schema fields with descriptions and note-field rich text metadata.
       schema.steps.forEach((step) => {
@@ -2826,11 +2846,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this._listFieldNameLookup = {};
       this._listFieldInternalNameLookup = {};
       this._listFieldTypeLookup = {};
+      this._listLookupMetadata = {};
       console.error('[ReportFormsWebPart] loadFieldDescriptions ERROR: ', error);
     }
   }
 
-  private mapItemToValues(schema: FormSchema, item: any, currentValues: IValueMap): IValueMap {
+  private mapItemToValues(schema: FormSchema, item: any, currentValues: IValueMap, lookupOptions?: ILookupMap): IValueMap {
     var values: IValueMap = {};
     var currentKey: string;
     for (currentKey in currentValues) {
@@ -2875,7 +2896,28 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         continue;
       }
 
-      if (field.type === 'multiselect') {
+      var sourceFieldType = this._listFieldTypeLookup[String(field.fieldName || '').toLowerCase()];
+      if (field.type === 'text' && sourceFieldType === 'lookupmulti') {
+        var textLookupValues = rawValue && rawValue.results ? rawValue.results
+          : (Array.isArray(rawValue) ? rawValue : []);
+        var textLookupOptions = lookupOptions && lookupOptions[field.id] ? lookupOptions[field.id] : [];
+        values[field.id] = textLookupValues.map(function(entry: any) {
+          if (entry && typeof entry === 'object') {
+            var entryLabel = entry.Value !== undefined ? entry.Value
+              : (entry.Title !== undefined ? entry.Title : entry.LookupValue);
+            if (entryLabel !== undefined && entryLabel !== null && entryLabel !== '') {
+              return String(entryLabel);
+            }
+          }
+          var entryId = String(getLookupIdValue(entry) || entry);
+          for (var optionIndex = 0; optionIndex < textLookupOptions.length; optionIndex += 1) {
+            if (String(textLookupOptions[optionIndex].Id) === entryId) {
+              return String(textLookupOptions[optionIndex].Title || '');
+            }
+          }
+          return '';
+        }).filter(function(label: string) { return !!label; }).join('; ');
+      } else if (field.type === 'multiselect') {
         if (rawValue.results && rawValue.results.length) {
           values[field.id] = rawValue.results;
         } else if (rawValue.length && typeof rawValue !== 'string') {
@@ -3702,6 +3744,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
               <div style={labelBlockStyle}>{field.label}{this.renderDescriptionIcon(description)}</div>
               <ListControlHost
                 fieldId={field.id}
+                ownerId={String(this.props.context.instanceId || '').toLowerCase() + ':' + String(this.props.itemId || 0) + ':' + field.id}
                 sourceId={listControlConfig.listControlSourceId || ''}
                 sourceName={listControlConfig.listControlSourceName || field.label}
                 sourceListName={listControlConfig.listControlSourceListName || ''}

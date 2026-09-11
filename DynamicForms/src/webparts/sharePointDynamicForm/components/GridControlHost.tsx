@@ -2,6 +2,7 @@ import * as React from 'react';
 
 export interface IGridControlHostProps {
   fieldId: string;
+  ownerId: string;
   sourceId: string;
   sourceName: string;
   sourceListName: string;
@@ -47,9 +48,9 @@ export class GridControlHost extends React.Component<IGridControlHostProps, IGri
   }
 
   public componentDidUpdate(prevProps: IGridControlHostProps): void {
-    if (prevProps.sourceId !== this.props.sourceId) {
+    if (prevProps.sourceId !== this.props.sourceId || prevProps.ownerId !== this.props.ownerId) {
       this.stopDiscovery();
-      this.dispatchRuntimeConfig(false, prevProps.sourceId);
+      this.dispatchRuntimeConfig(false, prevProps.sourceId, prevProps.ownerId);
       this.restoreTarget();
       this.setState({ status: 'waiting' });
       this.startDiscovery();
@@ -92,12 +93,12 @@ export class GridControlHost extends React.Component<IGridControlHostProps, IGri
     return matches && matches.length > 0 ? matches[matches.length - 1].toLowerCase() : String(configuredSourceId || '').toLowerCase();
   }
 
-  private dispatchRuntimeConfig(active: boolean, sourceId?: string): void {
+  private dispatchRuntimeConfig(active: boolean, sourceId?: string, ownerId?: string): void {
     var instanceId = this.getInstanceId(sourceId);
     if (!instanceId || typeof window === 'undefined') { return; }
     var detail = {
       instanceId: instanceId,
-      owner: this.props.fieldId,
+      owner: ownerId === undefined ? this.props.ownerId : ownerId,
       active: active,
       filterJson: this.props.runtimeFilterJson,
       defaultField: this.props.defaultField,
@@ -132,13 +133,11 @@ export class GridControlHost extends React.Component<IGridControlHostProps, IGri
     var sourceId = String(this.props.sourceId || '').toLowerCase();
     var instanceId = this.getInstanceId();
     var roots = document.querySelectorAll('.gc-root');
-    var availableHosts: HTMLElement[] = [];
     for (var i = 0; i < roots.length; i += 1) {
       var host = (roots[i] as HTMLElement).parentElement;
       if (!host) { continue; }
       var owner = host.getAttribute('data-dynamicforms-gridcontrol-owner');
-      if (owner && owner !== this.props.fieldId) { continue; }
-      availableHosts.push(host);
+      if (owner && owner !== this.props.ownerId) { continue; }
       var ancestor: HTMLElement | null = host;
       while (ancestor && ancestor !== document.body) {
         var candidateId = String(ancestor.getAttribute('data-sp-webpart-instance-id') || ancestor.getAttribute('data-sp-webpart-id') || ancestor.id || '').toLowerCase();
@@ -146,7 +145,7 @@ export class GridControlHost extends React.Component<IGridControlHostProps, IGri
         ancestor = ancestor.parentElement;
       }
     }
-    return availableHosts.length === 1 ? availableHosts[0] : null;
+    return null;
   }
 
   private tryEmbedTarget(): boolean {
@@ -157,7 +156,7 @@ export class GridControlHost extends React.Component<IGridControlHostProps, IGri
       this._targetHost = targetHost;
       this._originalParent = targetHost.parentNode;
       this._originalNextSibling = targetHost.nextSibling;
-      targetHost.setAttribute('data-dynamicforms-gridcontrol-owner', this.props.fieldId);
+      targetHost.setAttribute('data-dynamicforms-gridcontrol-owner', this.props.ownerId);
       this.syncConfigurationMarker();
     }
     if (targetHost.parentNode !== this._mountElement) { this._mountElement.appendChild(targetHost); }

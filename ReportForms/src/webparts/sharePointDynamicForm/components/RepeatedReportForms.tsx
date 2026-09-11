@@ -212,6 +212,9 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
     if (data && Array.isArray(data.value)) { return data.value; }
     if (data && data.d && Array.isArray(data.d.results)) { return data.d.results; }
     if (data && Array.isArray(data.results)) { return data.results; }
+    if (data && data.value && (data.value.Id !== undefined || data.value.ID !== undefined)) { return [data.value]; }
+    if (data && data.d && data.d.results && (data.d.results.Id !== undefined || data.d.results.ID !== undefined)) { return [data.d.results]; }
+    if (data && data.results && (data.results.Id !== undefined || data.results.ID !== undefined)) { return [data.results]; }
     var singleton = data && data.d ? data.d : data;
     return singleton && (singleton.Id !== undefined || singleton.ID !== undefined) ? [singleton] : [];
   }

@@ -941,6 +941,16 @@ function getItemFieldValue(item: any, fieldName: string): any {
   return undefined;
 }
 
+function getODataResponseItems(data: any): any[] {
+  if (data && Array.isArray(data.value)) { return data.value; }
+  if (data && data.d && Array.isArray(data.d.results)) { return data.d.results; }
+  if (data && Array.isArray(data.results)) { return data.results; }
+  var candidate = data && data.value ? data.value
+    : (data && data.d && data.d.results ? data.d.results
+      : (data && data.results ? data.results : (data && data.d ? data.d : data)));
+  return candidate && (candidate.Id !== undefined || candidate.ID !== undefined) ? [candidate] : [];
+}
+
 function normalizeDefaultForField(field: FormField, value: any): FieldValue {
   if (value === undefined || value === null) {
     return '';
@@ -2224,14 +2234,11 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       }
       
       var data = await response.json();
-      var items = (data && data.value) ? data.value : [];
-      if (!items || items.length === 0) {
-        items = data && data.d && data.d.results ? data.d.results : [];
-      }
+      var items = getODataResponseItems(data);
       console.log('[SharePointDynamicForm] FILTER RESULTS: ' + items.length + ' item(s) found');
       
-      if (items.length > 0 && items[0].Id) {
-        var resolvedId = toPositiveInt(items[0].Id);
+      if (items.length > 0 && (items[0].Id || items[0].ID)) {
+        var resolvedId = toPositiveInt(items[0].Id !== undefined ? items[0].Id : items[0].ID);
         console.log('[SharePointDynamicForm] FILTER SUCCESS: Resolved to item ID ' + resolvedId);
         return resolvedId;
       } else {
@@ -2279,9 +2286,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         return 0;
       }
       var data = await response.json();
-      var items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
-      if (items && items.length > 0 && items[0].Id) {
-        var resolvedId = toPositiveInt(items[0].Id);
+      var items = getODataResponseItems(data);
+      if (items.length > 0 && (items[0].Id || items[0].ID)) {
+        var resolvedId = toPositiveInt(items[0].Id !== undefined ? items[0].Id : items[0].ID);
         console.log('[SharePointDynamicForm] LOOKUP FILTER RETRY SUCCESS: Resolved to item ID ' + resolvedId);
         return resolvedId;
       }
@@ -2317,10 +2324,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       }
       
       var data = await response.json();
-      var items = data && data.value ? data.value : [];
-      if (!items || items.length === 0) {
-        items = data && data.d && data.d.results ? data.d.results : [];
-      }
+      var items = getODataResponseItems(data);
       console.log('[SharePointDynamicForm] REST returned ' + items.length + ' items from lookup list');
       
       var mappedItems = items.map(function(item: any) {
@@ -3620,6 +3624,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
               <div style={labelBlockStyle}>{field.label}{this.renderDescriptionIcon(description)}</div>
               <GridControlHost
                 fieldId={field.id}
+                ownerId={String(this.props.context.instanceId || '').toLowerCase() + ':' + String(this.props.itemId || 0) + ':' + field.id}
                 sourceId={gridConfig.gridControlSourceId || ''}
                 sourceName={gridConfig.gridControlSourceName || field.label}
                 sourceListName={gridConfig.gridControlSourceListName || ''}

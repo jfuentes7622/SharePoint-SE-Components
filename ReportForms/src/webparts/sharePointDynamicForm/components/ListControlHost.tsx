@@ -3,6 +3,7 @@ import * as strings from 'SharePointDynamicFormWebPartStrings';
 
 export interface IListControlHostProps {
   fieldId: string;
+  ownerId: string;
   sourceId: string;
   sourceName: string;
   sourceListName: string;
@@ -45,9 +46,9 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
   }
 
   public componentDidUpdate(prevProps: IListControlHostProps): void {
-    if (prevProps.sourceId !== this.props.sourceId) {
+    if (prevProps.sourceId !== this.props.sourceId || prevProps.ownerId !== this.props.ownerId) {
       this.stopDiscovery();
-      this.dispatchRuntimeConfig(false, prevProps.sourceId, prevProps.runtimeFilterJson);
+      this.dispatchRuntimeConfig(false, prevProps.sourceId, prevProps.runtimeFilterJson, prevProps.ownerId);
       this.restoreTarget();
       this.setState({ status: 'waiting' });
       this.startDiscovery();
@@ -108,7 +109,7 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
     return matches && matches.length > 0 ? matches[matches.length - 1].toLowerCase() : String(this.props.sourceId || '').toLowerCase();
   }
 
-  private dispatchRuntimeConfig(active: boolean, sourceId?: string, filterJson?: string): void {
+  private dispatchRuntimeConfig(active: boolean, sourceId?: string, filterJson?: string, ownerId?: string): void {
     var configuredSourceId = sourceId === undefined ? this.props.sourceId : sourceId;
     var matches = String(configuredSourceId || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ig);
     var instanceId = matches && matches.length > 0 ? matches[matches.length - 1].toLowerCase() : String(configuredSourceId || '').toLowerCase();
@@ -118,7 +119,7 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
 
     var detail = {
       instanceId: instanceId,
-      owner: this.props.fieldId,
+      owner: ownerId === undefined ? this.props.ownerId : ownerId,
       active: active,
       filterJson: filterJson === undefined ? this.props.runtimeFilterJson : filterJson
     };
@@ -136,7 +137,6 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
     var sourceId = String(this.props.sourceId || '').toLowerCase();
     var instanceId = this.getInstanceId();
     var roots = document.querySelectorAll('.lc-root');
-    var availableHosts: HTMLElement[] = [];
 
     for (var i = 0; i < roots.length; i += 1) {
       var root = roots[i] as HTMLElement;
@@ -145,10 +145,9 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
         continue;
       }
       var owner = host.getAttribute('data-reportforms-listcontrol-owner');
-      if (owner && owner !== this.props.fieldId) {
+      if (owner && owner !== this.props.ownerId) {
         continue;
       }
-      availableHosts.push(host);
 
       var ancestor: HTMLElement | null = host;
       while (ancestor && ancestor !== document.body) {
@@ -165,7 +164,7 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
       }
     }
 
-    return availableHosts.length === 1 ? availableHosts[0] : null;
+    return null;
   }
 
   private tryEmbedTarget(): boolean {
@@ -182,7 +181,7 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
       this._targetHost = targetHost;
       this._originalParent = targetHost.parentNode;
       this._originalNextSibling = targetHost.nextSibling;
-      targetHost.setAttribute('data-reportforms-listcontrol-owner', this.props.fieldId);
+      targetHost.setAttribute('data-reportforms-listcontrol-owner', this.props.ownerId);
       this.syncConfigurationMarker();
     }
 

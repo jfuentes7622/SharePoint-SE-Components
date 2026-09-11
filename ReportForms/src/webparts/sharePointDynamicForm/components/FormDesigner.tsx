@@ -240,6 +240,8 @@ function getFieldTypeLabel(type: FieldType): string {
 }
 
 export class FormDesigner extends React.Component<FormDesignerProps, FormDesignerState> {
+  private _fieldLoadRequestId: number = 0;
+
   public constructor(props: FormDesignerProps) {
     super(props);
     this.state = {
@@ -332,6 +334,8 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
   }
 
   private async loadFields(): Promise<void> {
+    var requestId = ++this._fieldLoadRequestId;
+    var listName = this.props.listName;
     if (!this.props.listName) {
       this.setState({ spFields: [], reportListFields: [], loadingFields: false, fieldsError: strings.DesignerNoListSelected });
       return;
@@ -340,7 +344,7 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     this.setState({ loadingFields: true, fieldsError: null });
     try {
       var response = await this.getWithAcceptFallback(
-        this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=Id,InternalName,Title,Description,TypeAsString,RichText,Required,ReadOnlyField,Hidden,FromBaseType,Choices,LookupList,LookupField,AllowMultipleValues,MaxLength,TextField,TermSetId,DisplayFormat"
+        this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=Id,InternalName,Title,Description,TypeAsString,RichText,Required,ReadOnlyField,Hidden,FromBaseType,Choices,LookupList,LookupField,AllowMultipleValues,MaxLength,TextField,TermSetId,DisplayFormat"
       );
       if (!response.ok) {
         throw new Error(strings.DesignerLoadFieldsFailed);
@@ -393,14 +397,18 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
           } as SPFieldInfo;
         });
 
-      this.setState({ spFields: mapped, reportListFields: reportListFields, loadingFields: false, fieldsError: null });
+      if (requestId === this._fieldLoadRequestId && listName === this.props.listName) {
+        this.setState({ spFields: mapped, reportListFields: reportListFields, loadingFields: false, fieldsError: null });
+      }
     } catch (error) {
-      this.setState({
-        spFields: [],
-        reportListFields: [],
-        loadingFields: false,
-        fieldsError: error && error.message ? error.message : strings.DesignerLoadFieldsFailed,
-      });
+      if (requestId === this._fieldLoadRequestId && listName === this.props.listName) {
+        this.setState({
+          spFields: [],
+          reportListFields: [],
+          loadingFields: false,
+          fieldsError: error && error.message ? error.message : strings.DesignerLoadFieldsFailed,
+        });
+      }
     }
   }
 
@@ -571,9 +579,14 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       }
     }
 
-    return this.state.spFields.filter(function(field) {
-      return !used[field.internalName];
-    });
+    return this.state.spFields
+      .filter(function(field) {
+        return !used[field.internalName];
+      })
+      .sort(function(a, b) {
+        var titleComparison = String(a.title || a.internalName).toLowerCase().localeCompare(String(b.title || b.internalName).toLowerCase());
+        return titleComparison !== 0 ? titleComparison : String(a.internalName).toLowerCase().localeCompare(String(b.internalName).toLowerCase());
+      });
   }
 
   private updateSchema(nextSchema: FormSchema, selectedFieldId?: string | null): void {

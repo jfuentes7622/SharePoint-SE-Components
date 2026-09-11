@@ -1873,9 +1873,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       if (!parsed || !parsed.steps) {
         return null;
       }
-      if (!parsed.listName) {
-        parsed.listName = this.props.listName;
-      }
+      parsed.listName = this.props.listName;
       if (!parsed.mode) {
         parsed.mode = this.props.mode;
       }

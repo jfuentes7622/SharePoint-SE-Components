@@ -2116,7 +2116,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     if (!response.ok) {
       throw new Error(strings.LoadErrorNoItemIdFromUrl);
     }
-    return response.json();
+    var data = await response.json();
+    return data && data.d ? data.d : data;
   }
 
   private async resolveFilteredItemId(schema: FormSchema): Promise<number> {

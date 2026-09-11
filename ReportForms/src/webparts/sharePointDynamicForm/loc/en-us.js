@@ -9,7 +9,7 @@ define([], function() {
     "PropertyGroupConfigIO": "Config import/export",
     "PropListLabel": "SharePoint list",
     "PropRepeatForAllItemsLabel": "Repeat report for every list item",
-    "PropRepeatForAllItemsHelp": "At runtime, renders this report once for every item in the selected list. Fixed, URL, dynamic, and filter-based record selection are ignored.",
+    "PropRepeatForAllItemsHelp": "At runtime, renders this report once for each matching list item. When dynamic ID is not used directly, the configured URL parameter filters the selected target column.",
     "PropModeLabel": "Form mode",
     "PropModeNew": "New",
     "PropModeEdit": "Edit",

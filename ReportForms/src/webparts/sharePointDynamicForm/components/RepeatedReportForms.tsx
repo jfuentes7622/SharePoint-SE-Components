@@ -14,6 +14,11 @@ interface IRepeatedReportFormsState {
   error: string;
 }
 
+interface IRepeatFilterField {
+  internalName: string;
+  typeAsString: string;
+}
+
 export class RepeatedReportForms extends React.Component<IRepeatedReportFormsProps, IRepeatedReportFormsState> {
   private _loadRequestId: number = 0;
 
@@ -31,7 +36,10 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
   }
 
   public componentDidUpdate(prevProps: IRepeatedReportFormsProps): void {
-    if (prevProps.reportProps.listName !== this.props.reportProps.listName) {
+    if (prevProps.reportProps.listName !== this.props.reportProps.listName
+      || prevProps.reportProps.itemIdQueryParam !== this.props.reportProps.itemIdQueryParam
+      || prevProps.reportProps.linkedFieldTarget !== this.props.reportProps.linkedFieldTarget
+      || prevProps.reportProps.useDynamicValueAsFilter !== this.props.reportProps.useDynamicValueAsFilter) {
       this.loadItemIds();
     }
   }
@@ -55,6 +63,54 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
     return response;
   }
 
+  private getUrlQueryValue(parameterName: string): string {
+    if (typeof window === 'undefined') { return ''; }
+    var query = String(window.location.search || '').replace(/^\?/, '').split('&');
+    var requestedName = String(parameterName || '').toLowerCase();
+    for (var i = 0; i < query.length; i += 1) {
+      var parts = query[i].split('=');
+      var name = decodeURIComponent(parts[0] || '').toLowerCase();
+      if (name === requestedName) {
+        return decodeURIComponent((parts.slice(1).join('=') || '').replace(/\+/g, ' '));
+      }
+    }
+    return '';
+  }
+
+  private async loadRepeatFilterField(listName: string, fieldName: string): Promise<IRepeatFilterField | null> {
+    var webUrl = String(this.props.reportProps.context.pageContext.web.absoluteUrl || '').replace(/\/$/, '');
+    var endpoint = webUrl + "/_api/web/lists/getByTitle('" + listName.replace(/'/g, "''")
+      + "')/fields/getByInternalNameOrTitle('" + fieldName.replace(/'/g, "''") + "')?$select=InternalName,TypeAsString";
+    var response = await this.getWithAcceptFallback(endpoint);
+    if (!response.ok) { return null; }
+    var data = await response.json();
+    var field = data && data.d ? data.d : data;
+    return field && field.InternalName ? {
+      internalName: String(field.InternalName),
+      typeAsString: String(field.TypeAsString || '')
+    } : null;
+  }
+
+  private buildRepeatFilter(field: IRepeatFilterField, rawValue: string): string {
+    var fieldType = field.typeAsString.toLowerCase();
+    var fieldName = field.internalName;
+    if (fieldType === 'lookup' || fieldType === 'lookupmulti' || fieldType === 'user' || fieldType === 'usermulti') {
+      var lookupId = parseInt(rawValue, 10);
+      return !isNaN(lookupId) && lookupId > 0 ? fieldName + 'Id eq ' + String(lookupId) : '';
+    }
+    if (fieldType === 'number' || fieldType === 'currency' || fieldType === 'integer' || fieldType === 'counter') {
+      var numericValue = Number(rawValue);
+      return !isNaN(numericValue) ? fieldName + ' eq ' + String(numericValue) : '';
+    }
+    if (fieldType === 'boolean') {
+      var booleanValue = String(rawValue).trim().toLowerCase();
+      if (booleanValue === 'true' || booleanValue === '1' || booleanValue === 'yes') { return fieldName + ' eq true'; }
+      if (booleanValue === 'false' || booleanValue === '0' || booleanValue === 'no') { return fieldName + ' eq false'; }
+      return '';
+    }
+    return fieldName + " eq '" + String(rawValue).replace(/'/g, "''") + "'";
+  }
+
   private async loadItemIds(): Promise<void> {
     var requestId = this._loadRequestId + 1;
     this._loadRequestId = requestId;
@@ -69,6 +125,18 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
       var webUrl = String(this.props.reportProps.context.pageContext.web.absoluteUrl || '').replace(/\/$/, '');
       var escapedListName = listName.replace(/'/g, "''");
       var nextUrl = webUrl + "/_api/web/lists/getByTitle('" + escapedListName + "')/items?$select=Id&$orderby=Id asc&$top=5000";
+      if (this.props.reportProps.useDynamicValueAsFilter && this.props.reportProps.linkedFieldTarget) {
+        var queryParameter = String(this.props.reportProps.itemIdQueryParam || 'itemid').trim() || 'itemid';
+        var queryValue = this.getUrlQueryValue(queryParameter);
+        if (queryValue) {
+          var filterField = await this.loadRepeatFilterField(listName, String(this.props.reportProps.linkedFieldTarget));
+          var filterExpression = filterField ? this.buildRepeatFilter(filterField, queryValue) : '';
+          if (!filterExpression) {
+            throw new Error(strings.RuntimeRepeatLoadFailed + ': unable to apply URL filter.');
+          }
+          nextUrl += '&$filter=' + encodeURIComponent(filterExpression);
+        }
+      }
       var itemIds: number[] = [];
       var seenItemIds: { [itemId: string]: boolean } = {};
       var pageCount = 0;
@@ -127,7 +195,7 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
             filterJson: '',
             useItemId: true,
             itemId: itemId,
-            itemIdQueryParam: '__spse_repeat_item_id_disabled__',
+            itemIdQueryParam: this.props.reportProps.itemIdQueryParam,
             dynamicItemReference: '',
             dynamicModeReference: '',
             dynamicPreferredSourceInstanceId: '',

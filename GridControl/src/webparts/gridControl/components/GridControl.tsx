@@ -749,7 +749,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     if (prevProps.pageSize !== this.props.pageSize || prevProps.filterJson !== this.props.filterJson) {
       this.setState({ currentPage: 0 });
     }
-    if (prevProps.fetchBatchSize !== this.props.fetchBatchSize) {
+    if (prevProps.fetchBatchSize !== this.props.fetchBatchSize || prevProps.isEditMode !== this.props.isEditMode) {
       this.loadRows();
       return;
     }
@@ -762,7 +762,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       || prevState.sortDirection !== this.state.sortDirection
       || prevState.columnFilters !== this.state.columnFilters
       || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
-      || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref) {
+      || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode) {
       this.loadAllRemainingRows();
     }
 
@@ -2160,7 +2160,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       }
     }
 
-    var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items?$top=200";
+    var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items?$top=" + String(this.props.isEditMode ? 5 : 200);
     if (itemIds && itemIds.length > 0) {
       endpoint += '&$filter=' + encodeURIComponent(itemIds.map(function(itemId: number) {
         return 'ID eq ' + String(itemId);
@@ -2329,7 +2329,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
         var data = await response.json();
         var extracted = extractRenderRowsAndFields(data);
-        nextPageHref = extracted.nextHref;
+        nextPageHref = this.props.isEditMode ? '' : extracted.nextHref;
 
         if (selectedFields.length === 0 && extracted.fields.length > 0) {
           selectedFields = extracted.fields;
@@ -2442,7 +2442,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         loading: false,
         error: null
       }, () => {
-        if ((this.parsePresetFilterConditions().length > 0 || this.getGridGroupingConfig().enabled) && this.state.nextPageHref) {
+        if (!this.props.isEditMode && (this.parsePresetFilterConditions().length > 0 || this.getGridGroupingConfig().enabled) && this.state.nextPageHref) {
           this.loadAllRemainingRows();
         }
       });
@@ -2477,7 +2477,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     while (rowLimit.firstChild) {
       rowLimit.removeChild(rowLimit.firstChild);
     }
-    rowLimit.appendChild(xmlDocument.createTextNode(String(this.props.fetchBatchSize)));
+    rowLimit.appendChild(xmlDocument.createTextNode(String(this.props.isEditMode ? 5 : this.props.fetchBatchSize)));
     if (rowLimits.length === 0) {
       viewElement.appendChild(rowLimit);
     }

@@ -2145,7 +2145,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       loadError.isPermissionDenied = response.status === 401 || response.status === 403;
       throw loadError;
     }
-    return response.json();
+    var data = await response.json();
+    return data && data.d ? data.d : data;
   }
 
   private async loadAttachmentMetadata(listName: string, itemId: number, fields: FormField[]): Promise<void> {

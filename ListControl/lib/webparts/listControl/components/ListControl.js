@@ -474,7 +474,7 @@ var ListControl = (function (_super) {
         if (prevProps.pageSize !== this.props.pageSize || prevProps.filterJson !== this.props.filterJson) {
             this.setState({ currentPage: 0 });
         }
-        if (prevProps.fetchBatchSize !== this.props.fetchBatchSize) {
+        if (prevProps.fetchBatchSize !== this.props.fetchBatchSize || prevProps.isEditMode !== this.props.isEditMode) {
             this.loadRows();
             return;
         }
@@ -486,7 +486,7 @@ var ListControl = (function (_super) {
             || prevState.sortDirection !== this.state.sortDirection
             || prevState.columnFilters !== this.state.columnFilters
             || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
-            || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref) {
+            || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode) {
             this.loadAllRemainingRows();
         }
         if (typeof window !== 'undefined') {
@@ -1487,7 +1487,7 @@ var ListControl = (function (_super) {
                                 selectFields.push(fieldName);
                             }
                         }
-                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items?$top=200";
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items?$top=" + String(this.props.isEditMode ? 5 : 200);
                         if (itemIds && itemIds.length > 0) {
                             endpoint += '&$filter=' + encodeURIComponent(itemIds.map(function (itemId) {
                                 return 'ID eq ' + String(itemId);
@@ -1702,7 +1702,7 @@ var ListControl = (function (_super) {
                     case 11:
                         data = _b.sent();
                         extracted = extractRenderRowsAndFields(data);
-                        nextPageHref = extracted.nextHref;
+                        nextPageHref = this.props.isEditMode ? '' : extracted.nextHref;
                         this.logDiagnostic('RenderListDataAsStream parsed. rows=' + String(extracted.rows.length) + ', fields=' + String(extracted.fields.length));
                         if (selectedFields.length === 0 && extracted.fields.length > 0) {
                             selectedFields = extracted.fields;
@@ -1797,7 +1797,7 @@ var ListControl = (function (_super) {
                             loading: false,
                             error: null
                         }, function () {
-                            if ((_this.parsePresetFilterConditions().length > 0 || _this.getGroupingConfig().enabled) && _this.state.nextPageHref) {
+                            if (!_this.props.isEditMode && (_this.parsePresetFilterConditions().length > 0 || _this.getGroupingConfig().enabled) && _this.state.nextPageHref) {
                                 _this.loadAllRemainingRows();
                             }
                         });
@@ -1835,7 +1835,7 @@ var ListControl = (function (_super) {
         while (rowLimit.firstChild) {
             rowLimit.removeChild(rowLimit.firstChild);
         }
-        rowLimit.appendChild(xmlDocument.createTextNode(String(this.props.fetchBatchSize)));
+        rowLimit.appendChild(xmlDocument.createTextNode(String(this.props.isEditMode ? 5 : this.props.fetchBatchSize)));
         if (rowLimits.length === 0) {
             viewElement.appendChild(rowLimit);
         }

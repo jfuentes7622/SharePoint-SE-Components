@@ -19,6 +19,15 @@ interface IRepeatFilterField {
   typeAsString: string;
 }
 
+interface IRepeatFilterCondition {
+  field: string;
+  type?: string;
+  value: any;
+  valueType?: string;
+  operator?: string;
+  logical?: string;
+}
+
 export class RepeatedReportForms extends React.Component<IRepeatedReportFormsProps, IRepeatedReportFormsState> {
   private _loadRequestId: number = 0;
 
@@ -39,7 +48,8 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
     if (prevProps.reportProps.listName !== this.props.reportProps.listName
       || prevProps.reportProps.itemIdQueryParam !== this.props.reportProps.itemIdQueryParam
       || prevProps.reportProps.linkedFieldTarget !== this.props.reportProps.linkedFieldTarget
-      || prevProps.reportProps.useDynamicValueAsFilter !== this.props.reportProps.useDynamicValueAsFilter) {
+      || prevProps.reportProps.useDynamicValueAsFilter !== this.props.reportProps.useDynamicValueAsFilter
+      || prevProps.reportProps.filterJson !== this.props.reportProps.filterJson) {
       this.loadItemIds();
     }
   }
@@ -111,6 +121,93 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
     return fieldName + " eq '" + String(rawValue).replace(/'/g, "''") + "'";
   }
 
+  private resolveFilterExpressionValue(value: any): any {
+    if (!value || typeof value !== 'string') { return value; }
+    var normalized = value.trim().toLowerCase();
+    var pageContext = this.props.reportProps.context && this.props.reportProps.context.pageContext;
+    var user = pageContext && pageContext.user;
+    var legacyContext = pageContext && pageContext.legacyPageContext;
+    if (normalized === 'today') {
+      var today = new Date();
+      return today.getFullYear() + '-' + ('0' + String(today.getMonth() + 1)).slice(-2) + '-' + ('0' + String(today.getDate())).slice(-2);
+    }
+    if (normalized === 'now') { return new Date().toISOString(); }
+    var dateMatch = /^date\(\s*([+-]?\d+)\s*\)$/.exec(normalized);
+    if (dateMatch) {
+      var dateValue = new Date();
+      dateValue.setDate(dateValue.getDate() + parseInt(dateMatch[1], 10));
+      return dateValue.getFullYear() + '-' + ('0' + String(dateValue.getMonth() + 1)).slice(-2) + '-' + ('0' + String(dateValue.getDate())).slice(-2);
+    }
+    if (normalized === 'me.email') { return String(user && user.email || ''); }
+    if (normalized === 'me.login') { return String(user && user.loginName || ''); }
+    if (normalized === 'me.id') { return legacyContext && legacyContext.userId || ''; }
+    if (normalized === 'me') { return String(user && (user.displayName || user.loginName) || ''); }
+    return value;
+  }
+
+  private buildJsonFilterClause(condition: IRepeatFilterCondition, value: any): string {
+    var fieldName = String(condition.field || '');
+    var fieldType = String(condition.type || 'text').toLowerCase();
+    var operator = String(condition.operator || 'eq').toLowerCase();
+    if (!fieldName || value === undefined || value === null || value === '') { return ''; }
+    if (Array.isArray(value)) {
+      var arrayOperator = operator === 'ne' ? 'eq' : (operator === 'notcontains' ? 'contains' : operator);
+      var arrayClauses = value.map((entry: any) => this.buildJsonFilterClause(Object.assign({}, condition, { operator: arrayOperator }), entry))
+        .filter(function(clause: string) { return !!clause; });
+      if (operator === 'ne' || operator === 'notcontains') {
+        return arrayClauses.map(function(clause: string) { return 'not (' + clause + ')'; }).join(' and ');
+      }
+      return arrayClauses.map(function(clause: string) { return '(' + clause + ')'; }).join(' or ');
+    }
+    if (fieldType === 'lookup' || fieldType === 'person') {
+      var lookupId = parseInt(String(value), 10);
+      if (isNaN(lookupId)) { return ''; }
+      return fieldName + 'Id ' + (operator === 'ne' ? 'ne' : 'eq') + ' ' + String(lookupId);
+    }
+    if (fieldType === 'number') {
+      var numericValue = Number(value);
+      if (isNaN(numericValue)) { return ''; }
+      return fieldName + ' ' + (/^(eq|ne|gt|ge|lt|le)$/.test(operator) ? operator : 'eq') + ' ' + String(numericValue);
+    }
+    if (fieldType === 'boolean') {
+      var booleanValue = value === true || String(value).toLowerCase() === 'true' || String(value) === '1';
+      return fieldName + ' ' + (operator === 'ne' ? 'ne' : 'eq') + ' ' + (booleanValue ? 'true' : 'false');
+    }
+    if (fieldType === 'datetime') {
+      var parsedDate = new Date(String(value));
+      if (isNaN(parsedDate.getTime())) { return ''; }
+      return fieldName + ' ' + (/^(eq|ne|gt|ge|lt|le)$/.test(operator) ? operator : 'eq') + " datetime'" + parsedDate.toISOString() + "'";
+    }
+    var escapedValue = String(value).replace(/'/g, "''");
+    if (operator === 'contains' || operator === 'notcontains' || operator === 'startswith' || operator === 'endswith') {
+      var textOperator = operator === 'notcontains' ? 'contains' : operator;
+      var textClause = textOperator + '(' + fieldName + ", '" + escapedValue + "')";
+      return operator === 'notcontains' ? 'not (' + textClause + ')' : textClause;
+    }
+    return fieldName + ' ' + (/^(eq|ne|gt|ge|lt|le)$/.test(operator) ? operator : 'eq') + " '" + escapedValue + "'";
+  }
+
+  private buildJsonFilterExpression(filterJson: string, dynamicValue: any): string {
+    var conditions = JSON.parse(filterJson) as IRepeatFilterCondition[];
+    if (!Array.isArray(conditions)) { throw new Error('Filter JSON must be an array.'); }
+    var expression = '';
+    for (var i = 0; i < conditions.length; i += 1) {
+      var condition = conditions[i];
+      if (!condition || !condition.field) { continue; }
+      var value = condition.value === 'dynamic'
+        ? dynamicValue
+        : (String(condition.valueType || '').toLowerCase() === 'expression'
+          ? this.resolveFilterExpressionValue(condition.value)
+          : condition.value);
+      var clause = this.buildJsonFilterClause(condition, value);
+      if (!clause) { continue; }
+      expression = expression
+        ? '(' + expression + ') ' + (String(condition.logical || '').toLowerCase() === 'or' ? 'or' : 'and') + ' (' + clause + ')'
+        : clause;
+    }
+    return expression;
+  }
+
   private async loadItemIds(): Promise<void> {
     var requestId = this._loadRequestId + 1;
     this._loadRequestId = requestId;
@@ -125,17 +222,32 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
       var webUrl = String(this.props.reportProps.context.pageContext.web.absoluteUrl || '').replace(/\/$/, '');
       var escapedListName = listName.replace(/'/g, "''");
       var nextUrl = webUrl + "/_api/web/lists/getByTitle('" + escapedListName + "')/items?$select=Id&$orderby=Id asc&$top=5000";
+      var filterExpressions: string[] = [];
+      var dynamicFilterValue: any = this.props.reportProps.linkedFieldValue;
       if (this.props.reportProps.useDynamicValueAsFilter && this.props.reportProps.linkedFieldTarget) {
         var queryParameter = String(this.props.reportProps.itemIdQueryParam || 'itemid').trim() || 'itemid';
         var queryValue = this.getUrlQueryValue(queryParameter);
         if (queryValue) {
+          dynamicFilterValue = queryValue;
           var filterField = await this.loadRepeatFilterField(listName, String(this.props.reportProps.linkedFieldTarget));
           var filterExpression = filterField ? this.buildRepeatFilter(filterField, queryValue) : '';
           if (!filterExpression) {
             throw new Error(strings.RuntimeRepeatLoadFailed + ': unable to apply URL filter.');
           }
-          nextUrl += '&$filter=' + encodeURIComponent(filterExpression);
+          filterExpressions.push(filterExpression);
         }
+      }
+      if (String(this.props.reportProps.filterJson || '').trim()) {
+        var jsonFilterExpression = this.buildJsonFilterExpression(String(this.props.reportProps.filterJson), dynamicFilterValue);
+        if (!jsonFilterExpression) {
+          throw new Error(strings.RuntimeRepeatLoadFailed + ': the configured JSON filter produced no valid conditions.');
+        }
+        filterExpressions.push(jsonFilterExpression);
+      }
+      if (filterExpressions.length > 0) {
+        nextUrl += '&$filter=' + encodeURIComponent(filterExpressions.map(function(expression: string) {
+          return '(' + expression + ')';
+        }).join(' and '));
       }
       var itemIds: number[] = [];
       var seenItemIds: { [itemId: string]: boolean } = {};

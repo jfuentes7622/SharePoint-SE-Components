@@ -208,6 +208,14 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
     return expression;
   }
 
+  private getResponseItems(data: any): any[] {
+    if (data && Array.isArray(data.value)) { return data.value; }
+    if (data && data.d && Array.isArray(data.d.results)) { return data.d.results; }
+    if (data && Array.isArray(data.results)) { return data.results; }
+    var singleton = data && data.d ? data.d : data;
+    return singleton && (singleton.Id !== undefined || singleton.ID !== undefined) ? [singleton] : [];
+  }
+
   private async loadItemIds(): Promise<void> {
     var requestId = this._loadRequestId + 1;
     this._loadRequestId = requestId;
@@ -259,7 +267,7 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
           throw new Error(strings.RuntimeRepeatLoadFailed + ' Status: ' + String(response.status));
         }
         var data = await response.json();
-        var items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
+        var items = this.getResponseItems(data);
         for (var i = 0; i < items.length; i += 1) {
           var itemId = parseInt(String(items[i].Id !== undefined ? items[i].Id : items[i].ID), 10);
           if (!isNaN(itemId) && itemId > 0 && !seenItemIds[String(itemId)]) {

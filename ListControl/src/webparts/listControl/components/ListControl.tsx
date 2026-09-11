@@ -1488,17 +1488,32 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       if ((value as any).lookupValue !== undefined && (value as any).lookupValue !== null) {
         return String((value as any).lookupValue);
       }
+      if ((value as any).DisplayName) {
+        return String((value as any).DisplayName);
+      }
+      if ((value as any).displayName) {
+        return String((value as any).displayName);
+      }
       if ((value as any).Title) {
         return String((value as any).Title);
       }
       if ((value as any).LookupValue) {
         return String((value as any).LookupValue);
       }
+      if ((value as any).title) {
+        return String((value as any).title);
+      }
       if ((value as any).Name) {
         return String((value as any).Name);
       }
+      if ((value as any).name) {
+        return String((value as any).name);
+      }
       if ((value as any).Email) {
         return String((value as any).Email);
+      }
+      if ((value as any).email) {
+        return String((value as any).email);
       }
       if ((value as any).Url) {
         return String((value as any).Url);

@@ -2676,7 +2676,7 @@ function getManifests() {
     "id": "3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001",
     "alias": "ListControlWebPart",
     "componentType": "WebPart",
-    "version": "0.0.31",
+    "version": "0.0.32",
     "manifestVersion": 2,
     "requiresCustomScript": false,
     "supportsFullBleed": true,

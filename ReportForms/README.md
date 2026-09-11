@@ -24,6 +24,7 @@ Do not upgrade Microsoft SPFx packages independently. SharePoint Server Subscrip
 - Form Layout includes **Vertical space between fields (px)** from 0 to 100 pixels. It is the sole runtime gap between field wrappers in stacked and grid layouts, with no hidden minimum margin or transparent-wrapper padding. Fields with a visible background, border, conditional box style, or validation border retain padding inside that box. Horizontal grid spacing is unchanged.
 - Date/Time fields support built-in date, date/time, and time-only output plus custom format strings. Custom formats can preserve default text case or force the final output to uppercase or lowercase.
 - Lookup fields display their configured lookup values. Multi-value lookups render those display values as a comma-separated list rather than exposing SharePoint item IDs.
+- Choice and Lookup fields configured as **Radio buttons** retain the complete radio-button group in the read-only report, with the saved option selected, instead of collapsing to a text value box. MultiChoice fields retain their checkbox list, and Yes/No fields retain their checkbox. All visual controls are disabled and display-only.
 - The designer's **Conditional styling** workspace creates ordered field rules that apply background, text, border, corner, and font styles or set visibility. Rule values follow the source-field type: lookup items, configured choices, True/False, numbers, and dates use native selectors instead of free text. Date rules also support an inclusive **Between** range, and lookup rules compare selected item IDs including multi-value candidates. **Target fields** is a multi-select list, so one rule can affect several fields; hold Ctrl while clicking to select multiple fields. Use Move up/down to control precedence; the last matching rule wins for the same style or visibility property. Existing single-target rules and static values remain compatible. Hidden fields are removed from the layout so visible fields reflow without gaps.
 - A custom **List Control** field can place a separately configured ListControl web part inside the report layout. The complete web-part host is moved at runtime and returned to its original page position when the report unmounts.
 - SharePoint list and item permissions are still enforced by SharePoint. Report permission checks use `ViewListItems`, not Add or Edit permissions.
@@ -74,10 +75,10 @@ The deployable package is generated at `sharepoint/solution/sps-report-forms.spp
 
 Errors for `e47c4f0e-0f0d-49d5-bcab-7a4d05742037_<version>/SharePointDynamicFormWebPartStrings` or `/PropertyControlStrings` occur before Report Forms reads list data. They indicate that SharePoint could not load an SPFx localization asset, not that the user lacks access to the report list.
 
-Property-pane version `1.0.0.62` and loader component version `1.0.37` identify the same outdated Report Forms package. The current package is solution `1.0.0.71` with component `1.0.46`.
+Property-pane version `1.0.0.62` and loader component version `1.0.37` identify the same outdated Report Forms package. The current package is solution `1.0.0.72` with component `1.0.47`.
 
 1. Replace `sps-report-forms.sppkg` in the tenant App Catalog and approve the replacement/deployment.
-2. Confirm the App Catalog displays solution version `1.0.0.71`.
+2. Confirm the App Catalog displays solution version `1.0.0.72`.
 3. Apply any available Report Forms update under the target site's **Site contents**.
 4. Clear site data for the SharePoint tenant, including its service worker/cache, close all tenant tabs, and retest in a new InPrivate window.
 5. In browser developer tools, inspect the failed localization `.js` request. A `404` indicates a stale manifest requesting a removed hashed filename. A `401` or `403` requires a SharePoint administrator to restore the tenant App Catalog and `ClientSideAssets` library to the organization's standard inherited/read-access configuration.

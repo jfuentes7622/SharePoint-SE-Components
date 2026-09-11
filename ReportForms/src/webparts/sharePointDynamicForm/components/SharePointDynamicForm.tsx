@@ -3885,10 +3885,34 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           </div>
         );
       case 'dropdown':
+        var dropdownOptions: ISelectOption[] = [];
+        if (field.config && field.config.choices) {
+          dropdownOptions = field.config.choices.map(function(choice) {
+            return { key: choice, text: choice };
+          });
+        }
+        var choiceDisplayMode = this.getChoiceDisplayMode(field);
         return (
           <div style={fieldWrapperStyle}>
             <div style={Object.assign({ marginBottom: '10px' }, labelStyle)}>{field.label}{this.renderDescriptionIcon(description)}</div>
-            <div style={reportValueStyle}>{value === undefined || value === null || value === '' ? '-' : String(value)}</div>
+            {choiceDisplayMode === 'radio' ? (
+              <div>
+                {dropdownOptions.map((option) => (
+                  <label key={option.key} style={{ display: 'block', marginLeft: '12px' }}>
+                    <input
+                      type="radio"
+                      name={field.id}
+                      checked={String(value === undefined || value === null ? '' : value) === String(option.key)}
+                      disabled={true}
+                      readOnly={true}
+                    />{' '}
+                    {option.text}
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div style={reportValueStyle}>{value === undefined || value === null || value === '' ? '-' : String(value)}</div>
+            )}
             {this.renderFieldHelpAndError(description, errorMessage, labelPosition)}
           </div>
         );
@@ -3897,7 +3921,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         var lookupOptions: ISelectOption[] = lookupItems.map(function(item) {
           return { key: String(item.Id), text: item.Title || String(item.Id) };
         });
-        if (effectiveMode === 'view') {
+        var lookupChoiceDisplayMode = this.getChoiceDisplayMode(field);
+        if (effectiveMode === 'view' && lookupChoiceDisplayMode !== 'radio') {
           return (
             <div style={fieldWrapperStyle}>
               <div style={Object.assign({ marginBottom: '10px' }, labelStyle)}>{field.label}{this.renderDescriptionIcon(description)}</div>
@@ -3951,7 +3976,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         return (
           <div style={fieldWrapperStyle}>
             <div style={Object.assign({ marginBottom: '10px' }, labelStyle)}>{field.label}{this.renderDescriptionIcon(description)}</div>
-            {this.getChoiceDisplayMode(field) === 'radio' ? (
+            {lookupChoiceDisplayMode === 'radio' ? (
               <div>
                 {lookupOptions.map((option) => {
                   return (
@@ -3960,8 +3985,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
                         type="radio"
                         name={field.id}
                         checked={lookupValue === option.key}
-                        disabled={disabled}
-                        onChange={() => this.setFieldValue(field.id, option.key)}
+                        disabled={true}
+                        readOnly={true}
                       />{' '}
                       {option.text}
                     </label>

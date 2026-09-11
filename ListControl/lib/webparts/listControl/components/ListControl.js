@@ -1310,17 +1310,32 @@ var ListControl = (function (_super) {
             if (value.lookupValue !== undefined && value.lookupValue !== null) {
                 return String(value.lookupValue);
             }
+            if (value.DisplayName) {
+                return String(value.DisplayName);
+            }
+            if (value.displayName) {
+                return String(value.displayName);
+            }
             if (value.Title) {
                 return String(value.Title);
             }
             if (value.LookupValue) {
                 return String(value.LookupValue);
             }
+            if (value.title) {
+                return String(value.title);
+            }
             if (value.Name) {
                 return String(value.Name);
             }
+            if (value.name) {
+                return String(value.name);
+            }
             if (value.Email) {
                 return String(value.Email);
+            }
+            if (value.email) {
+                return String(value.email);
             }
             if (value.Url) {
                 return String(value.Url);

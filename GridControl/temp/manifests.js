@@ -2692,13 +2692,11 @@ function getManifests() {
         },
         "GridControlWebPartStrings": {
           "defaultPath": "lib/webparts/gridControl/loc/en-us.js",
-          "type": "localizedPath",
-          "paths": {}
+          "type": "localizedPath"
         },
         "PropertyControlStrings": {
           "defaultPath": "node_modules/@pnp/spfx-property-controls/lib/loc/en-us.js",
-          "type": "localizedPath",
-          "paths": {}
+          "type": "localizedPath"
         },
         "react": {
           "type": "component",

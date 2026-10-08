@@ -23,6 +23,7 @@ All web-part property panes display the deployed solution version. Components wi
 | [PrintControl](#print-control) | Web Part | Prints page content without SharePoint chrome | [PrintControl/README.md](PrintControl/README.md) |
 | [Report Forms](#report-forms) | Web Part | Read-only report for a selected list item | [ReportForms/README.md](ReportForms/README.md) |
 | [ScriptEditor](#script-editor) | Web Part | Trusted custom HTML and JavaScript host | [ScriptEditor/README.md](ScriptEditor/README.md) |
+| [SearchControl](#search-control) | Web Part | Simple or advanced filtering for connected List Control and Grid Control instances | [SearchControl/README.md](SearchControl/README.md) |
 | [Tab](#tab) | Web Part | Tabbed organization for sections or web parts | [Tab/README.md](Tab/README.md) |
 | [Tiles](#tiles) | Web Part | Responsive clickable navigation tiles | [Tiles/README.md](Tiles/README.md) |
 
@@ -689,12 +690,39 @@ Use this control for approved legacy integrations or small internal embeds when 
 
 ---
 
+## Search Control
+
+**SPS Search Control** connects to an SPS List Control or Grid Control through SPFx Dynamic Data and publishes filters addressed only to the selected target. It provides a compact search surface without duplicating the target control's list configuration.
+
+- **Simple** mode searches one selected field or all compatible fields.
+- **Advanced** mode supports multiple typed conditions joined with AND or OR.
+- Choice and Boolean fields use fixed options; lookup and person options load on demand.
+- Date and time fields use typed browser controls with configurable 12/24-hour display and minute increments.
+- The optional Simple/Advanced mode selector is displayed as radio buttons in the top-right corner.
+- Command buttons can display icons, icons with names, or names; icons are the default.
+
+### Key properties
+
+| Property | Purpose |
+|---|---|
+| `targetInstanceId` | Selects the List Control or Grid Control that receives the search state |
+| `defaultMode` / `showModeToggle` | Sets the initial mode and whether users may switch between Simple and Advanced |
+| `buttonDisplayMode` | Displays commands as icons, icons and names, or names |
+| `searchOnType` / `minimumCharacters` / `debounceMilliseconds` | Controls automatic simple searching while typing |
+| `timeDisplayFormat` / `timeMinuteIncrement` | Configures typed time values |
+| Surface, text, accent, border, corner, and font properties | Controls the search surface appearance |
+| `excludeFromTabs` / `overrideCssUrl` / `enableDiagnostics` | Provides integration, styling override, and troubleshooting options |
+
+The connected List Control or Grid Control must be present on the same page and expose searchable field metadata. See [SearchControl/README.md](SearchControl/README.md).
+
+---
+
 ## Common configuration
 
 - **List access:** list-backed controls require visitors to have read access to every configured list, library, view, field, lookup source, and image location. Create/update/delete actions additionally require the corresponding SharePoint permissions.
 - **Internal field names:** designers and JSON-backed rules refer to SharePoint internal names. Recheck mappings after changing a list, view, or schema.
 - **Designer-managed JSON:** use the Calendar, Dynamic Forms, Grid Control, and List Control designers for filters, styles, schemas, defaults, and validation. Hand-edit JSON only when migrating a reviewed advanced configuration.
-- **Dynamic data:** give List Control instances meaningful names, then connect their selected item ID/mode to Dynamic Forms or Report Forms. Calendar and Grid Control can participate in the same selection workflow.
+- **Dynamic data:** give List Control and Grid Control instances meaningful names. Connect their selected item ID/mode to Dynamic Forms or Report Forms, or target them from Search Control to apply simple or advanced filters. Calendar can participate in the same record-selection workflow.
 - **Width:** use a control's `forceFullWidth` property when it should expand independently. Use Full Width Control when all web parts in a shared section should expand together.
 - **CSS overrides:** host override stylesheets in a stable location readable by the audience. Treat them as versioned code and avoid selectors that affect unrelated page elements.
 - **Diagnostics:** enable diagnostic logging temporarily while configuring or troubleshooting, then review the browser console for source discovery, request, rule, and dynamic-data details.
@@ -704,6 +732,10 @@ Use this control for approved legacy integrations or small internal embeds when 
 ### Record selection and editing
 
 Place List Control or Grid Control beside Dynamic Forms. The selector publishes the item ID and New/Edit/View mode; Dynamic Forms loads the corresponding record and workflow.
+
+### Connected list and grid search
+
+Place Search Control on the same page as List Control or Grid Control, select the target instance, and choose Simple or Advanced mode. Search Control publishes an addressed filter state, so other list or grid instances on the page are not affected.
 
 ### Read-only report workspace
 
@@ -759,4 +791,3 @@ Each deployable `.sppkg` is distributed in a ZIP containing the SharePoint packa
 The workflow uses the component's three-part `package.json` version in the artifact and ZIP names and as the immutable GitHub package version. It includes the four-part SharePoint solution version as `spfxSolutionVersion` metadata. Publishing an existing npm package version is skipped, while a same-named release ZIP is replaced. Increment and rebuild a component before publishing a replacement.
 
 Packages use names such as `@jfuentes7622/sharepoint-se-grid-control` and are initially subject to the GitHub account's package visibility settings. No personal access token is required in Actions because the workflow publishes to its own repository with `GITHUB_TOKEN` and `packages: write` permission.
-

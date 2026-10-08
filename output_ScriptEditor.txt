@@ -1,2 +1,0 @@
-[[90m11:06:52[39m] Local modules not found in D:\Source\SharePoint-SE-Components\ScriptEditor
-[[90m11:06:52[39m] Try running: npm install

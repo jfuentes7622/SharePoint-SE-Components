@@ -96,23 +96,35 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
   private _eventLoadSequence: number = 0;
   private _newEventFrameObserver: any;
   private _newEventFrameResizeTimer: number;
+  private _calendarResizeObserver: any;
+  private _calendarResizeTimers: number[] = [];
+  private _calendarLastWidth: number = 0;
+  private _calendarLastHeight: number = 0;
   // Per-source cache of the previous/current/next month window so date navigation within
   // that window reuses already-fetched items instead of re-querying SharePoint.
   private _eventCache: { [sourceKey: string]: { windowStart: number; windowEnd: number; items: any[] } } = {};
 
   private async getWithAcceptFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     let response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok && response.status === 406) {
+      this.logDiagnostic('REST retry with Accept=application/json;odata=verbose: GET ' + url);
       response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: 'application/json;odata=verbose' }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok && response.status === 406) {
+      this.logDiagnostic('REST retry with Accept=application/json;odata=nometadata: GET ' + url);
       response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: 'application/json;odata=nometadata' }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     return response;
@@ -154,6 +166,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     }
     this._eventLoadSequence += 1;
     this.disconnectNewEventFrameObserver();
+    this.stopCalendarSizeMonitoring();
     if (this._calendar) {
       this._calendar.destroy();
       this._calendar = undefined;
@@ -294,6 +307,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
 
   private _setCalendarRef = (el: HTMLDivElement): void => {
     if (!el && this._calendar) {
+      this.stopCalendarSizeMonitoring();
       this._calendar.destroy();
       this._calendar = undefined;
     }
@@ -302,7 +316,71 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
 
     if (el && !this._calendar) {
       this._initCalendar();
+      this.startCalendarSizeMonitoring();
     }
+  }
+
+  private handleCalendarWindowResize = (): void => {
+    this.scheduleCalendarSizeRefresh();
+  }
+
+  private refreshCalendarSize(force: boolean): void {
+    if (!this._calendar || !this._calendarEl || !this._calendar.updateSize) {
+      return;
+    }
+    var bounds = this._calendarEl.getBoundingClientRect();
+    var width = Math.round(bounds.width || this._calendarEl.clientWidth || 0);
+    var height = Math.round(bounds.height || this._calendarEl.clientHeight || 0);
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    if (!force && width === this._calendarLastWidth && height === this._calendarLastHeight) {
+      return;
+    }
+    this._calendarLastWidth = width;
+    this._calendarLastHeight = height;
+    this._calendar.updateSize();
+  }
+
+  private scheduleCalendarSizeRefresh(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    while (this._calendarResizeTimers.length > 0) {
+      window.clearTimeout(this._calendarResizeTimers.pop());
+    }
+    [0, 100, 400].forEach((delay: number) => {
+      this._calendarResizeTimers.push(window.setTimeout(() => this.refreshCalendarSize(true), delay));
+    });
+  }
+
+  private startCalendarSizeMonitoring(): void {
+    this.stopCalendarSizeMonitoring();
+    if (typeof window === 'undefined' || !this._calendarEl) {
+      return;
+    }
+    window.addEventListener('resize', this.handleCalendarWindowResize);
+    var ResizeObserverConstructor: any = (window as any).ResizeObserver;
+    if (ResizeObserverConstructor) {
+      this._calendarResizeObserver = new ResizeObserverConstructor(() => this.refreshCalendarSize(false));
+      this._calendarResizeObserver.observe(this._calendarEl);
+    }
+    this.scheduleCalendarSizeRefresh();
+  }
+
+  private stopCalendarSizeMonitoring(): void {
+    if (this._calendarResizeObserver) {
+      this._calendarResizeObserver.disconnect();
+      this._calendarResizeObserver = undefined;
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', this.handleCalendarWindowResize);
+      while (this._calendarResizeTimers.length > 0) {
+        window.clearTimeout(this._calendarResizeTimers.pop());
+      }
+    }
+    this._calendarLastWidth = 0;
+    this._calendarLastHeight = 0;
   }
 
   private _initCalendar(): void {
@@ -376,6 +454,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
         const eventStyle = info.event.extendedProps && info.event.extendedProps.eventStyle;
         const sourceItemId = Number(info.event.extendedProps && info.event.extendedProps.sourceItemId || 0);
         const sourceItemKey = String(info.event.extendedProps && info.event.extendedProps.sourceItemKey || info.event.id || '');
+        const isRecurring = info.event.extendedProps && info.event.extendedProps.isRecurring === true;
         const isMonthView = info.view && info.view.type === 'dayGridMonth';
         const hasVisibleTimeDetails = isMonthView && !info.event.allDay
           && (this.props.showMonthEventStartTime === true || this.props.showMonthEventDuration === true);
@@ -390,6 +469,9 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
         }
         if (hasVisibleTimeDetails) {
           info.el.classList.add(styles.monthEventDetails);
+        }
+        if (isRecurring) {
+          info.el.classList.add(styles.recurringEvent);
         }
         info.el.setAttribute('data-calendar-event-id', String(info.event.id || ''));
         info.el.style.position = 'relative';
@@ -423,6 +505,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       },
       eventsSet: (calendarEvents: any[]) => {
         this.logDiagnostic('FullCalendar accepted events. Count=' + String(calendarEvents.length));
+        this.scheduleCalendarSizeRefresh();
       },
       eventClick: (info: any) => {
         const itemId = Number(info.event.extendedProps && info.event.extendedProps.sourceItemId || 0);
@@ -437,17 +520,29 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     });
 
     this._calendar.render();
+    this.scheduleCalendarSizeRefresh();
   }
 
   private renderEventContent(info: any): any {
     var event = info.event;
+    var content = document.createElement('span');
+    content.className = styles.eventContent;
     var title = document.createElement('span');
-    title.className = 'fc-event-title';
+    title.className = 'fc-event-title ' + styles.eventContentTitle;
     var isMonthView = info.view && info.view.type === 'dayGridMonth';
     title.textContent = this.formatMonthEventLabel(event,
       isMonthView && this.props.showMonthEventStartTime === true,
       isMonthView && this.props.showMonthEventDuration === true);
-    return { domNodes: [title] };
+    content.appendChild(title);
+    if (event.extendedProps && event.extendedProps.isRecurring === true) {
+      var recurringIcon = document.createElement('i');
+      recurringIcon.className = 'ms-Icon ms-Icon--RecurringEvent ' + styles.recurringEventIcon;
+      recurringIcon.title = strings.RecurringEventFallback;
+      recurringIcon.setAttribute('aria-label', strings.RecurringEventFallback);
+      recurringIcon.setAttribute('role', 'img');
+      content.appendChild(recurringIcon);
+    }
+    return { domNodes: [content] };
   }
 
   private formatMonthEventLabel(event: any, includeStartTime: boolean, includeDuration: boolean): string {
@@ -1242,7 +1337,12 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
                         aria-pressed={isSelected}
                         title={laneEvent.title} onClick={() => this.handleEventActivated(parseInt(laneEvent.id, 10), laneEvent)}>
                         {eventTime && <span className={styles.swimlaneEventTime}>{eventTime}</span>}
-                        <span>{laneEvent.title}</span>
+                        <span className={styles.swimlaneEventContent}>
+                          <span className={styles.swimlaneEventTitle}>{laneEvent.title}</span>
+                          {laneEvent.extendedProps.isRecurring === true &&
+                            <i className={'ms-Icon ms-Icon--RecurringEvent ' + styles.recurringEventIcon}
+                              title={strings.RecurringEventFallback} aria-label={strings.RecurringEventFallback} role='img' />}
+                        </span>
                       </button>
                     );
                   })}
@@ -1735,6 +1835,15 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     return !isException && hasRecurrenceRule && (hasRecurrenceFlag || spansMultipleDates || eventType === 1);
   }
 
+  private isRecurringItem(item: any): boolean {
+    var eventType = parseInt(String(item && item.EventType), 10);
+    var hasRecurrenceFlag = item && (item.fRecurrence === true || item.fRecurrence === 1
+      || item.fRecurrence === '1' || String(item.fRecurrence).toLowerCase() === 'true');
+    return !!(item && (hasRecurrenceFlag || this.getRecurrenceData(item)
+      || item.MasterSeriesItemID || item.MasterSeriesItemId
+      || eventType === 1 || eventType === 3 || eventType === 4));
+  }
+
   private expandEventItems(items: any[], rangeStart: Date, rangeEnd: Date): ICalendarOccurrence[] {
     var occurrences: ICalendarOccurrence[] = [];
     var exceptionKeys = this.getRecurrenceExceptionKeys(items);
@@ -2062,7 +2171,8 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
             sourceItemKey: sourceItemKey,
             sourceListName: listName,
             sourceTargetPageUrl: source.targetPageUrl || '',
-            eventStyle: eventStyle
+            eventStyle: eventStyle,
+            isRecurring: this.isRecurringItem(occurrence.item)
           }
         };
       });

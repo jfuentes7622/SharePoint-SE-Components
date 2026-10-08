@@ -17,6 +17,7 @@ SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCale
 - Publish the selected event ID and `view` mode for Dynamic Form connections.
 - Enable diagnostic console logging for list and event loading.
 - Reuse a rolling three-month event cache so nearby date navigation avoids redundant SharePoint requests.
+- Recalculate the FullCalendar layout after SharePoint finishes sizing the page canvas and whenever its host width changes.
 
 ## Configuration
 

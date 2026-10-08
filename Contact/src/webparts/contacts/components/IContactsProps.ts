@@ -32,6 +32,7 @@ export interface IContactsProps {
   customList: IRecord[];
   spfxContext: WebPartContext;
   imageWidth: number;
+  contactsPerRow: number;
   ContactsListId: string;
   directorateField:string;
   divisionField:string;

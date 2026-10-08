@@ -48,10 +48,26 @@ export default class IFrameDialog extends BaseDialog {
 
     constructor(title: string, url: string, width?: number, height?: number) {
         super();
-        this.url = url;
+        this.url = this.getDisplayUrl(url);
         this.title = title;
         if (width) { this._width = width; }
         if (height) { this._height = height; }
+    }
+    private getDisplayUrl(url: string): string {
+        const absoluteUrl: string = this.getAbsoluteUrl(url);
+        const path: string = absoluteUrl.split('?')[0].split('#')[0].toLowerCase();
+        if (/\.(doc|docx|xls|xlsx|ppt|pptx)$/.test(path)) {
+            const anchor: HTMLAnchorElement = document.createElement('a');
+            anchor.href = absoluteUrl;
+            return anchor.protocol + '//' + anchor.host + '/_layouts/15/WopiFrame.aspx?sourcedoc=' +
+                encodeURIComponent(absoluteUrl) + '&action=embedview';
+        }
+        return absoluteUrl;
+    }
+    private getAbsoluteUrl(url: string): string {
+        const anchor: HTMLAnchorElement = document.createElement('a');
+        anchor.href = String(url || '').trim();
+        return anchor.href;
     }
     public render(): void {
         window.addEventListener('CloseDialog', () => { this.close(); });

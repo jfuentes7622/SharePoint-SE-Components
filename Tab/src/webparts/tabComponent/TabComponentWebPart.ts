@@ -12,7 +12,6 @@ import { DisplayMode,Version } from '@microsoft/sp-core-library';
 
 import {
   IPropertyPaneConfiguration,
-  PropertyPaneTextField,
   PropertyPaneCheckbox,
   PropertyPaneDropdown,
   PropertyPaneSlider,
@@ -23,6 +22,7 @@ import { BaseClientSideWebPart,  WebPartContext } from '@microsoft/sp-webpart-ba
 import { Environment, EnvironmentType } from '@microsoft/sp-core-library';
 import * as strings from 'TabComponentWebPartStrings';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 import TabComponent from './components/TabComponent';
 import { ITabComponentProps, ITabVisualSettings } from './components/ITabComponentProps';
 import ErrorComponent, { IErrorComponentProps } from './components/ErrorComponent';
@@ -34,6 +34,8 @@ require('../tabComponent/assets/TabStyles-round.css');
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 const picturePickerModule: any = require('sp-client-custom-fields/lib/PropertyFieldPicturePickerHost');
 const PropertyFieldPicturePickerHost: any = picturePickerModule.default || picturePickerModule;
+const FORM_ACTIVATION_EVENT = 'spse:form-activation-changed';
+const FORM_ACTIVATION_QUERY_EVENT = 'spse:form-activation-query';
 
 export interface IConfigListData {
   collectionData: any[];
@@ -89,6 +91,11 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   private foundAnotherTab: boolean = false;
   private tabsProcessedCount = 0;
   private ContentArea: HTMLElement;
+  private excludeObserver: any;
+  private excludeRefreshTimer: number;
+  private activationQueryHandler: (event: Event) => void;
+  private controlledZones: HTMLElement[] = [];
+  private selectedTabIndex: number = 0;
 
 
   public constructor(context?: WebPartContext) {
@@ -96,7 +103,13 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     // Hack: to invoke correctly the onPropertyChange function outside this class
     // we need to bind this object on it first
     this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
+    this.activationQueryHandler = (event: Event) => this.handleActivationQuery(event);
     window.addEventListener('load', this.windowLoaded.bind(this), false);
+  }
+
+  protected onInit(): Promise<void> {
+    window.addEventListener(FORM_ACTIVATION_QUERY_EVENT, this.activationQueryHandler);
+    return Promise.resolve();
   }
 
   private logDiagnostic(message: string): void {
@@ -219,6 +232,78 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     return this.foundAnotherTab;
   }
 
+  private isExcludedFromTabs(zone: Element): boolean {
+    return zone.getAttribute('data-spse-exclude-from-tabs') === 'true'
+      || zone.querySelector('[data-spse-exclude-from-tabs="true"]') !== null;
+  }
+
+  private observeTabExclusions(): void {
+    if (this.excludeObserver || !this.ContentArea) {
+      return;
+    }
+
+    const MutationObserverConstructor: any = (window as any).MutationObserver;
+    if (!MutationObserverConstructor) {
+      return;
+    }
+    this.excludeObserver = new MutationObserverConstructor(() => {
+      if (this.excludeRefreshTimer) {
+        window.clearTimeout(this.excludeRefreshTimer);
+      }
+      this.excludeRefreshTimer = window.setTimeout(() => this.render(), 0);
+    });
+    this.excludeObserver.observe(this.ContentArea, {
+      attributes: true,
+      attributeFilter: ['data-spse-exclude-from-tabs'],
+      subtree: true
+    });
+  }
+
+  private handleActivationQuery(event: Event): void {
+    if (this.displayMode === DisplayMode.Edit) {
+      return;
+    }
+    const detail: any = (event as any).detail || {};
+    const formElement: HTMLElement = detail.formElement;
+    if (!formElement) {
+      return;
+    }
+    for (let index = 0; index < this.controlledZones.length; index += 1) {
+      if (this.controlledZones[index].contains(formElement)) {
+        detail.responses = detail.responses || [];
+        detail.responses.push({
+          controllerId: this.context.instanceId,
+          controllerType: 'tab',
+          active: index === this.selectedTabIndex
+        });
+        return;
+      }
+    }
+  }
+
+  private publishFormActivation(selectedIndex: number, zones: HTMLElement[]): void {
+    this.selectedTabIndex = selectedIndex;
+    this.controlledZones = zones;
+    if (this.displayMode === DisplayMode.Edit) {
+      return;
+    }
+    const detail: any = {
+      controllerId: this.context.instanceId,
+      controllerType: 'tab',
+      controlledZones: zones,
+      activeZone: zones[selectedIndex],
+      activeIndex: selectedIndex
+    };
+    let event: any;
+    if (typeof CustomEvent === 'function') {
+      event = new CustomEvent(FORM_ACTIVATION_EVENT, { detail: detail });
+    } else {
+      event = document.createEvent('CustomEvent');
+      event.initCustomEvent(FORM_ACTIVATION_EVENT, false, false, detail);
+    }
+    window.dispatchEvent(event);
+  }
+
   public render(): void {
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
     // Need to send a message if webpart is used on a classic page
@@ -237,16 +322,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
       overrideCSS = this.properties.overrideCSS;
     }
 
-    if (overrideCSS !== "") {
-      this.logDiagnostic('Injecting override stylesheet: ' + overrideCSS);
-      // inject the EUCOM master style sheet
-      const head: HTMLElement = document.getElementsByTagName('head')[0] || document.documentElement;
-      const customStyle: HTMLLinkElement = document.createElement('link');
-      customStyle.href = overrideCSS;
-      customStyle.rel = 'stylesheet';
-      customStyle.type = 'text/css';
-      head.insertAdjacentElement('beforeend', customStyle);
-    }
+    applyOverrideCss(overrideCSS, this.context.instanceId);
 
     this.domElement.style.setProperty('--disableColor', this.properties.disableColor);
     this.domElement.style.setProperty('--selectedColor', this.properties.selectedColor);
@@ -267,6 +343,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
         }
         this.ContentArea = sectionRoot || this.domElement.parentElement || this.domElement;
       }
+    this.observeTabExclusions();
     //}
 
     this.found = false;
@@ -278,11 +355,12 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
       ctrlZones = Array.from(this.ContentArea.querySelectorAll('.CanvasZone'))
       //CanvasZoneContainer no longer suported, only shows in workbench now
       //ctrlZones = Array.from(this.ContentArea.querySelectorAll('.CanvasZoneContainer'))
-        .filter(d => { return !this.findInAncestors(d, this.domElement); });
+        .filter(d => { return !this.isExcludedFromTabs(d) && !this.findInAncestors(d, this.domElement); });
     } else {
       ctrlZones = Array.from(this.ContentArea.querySelectorAll('.ControlZone'))
-        .filter(d => { return !this.findInAncestors(d, this.domElement); });
+        .filter(d => { return !this.isExcludedFromTabs(d) && !this.findInAncestors(d, this.domElement); });
     }
+    this.controlledZones = ctrlZones as HTMLElement[];
 
     this.logDiagnostic('Discovered ' + String(ctrlZones.length) + ' tab zone(s) for TabType=' + tabtype + ' (processed=' + String(this.tabsProcessedCount) + ', foundAnotherTab=' + String(this.foundAnotherTab) + ').');
 
@@ -333,6 +411,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
         PageInEditMode: this.displayMode === DisplayMode.Edit,
         TabConfigs: tabConfigs,
         EnableDiagnostics: this.properties.enableDiagnostics !== false,
+        OnSelectedTabChanged: (selectedIndex: number): void => this.publishFormActivation(selectedIndex, ctrlZones as HTMLElement[]),
         GlobalFontSettings: {
           fontFamily: this.properties.fontFamily || 'Segoe UI',
           fontStyle: this.properties.fontStyle || 'normal',
@@ -366,17 +445,21 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   protected onDispose(): void {
     this.logDiagnostic('onDispose invoked; unmounting React tree.');
     releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
+    window.removeEventListener(FORM_ACTIVATION_QUERY_EVENT, this.activationQueryHandler);
+    if (this.excludeObserver) {
+      this.excludeObserver.disconnect();
+      this.excludeObserver = undefined;
+    }
+    if (this.excludeRefreshTimer) {
+      window.clearTimeout(this.excludeRefreshTimer);
+      this.excludeRefreshTimer = undefined;
+    }
     this.domElement.removeAttribute('data-spse-tab-type');
     ReactDom.unmountComponentAtNode(this.domElement);
   }
 
   protected get dataVersion(): Version {
     return Version.parse('1.0');
-  }
-
-  private bindPropVals(value: string): string {
-    //Here is where you could do some validation
-    return '';
   }
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
@@ -651,10 +734,11 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
                   step: 1,
                   value: this.parseNumberSetting(this.properties.contentPaddingBottom, 0, 0, 100)
                 }),
-                PropertyPaneTextField('overrideCSS', {
-                  label: strings.OverrideCSS,
-                  validateOnFocusOut: true,
-                  onGetErrorMessage: this.bindPropVals.bind(this)
+                PropertyPaneOverrideCss('overrideCSS', this.properties.overrideCSS || '', this.context, (newValue: string): void => {
+                  const oldValue = this.properties.overrideCSS || '';
+                  this.properties.overrideCSS = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCSS', oldValue, newValue);
+                  this.render();
                 }),
                 PropertyPaneCheckbox('useGlobalCSS', {
                   text: strings.useGlobalCSS,

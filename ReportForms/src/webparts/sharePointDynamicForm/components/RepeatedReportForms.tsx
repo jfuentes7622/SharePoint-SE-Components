@@ -59,18 +59,30 @@ export class RepeatedReportForms extends React.Component<IRepeatedReportFormsPro
   }
 
   private async getWithAcceptFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     var response = await this.props.reportProps.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
     var acceptValues = [
       'application/json;odata=verbose',
       'application/json;odata=minimalmetadata',
       'application/json;odata=nometadata',
     ];
     for (var i = 0; !response.ok && i < acceptValues.length; i += 1) {
+      this.logDiagnostic('REST retry: GET ' + url + ' Accept=' + acceptValues[i]);
       response = await this.props.reportProps.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: acceptValues[i] }
       });
+      this.logDiagnostic('REST response: GET ' + url + ' Accept=' + acceptValues[i] + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
     return response;
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.props.reportProps.enableDynamicDiagnostics === false) {
+      return;
+    }
+    console.log('[RepeatedReportForms] ' + message);
   }
 
   private getUrlQueryValue(parameterName: string): string {

@@ -191,9 +191,12 @@ var ListDesigner = (function (_super) {
                         _a.label = 1;
                     case 1:
                         if (!(i < acceptHeaders.length)) return [3 /*break*/, 4];
+                        this.logDiagnostic('REST request: GET ' + url + (acceptHeaders[i] ? ' Accept=' + acceptHeaders[i] : ''));
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined)];
                     case 2:
                         response = _a.sent();
+                        this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         if (response.ok) {
                             return [2 /*return*/, response];
                         }
@@ -205,6 +208,12 @@ var ListDesigner = (function (_super) {
                 }
             });
         });
+    };
+    ListDesigner.prototype.logDiagnostic = function (message) {
+        if (this.props.enableDiagnostics === false) {
+            return;
+        }
+        console.log('[ListDesigner] ' + message);
     };
     ListDesigner.prototype.loadFields = function () {
         return __awaiter(this, void 0, void 0, function () {

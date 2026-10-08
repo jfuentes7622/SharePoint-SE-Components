@@ -125,7 +125,8 @@
       "detailsCloseButtonBackgroundColor": "#ffffff",
       "detailsCloseButtonHoverBackgroundColor": "#edebe9",
       "detailsCloseButtonCornerRadius": 2,
-      "enableDiagnostics": true
+      "enableDiagnostics": true,
+      "excludeFromTabs": false
     }
   }]
 }

@@ -9,6 +9,7 @@ import {
 } from '@microsoft/sp-webpart-base';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
 import * as strings from 'PrintControlWebPartStrings';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -27,6 +28,8 @@ export interface IPrintControlWebPartProps {
   buttonCornerRadius?: number;
   contentSelector?: string;
   printCornerText?: string;
+  excludeFromTabs?: boolean;
+  overrideCssUrl?: string;
   enableDiagnostics?: boolean;
 }
 
@@ -280,6 +283,8 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this.domElement.innerHTML = '';
     const root = document.createElement('div');
     root.setAttribute('data-sps-print-control', 'true');
@@ -364,6 +369,13 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
               PropertyPaneTextField('contentSelector', { label: 'Content CSS Selector (Optional)', description: 'Leave blank to automatically print the SharePoint page canvas containing this control.' }),
               PropertyPaneTextField('printCornerText', { label: 'Printed Corner Text', description: 'Defaults to the SharePoint page name followed by Printed Record.' }),
               PropertyPaneLabel('browserPrintHeadersInfo', { text: 'Turn off Headers and footers in the browser print dialog to hide the browser date, URL, title, and page count and use only these print labels.' }),
+              PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                const oldValue = this.properties.overrideCssUrl || '';
+                this.properties.overrideCssUrl = newValue;
+                this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                this.render();
+              }),
+              PropertyPaneCheckbox('excludeFromTabs', { text: 'Exclude this web part from SPS Tabs', checked: this.properties.excludeFromTabs === true }),
               PropertyPaneCheckbox('enableDiagnostics', { text: 'Enable Diagnostics', checked: this.properties.enableDiagnostics !== false })
             ]
           }

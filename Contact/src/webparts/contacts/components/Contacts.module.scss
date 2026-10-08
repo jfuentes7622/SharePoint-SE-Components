@@ -81,9 +81,50 @@
     border-bottom-right-radius: 8px;
     font-size: 18px;
 
+    &.contactGrid {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+    }
+
     .personnelRow {
+      box-sizing: border-box;
+      padding-left: 8px;
+      padding-right: 8px;
+      width: 100%;
       margin-top: 8px;
       margin-bottom: 8px;
+    }
+
+    .contactGridItem1 {
+      width: 100%;
+    }
+
+    .contactGridItem2 {
+      width: 50%;
+    }
+
+    .contactGridItem3 {
+      width: 33.3333%;
+    }
+
+    .contactGridItem4 {
+      width: 25%;
+    }
+
+    @media (max-width: 1023px) {
+      .contactGridItem3,
+      .contactGridItem4 {
+        width: 50%;
+      }
+    }
+
+    @media (max-width: 639px) {
+      .contactGridItem2,
+      .contactGridItem3,
+      .contactGridItem4 {
+        width: 100%;
+      }
     }
 
     .personnelRow:first-of-type {

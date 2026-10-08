@@ -53,6 +53,7 @@ import ContactImages from './components/ContactImages';
 import RecordService from './components/shared/RecordService';
 import { SPContexts } from './components/shared/SPContexts';
 import { ConfigData } from './components/shared/ConfigData';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 
 // import { sp } from '@pnp/sp';
@@ -87,6 +88,7 @@ export interface IContactsWebPartProps {
   listSourceMode: string;
   provisionListName: string;
   imageWidth: number;
+  contactsPerRow: number;
   personnelDefaultImgUrl: string;
   personnelShowDefaultImg: boolean;
   description: string;
@@ -113,6 +115,7 @@ export interface IContactsWebPartProps {
   titleFontFamily: string;
   titleFontStyle: string;
   titleFontBold: boolean;
+  excludeFromTabs: boolean;
   enableDiagnostics: boolean;
 }
 
@@ -154,10 +157,7 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
 
 
   private siteUrl() {
-    const getUrl = window.location;
-    const aUrl = getUrl.protocol + "//" + getUrl.host + "/";
-    const rel = decodeURI(this.context.pageContext.web.serverRelativeUrl);
-    return aUrl + rel;
+    return decodeURI(this.context.pageContext.web.absoluteUrl).replace(/\/+$/, '');
   }
 
   
@@ -174,6 +174,8 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
 
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overridecss || '', this.context.instanceId);
     this.logDiagnostic('render() called');
 
     this.domElement.style.setProperty('--PersonnelPanelHeaderBackColor', (this.properties.PersonnelPanelHeaderBackColor !== undefined ? this.properties.PersonnelPanelHeaderBackColor : "#8A1717"));
@@ -189,16 +191,7 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
     this.domElement.style.setProperty('--PersonnelTileTitleFontStyle', (this.properties.titleFontStyle || 'normal'));
     this.domElement.style.setProperty('--PersonnelTileTitleFontWeight', (this.properties.titleFontBold === false ? 'normal' : 'bold'));
 
-    if (this.properties.overridecss) {
-      // inject the  master style sheet
-      const head: HTMLElement = document.getElementsByTagName('head')[0] || document.documentElement;
-      const customStyle: HTMLLinkElement = document.createElement('link');
-      customStyle.href = this.properties.overridecss;
-      customStyle.rel = 'stylesheet';
-      customStyle.type = 'text/css';
-      head.insertAdjacentElement('beforeend', customStyle);
-    }
-    const element: React.ReactElement<IContactsProps> = React.createElement(
+    const element:  React.ReactElement<IContactsProps> = React.createElement(
 
       ContactImages,
       {
@@ -209,6 +202,7 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
         customList: this.getNormalizedCustomList(),
         spfxContext: this.context,
         imageWidth: this.properties.imageWidth,
+        contactsPerRow: Number(this.properties.contactsPerRow) || 1,
         ContactsListId: this.properties.ContactsListId,
         directorateField: this.properties.directorateField,
         divisionField: this.properties.divisionField,
@@ -777,6 +771,12 @@ public onInit(): Promise<void> {
       { key: 'rounded', text: 'Rounded' },
       { key: 'circle', text: 'Circle' }
     ];
+    const contactsPerRowOptions: IPropertyPaneDropdownOption[] = [
+      { key: 1, text: '1' },
+      { key: 2, text: '2' },
+      { key: 3, text: '3' },
+      { key: 4, text: '4' }
+    ];
 
     const conditionalGroupFields: IPropertyPaneGroup["groupFields"] = [
       PropertyPaneCheckbox("propertyCheckbox", {
@@ -941,6 +941,10 @@ public onInit(): Promise<void> {
       text: strings.PropEnableDiagnosticsLabel,
       checked: this.properties.enableDiagnostics !== false
     });
+    const excludeFromTabsControl = PropertyPaneCheckbox('excludeFromTabs', {
+      text: 'Exclude this web part from SPS Tabs',
+      checked: this.properties.excludeFromTabs === true
+    });
     // linkControl = PropertyPaneLink('Link', {
     //   text: 'CLICK HERE TO ADD/CHANGE EUCOM CONTACTS DATA', href: strings.EucomListUrl, target:'_blank'                  
     // });
@@ -1102,17 +1106,25 @@ infoControl = PropertyPaneLabel('webPartInfoId', {
                 titleFontStyleControl,
                 titleBoldControl,
                 tileInfoBackgroundColorControl,
+                PropertyPaneDropdown('contactsPerRow', {
+                  label: 'Contacts per Row',
+                  options: contactsPerRowOptions,
+                  selectedKey: Number(this.properties.contactsPerRow) || 1
+                }),
                 imgWidthControl,
                 imageShapeControl,
-                PropertyPaneTextField('overridecss', {
-                  label: strings.overRideCSS,
-                  validateOnFocusOut: true,
+                PropertyPaneOverrideCss('overridecss', this.properties.overridecss || '', this.context, (newValue: string): void => {
+                  const oldValue = this.properties.overridecss || '';
+                  this.properties.overridecss = newValue;
+                  this.onPropertyPaneFieldChanged('overridecss', oldValue, newValue);
+                  this.render();
                 }),
               ]
           },
           {
               groupName: 'Diagnostics',
               groupFields: [
+                excludeFromTabsControl,
                 diagnosticsControl
               ]
       }

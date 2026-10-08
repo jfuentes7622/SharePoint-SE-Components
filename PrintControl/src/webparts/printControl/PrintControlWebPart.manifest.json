@@ -26,7 +26,8 @@
       "buttonCornerStyle": "square",
       "buttonCornerRadius": 4,
       "contentSelector": "",
-      "enableDiagnostics": true
+      "enableDiagnostics": true,
+      "excludeFromTabs": false
     }
   }]
 }

@@ -37,11 +37,19 @@ export default class SPListService implements ISPListService {
   this.logDiagnostic('GetPersonnelData Div:' + div);
     if (this._configData.directorateField){
       return new Promise<Array<personnelRecord>>((resolve) => {
+        this.logDiagnostic('REST request: GET ' + url);
         this._spContexts.spHttpClient.get(url, SPHttpClient.configurations.v1)    
         .then((response: SPHttpClientResponse) => {
+            this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
+              + String(response.status) + ' ' + response.statusText);
+            if (!response.ok) {
+              throw new Error('HTTP ' + String(response.status) + ' ' + response.statusText);
+            }
             response.json()
               .then((responseJSON: any) => { return responseJSON.value; })
               .then((responseJSON: any) => {
+                this.logDiagnostic('REST payload summary: GET ' + url + ' -> items='
+                  + String(Array.isArray(responseJSON) ? responseJSON.length : 0));
                 const config:ConfigData = this._configData;
                 responseJSON.filter((f: any) => {
                   return (f[config.directorateField] || '').toLowerCase() === (dir || '').toLowerCase() &&
@@ -64,6 +72,7 @@ export default class SPListService implements ISPListService {
                     sVoip : rec[config.sVoipField],
                   imageShape: config.imageShape});
               });
+                this.logDiagnostic('GetPersonnelData filtered result count=' + String(personalRec.length));
                 resolve(personalRec);
               });
           })
@@ -77,26 +86,27 @@ export default class SPListService implements ISPListService {
   }
 
   public async GetFieldInfo(listName: string, fieldName: string): Promise<fieldInfo> {    
-    const url=`${this._spContexts.absUrl}/_api/web/Lists/GetById('${listName}')/fields/GetByTitle('${fieldName}')`;
+    const escapedListName = String(listName || '').replace(/'/g, "''");
+    const escapedFieldName = String(fieldName || '').replace(/'/g, "''");
+    const url=`${this._spContexts.absUrl}/_api/web/Lists/GetById('${escapedListName}')/fields/GetByInternalNameOrTitle('${escapedFieldName}')`;
     this.logDiagnostic('GetFieldInfo Url:'+ url);
-    return new Promise<fieldInfo | void>((resolve) => {
-      this._spContexts.spHttpClient.get(url, SPHttpClient.configurations.v1)
-        .then(response => {
-          response.json()
-            .then((responseJSON: any) => {
-              return responseJSON;
-            })
-            .then((data: fieldInfo) => {
-              resolve(data);
-            });
-        })
-        .catch(e => {
-          console.error(LOG_SOURCE + 'GetFieldInfo failed: ' + e);
-          resolve();
-        });
-    }) as any;
+    this.logDiagnostic('REST request: GET ' + url);
+    const response: SPHttpClientResponse = await this._spContexts.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
+      + String(response.status) + ' ' + response.statusText);
+    if (!response.ok) {
+      const responseText = await response.text();
+      throw new Error('GetFieldInfo failed. HTTP ' + String(response.status) + ' ' + response.statusText
+        + ', url=' + url + ', response=' + responseText);
+    }
+    const responseJSON: any = await response.json();
+    const data: fieldInfo = responseJSON && responseJSON.d ? responseJSON.d : responseJSON;
+    this.logDiagnostic('REST payload summary: GET ' + url + ' -> keys='
+      + Object.keys(data || {}).slice(0, 20).join(','));
+    if (!data) {
+      throw new Error('GetFieldInfo returned an empty response for field ' + fieldName + '.');
+    }
+    return data;
   }
 
 }
-
-

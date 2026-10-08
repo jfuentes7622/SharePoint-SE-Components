@@ -93,7 +93,7 @@ export default class ContactImages extends React.Component<IContactsProps, ICont
         <div className={styles.landingBlock}>
           <div className={styles.landingRow}>
             <div className={(this._personnelList.length > 0) ? 'ms-Grid-col ms-sm12' : 'display:none'}>
-              <PersonnelWidget PersonGroups={this._personnelList} />
+              <PersonnelWidget PersonGroups={this._personnelList} contactsPerRow={this.props.contactsPerRow} />
             </div>
           </div></div>
       );
@@ -106,7 +106,7 @@ export default class ContactImages extends React.Component<IContactsProps, ICont
           <div className={styles.landingBlock}>
             <div className={styles.landingRow}>
               <div className={(this._customList.length > 0) ? 'ms-Grid-col ms-sm12' : 'display:none'}>
-                <PersonnelWidget PersonGroups={this._customList} />
+                <PersonnelWidget PersonGroups={this._customList} contactsPerRow={this.props.contactsPerRow} />
               </div>
             </div></div>
         );

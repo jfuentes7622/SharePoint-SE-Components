@@ -41,6 +41,7 @@
       "labelPosition": "top",
       "showFieldDescription": false,
       "enableDynamicDiagnostics": true,
+      "excludeFromTabs": false,
       "addSubmitButtonLabel": "",
       "editSubmitButtonLabel": "",
       "showCancelButton": false,

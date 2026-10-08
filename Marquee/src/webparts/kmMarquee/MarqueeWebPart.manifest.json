@@ -29,6 +29,7 @@
       "viewId": "",
       "messageField": "",
       "messageDuration": 8,
+      "excludeFromTabs": false,
       "enableDiagnostics": true
     }
   }]

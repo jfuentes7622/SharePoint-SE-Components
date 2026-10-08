@@ -320,6 +320,7 @@ export default class LoaderProvider implements ISPEventObserver {
 
     if (isCentral) {
       try {
+        this.logDiagnostic('HTTP request: GET ' + filename);
         const response = await fetch(`${filename}`, {
           method: 'GET',
           headers: {
@@ -327,9 +328,13 @@ export default class LoaderProvider implements ISPEventObserver {
             // Authorization header removed — AAD token provider not supported in SPFx 1.5.1
           }
         });
+        this.logDiagnostic('HTTP response: GET ' + filename + ' -> HTTP '
+          + String(response.status) + ' ' + response.statusText);
 
         if (response.ok) {
-          return await response.text();
+          const text = await response.text();
+          this.logDiagnostic('HTTP payload summary: GET ' + filename + ' -> textBytes=' + String(text.length));
+          return text;
         } else {
           console.error('Error fetching file content:', response.statusText);
         }
@@ -339,8 +344,10 @@ export default class LoaderProvider implements ISPEventObserver {
     } else {
       let text: string = "";
       if (await this.fileExists(filename)) {
+        this.logDiagnostic('PnP request: getText ' + filename);
         text = await pnp.sp.web.getFileByServerRelativeUrl(filename).getText();
         text = await pnp.sp.web.getFileByServerRelativePath(filename).getText();
+        this.logDiagnostic('PnP payload summary: getText ' + filename + ' -> textBytes=' + String(text.length));
       }
       return text;
     }
@@ -354,7 +361,9 @@ export default class LoaderProvider implements ISPEventObserver {
 
   public async fileExists(fileUrl: string): Promise<boolean> {
     try {
+      this.logDiagnostic('PnP request: fileExists/getText ' + fileUrl);
       await pnp.sp.web.getFileByServerRelativeUrl(fileUrl).getText();
+      this.logDiagnostic('PnP response: file exists ' + fileUrl);
       return true;
     } catch (error) {
       console.warn('[LoaderProvider] File not found or inaccessible: ' + fileUrl, error);

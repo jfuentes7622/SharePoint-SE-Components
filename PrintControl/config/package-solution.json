@@ -3,7 +3,7 @@
     "solution": {
         "name": "SPS Print Control",
         "id": "4c0493b0-e9b2-4ea0-b036-85509faf5526",
-        "version": "1.0.0.15",
+        "version": "1.0.0.16",
         "includeClientSideAssets": true,
         "skipFeatureDeployment": true,
         "features": [
@@ -11,7 +11,7 @@
                 "title": "SPS Print Control Feature",
                 "description": "Activates the SPS Print Control solution.",
                 "id": "d3c486e7-9a34-474f-9877-037b8afe6e00",
-                "version": "1.0.0.15"
+                "version": "1.0.0.16"
             }
         ]
     },

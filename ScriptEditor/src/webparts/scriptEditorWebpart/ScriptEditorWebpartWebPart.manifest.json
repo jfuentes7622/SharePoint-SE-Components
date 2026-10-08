@@ -13,7 +13,8 @@
     "description": { "default": "For adding HTML and JS to a page" },
     "officeFabricIconFontName": "Page",
     "properties": {
-      "description": "Script Editor Webpart"
+      "description": "Script Editor Webpart",
+      "excludeFromTabs": false
     }
   }]
 }

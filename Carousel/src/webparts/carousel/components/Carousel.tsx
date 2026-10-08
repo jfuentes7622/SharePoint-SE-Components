@@ -34,6 +34,7 @@ const CarouselArrow = (props: any): React.ReactElement<any> => {
 export default class IskmCarouselController extends React.Component<ICarouselProps, IIskmCarouselControllerState> {
     private _slides: Array<SlideItemModel> = new Array<SlideItemModel>();
   private _imageVerticalInsets: Array<number> = new Array<number>();
+  private _hashChangeHandler: () => void;
    
     constructor(props: ICarouselProps) {
         super(props);
@@ -42,10 +43,18 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
 
         this.getListData(this.props.carouselSlideLibrary, this.props)
           .catch((e) => { console.error(LOG_SOURCE + 'Failed to load carousel data: ' + e); });
-        window.addEventListener('hashchange', () => {
+        this._hashChangeHandler = () => {
           this.getListData(this.props.carouselSlideLibrary, this.props)
             .catch((e) => { console.error(LOG_SOURCE + 'Failed to load carousel data: ' + e); });
-        });
+        };
+    }
+
+    public componentDidMount(): void {
+      window.addEventListener('hashchange', this._hashChangeHandler);
+    }
+
+    public componentWillUnmount(): void {
+      window.removeEventListener('hashchange', this._hashChangeHandler);
     }
 
     private logDiagnostic(message: string): void {
@@ -71,19 +80,9 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
         this.logDiagnostic('GetSlides returned ' + iData.length + ' slide(s)');
 
         const urls = this._slides.map(d => d.slideImgUrl);
-
-        return this.DownloadImages(urls, renderProps)
-          .then(data => {
-            this.logDiagnostic('DownloadImages completed, rendering ' + data.length + ' slide(s)');
-            this.setState({ imageData: data,
-                            dataLoaded: true
-                    });
-          })
-          .catch((e) => {
-            console.error(LOG_SOURCE + 'DownloadImages failed, using direct URLs. ' + e);
-            this.setState({ imageData: urls,
-                            dataLoaded: true
-                    });
+        this.logDiagnostic('Rendering ' + urls.length + ' direct image URL(s)');
+        this.setState({ imageData: urls,
+            dataLoaded: true
           });
       })
       .catch(e => {
@@ -95,6 +94,7 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
   public componentWillReceiveProps(newComponentProps: ICarouselProps): void {
     
       const slideRenderingChanged = newComponentProps.carouselSlideLibrary !== this.props.carouselSlideLibrary ||
+        newComponentProps.carouselViewId !== this.props.carouselViewId ||
         newComponentProps.slideTitleField !== this.props.slideTitleField ||
         newComponentProps.slideDescriptionField !== this.props.slideDescriptionField ||
         newComponentProps.slideLinkField !== this.props.slideLinkField ||
@@ -105,12 +105,6 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
 
       this.getListData(newComponentProps.carouselSlideLibrary, newComponentProps)
         .catch((e) => { console.error(LOG_SOURCE + 'Failed to load carousel data: ' + e); });
-
-      /* tslint:disable-next-line:no-unused-expression */
-      window.addEventListener('hashchange', () => {
-        this.getListData(newComponentProps.carouselSlideLibrary, newComponentProps)
-          .catch((e) => { console.error(LOG_SOURCE + 'Failed to load carousel data: ' + e); });
-      });
 
     }
   }  
@@ -210,16 +204,30 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
       width: circleDiameter + 'px',
       height: circleDiameter + 'px',
       maxWidth: '100%',
+      maxHeight: dynamicHeight ? undefined : '100%',
       display: 'block',
       margin: '0 auto',
+      objectFit: 'cover',
+      flexShrink: 1
+    } : dynamicHeight ? {
+      width: '100%',
+      height: 'auto',
+      display: 'block',
       objectFit: 'contain'
     } : {
       width: '100%',
-      display: 'block'
+      height: '100%',
+      minHeight: 0,
+      display: 'block',
+      objectFit: 'contain',
+      flex: '1 1 0'
     };
     const slideStyle: React.CSSProperties = {
       backgroundColor: this.props.webPartBackgroundColor || '#ffffff'
     };
+    const slideFrameStyle: React.CSSProperties = assign({}, slideStyle, dynamicHeight ? {} : {
+      height: normalizedHeight + 'px'
+    });
     const captionStyle: any = {
       backgroundColor: this.props.slideCaptionBackgroundColor || 'rgba(0,0,0,0.65)',
       padding: Math.max(0, Number(this.props.slideCaptionPadding) || 0) + 'px'
@@ -271,7 +279,7 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
                   (this.props.showSlideDescription && slide.slideText) ||
                   (this.props.showSlideLink && slide.slideNavigationUrl));
                 return (
-                  <div key={guid} className={styles.slideFrame} style={slideStyle}>
+                  <div key={guid} className={styles.slideFrame} style={slideFrameStyle}>
                     {showSlideTitle &&
                       <div className={styles.slideTitlePanel} style={captionStyle}>
                         <div className={styles.slideTitle} style={slideTitleStyle}>{slide.slideTitle}</div>
@@ -321,81 +329,6 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
   return (<div></div>);
 }
 
-
-    private async DownloadImages(imgList: Array<string>, renderProps: ICarouselProps): Promise<Array<string>> {
-      this._imageVerticalInsets = new Array<number>();
-        return Promise.all(imgList.map(async imgSrc => {
-            return await new Promise<HTMLCanvasElement>((resolve, reject) => {
-                const thisCanvas: HTMLCanvasElement = document.createElement('canvas');
-                const thisCanvasContext: CanvasRenderingContext2D =  thisCanvas.getContext('2d') as any as CanvasRenderingContext2D;
-                const thisImage: HTMLImageElement = document.createElement('img');
-                thisImage.onload = () => {
-                    this.logDiagnostic('GetImages IMAGE ONLOAD:' + imgSrc + ',' + thisImage.width + ',' + thisImage.height);
-                    thisCanvas.width = thisImage.width;
-                    thisCanvas.height = thisImage.height;
-                   
-                    thisCanvas.setAttribute('originalImgSrc', imgSrc);
-                    thisCanvasContext.drawImage(thisImage, 0, 0);
-                    //You can do all sorts of transforms here (filter/fill/line/etc)
-                    resolve(thisCanvas);
-                };
-
-                thisImage.onerror = () => {
-                    thisCanvas.width = renderProps.carouselWidth;
-                    thisCanvas.height = 100;
-                    thisCanvas.setAttribute('originalImgSrc', imgSrc);
-                    thisCanvas.setAttribute('FailedLoad', 'true');
-                    thisCanvasContext.font = '20px Arial';
-                    thisCanvasContext.fillText('Bad URL:', 10, 20);
-                    thisCanvasContext.fillText(thisImage.src, 10, 40);
-                    resolve(thisCanvas);
-                };
-                thisImage.src = imgSrc;
-            })
-            .then(canvas => {
-                return canvas;
-            });
-        }))
-        .then((canvases: Array<HTMLCanvasElement>) => {
-            // All images have loaded; start processing the data provided
-            const maxWidth = Number(renderProps.carouselWidth) > 0 ? Number(renderProps.carouselWidth) : 500;
-            const normalizedHeight = Number(renderProps.carouselHeight);
-            const maxHeight = (isFinite(normalizedHeight) && normalizedHeight > 0) ? normalizedHeight : canvases.reduce((t: number, n: HTMLCanvasElement) => {
-                const thisCanvasHeight = (maxWidth / n.width) * n.height;
-                return thisCanvasHeight > t ? thisCanvasHeight : t;
-            }, 0);            
-
-            // Do something here to normalize the sizes of all loaded images and return resized image data
-            return canvases.map((d, index) => {
-                const tempCanvas: HTMLCanvasElement = document.createElement('canvas');
-
-                const newDims = (d.width / (d.height / maxHeight)) > maxWidth ?
-                    { width: maxWidth, height: d.height / (d.width / maxWidth) } :
-                    { width: d.width / (d.height / maxHeight), height: maxHeight };
-
-              tempCanvas.width = maxWidth;
-              tempCanvas.height = renderProps.imageIsCircle ? maxHeight : newDims.height;
-              this._imageVerticalInsets[index] = renderProps.imageIsCircle
-                ? Math.max(0, (tempCanvas.height - newDims.height) / 2)
-                : 0;
-
-              // Put the image from the original canvas into the temp canvas
-              const tempCanvasCtx: CanvasRenderingContext2D = tempCanvas.getContext('2d') as any as CanvasRenderingContext2D;
-
-              tempCanvasCtx.drawImage(d, (tempCanvas.width - newDims.width) / 2,
-                renderProps.imageIsCircle ? (tempCanvas.height - newDims.height) / 2 : 0,
-                newDims.width, newDims.height);
-               
-
-                // Preserve transparent letterboxing so the live carousel background remains visible.
-                return tempCanvas.toDataURL('image/png');
-            });
-        })
-        .then(data => {
-            return data;
-        });
-    }
-
     // Callback for click-action on any slide
     private _slideClicked(index: number): void {
          this.logDiagnostic('Slide clicked, index: ' + index);
@@ -403,4 +336,3 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
         if(currentSlide && currentSlide.slideNavigationUrl) { window.open(currentSlide.slideNavigationUrl, '_blank'); }
     }
 }
-

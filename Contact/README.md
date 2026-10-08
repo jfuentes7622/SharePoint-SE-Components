@@ -8,6 +8,8 @@ SPFx 1.5.1 personnel directory web part for SharePoint Server Subscription Editi
 - Filter contacts through directorate and division hierarchy.
 - Display job title, name, email, phone, VOIP, biography link, and optional photo.
 - Render photos as square, rounded, or circular images.
+- Arrange contacts in a responsive grid with one to four contacts per row.
+- Display images, PDFs, and text files directly in the biography dialog, and Office documents through SharePoint's Office viewer.
 - Customize card headers, titles, information areas, fonts, colors, alignment, and corners.
 - Load an optional override stylesheet.
 - Enable diagnostic console logging for list, record, and image services.
@@ -26,6 +28,7 @@ Disable **Use Existing List** to enter contact records directly in the property-
 |---|---|
 | `imageShape` | Contact image shape: `square`, `rounded`, or `circle`. |
 | `imageWidth` | Contact image size in pixels. |
+| `contactsPerRow` | Number of contact cards per row from 1 to 4; smaller screens automatically use fewer columns. |
 | `PersonnelPanelHeaderBackColor` / `PersonnelPanelHeaderTextColor` | Card header colors. |
 | `headerFontFamily` / `headerFontStyle` / `headerFontBold` | Header typography. |
 | `headerAlignment` / `headerTopCorners` | Header alignment and corner style. |

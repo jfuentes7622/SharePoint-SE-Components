@@ -21,7 +21,9 @@
       "personnelImgWidth": 100,
       "personnelDefaultImg": "",
       "PersonnelPanelHeaderBackColor": "#8A1717",
-      "PersonnelPanelHeaderTextColor": "#FAFAFA"
+      "PersonnelPanelHeaderTextColor": "#FAFAFA",
+      "contactsPerRow": 1,
+      "excludeFromTabs": false
     }
   }]
 }

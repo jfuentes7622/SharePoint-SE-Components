@@ -12,6 +12,7 @@ export interface FormDesignerProps {
   schema: FormSchema;
   context: SPFxContext;
   listName: string;
+  enableDiagnostics?: boolean;
   onChange: (schema: FormSchema) => void;
 }
 
@@ -304,33 +305,48 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
   }
 
   private async getWithAcceptFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=verbose'
         }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=minimalmetadata'
         }
       });
+      this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=nometadata'
         }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
     }
 
     return response;
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.props.enableDiagnostics === false) {
+      return;
+    }
+    console.log('[ReportFormDesigner] ' + message);
   }
 
   private async loadFields(): Promise<void> {
@@ -1332,7 +1348,12 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     var availableFields = this.getAvailableFields();
 
     return (
-      <div className={styles.designerPanel}>
+      <div
+        className={styles.designerPanel + ' ' + styles.designerPalettePanel}
+        role="region"
+        aria-label={strings.DesignerCustomFields + ' / ' + strings.DesignerSPFields}
+        tabIndex={0}
+      >
         <div className={styles.designerPanelSection}>
           <div className={styles.designerPanelTitle}>{strings.DesignerCustomFields}</div>
           <div className={styles.designerPanelHint}>{strings.DesignerCustomFieldsDesc}</div>

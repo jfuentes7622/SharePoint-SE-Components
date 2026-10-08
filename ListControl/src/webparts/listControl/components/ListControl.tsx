@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { SPHttpClient } from '@microsoft/sp-http';
 import * as strings from 'ListControlWebPartStrings';
+import { DateTime24HourInput } from './DateTime24HourInput';
 import './ListControl.css';
 
 export interface IListControlViewOption {
@@ -48,6 +49,7 @@ export interface IListControlProps {
   dateCustomFormat?: string;
   dateCustomFormatCase?: string;
   timeDisplayFormat: string;
+  timeMinuteIncrement: number;
   timeCustomFormat?: string;
   timeCustomFormatCase?: string;
   selectedTextColor: string;
@@ -84,8 +86,10 @@ export interface IListControlProps {
   webpartBorderColor: string;
   webpartBorderWidth: number;
   filterJson?: string;
+  externalFilterJson?: string;
   conditionalStyleJson?: string;
   onSelectionChange: (itemId: number, mode: string) => void;
+  onFilteredCountChange: (count: number) => void;
 }
 
 export interface IListFieldDefinition {
@@ -94,9 +98,27 @@ export interface IListFieldDefinition {
   DisplayName?: string;
   TypeAsString?: string;
   DisplayFormat?: number;
+  Choices?: string[];
+  LookupList?: string;
+  LookupField?: string;
+  AllowMultipleValues?: boolean;
   Hidden?: string | boolean;
   ConfiguredWidth?: string;
   RuntimeFilterOnly?: boolean;
+}
+
+export interface IFilterOption {
+  value: string;
+  text: string;
+}
+
+interface IListFieldMetadata {
+  typeAsString: string;
+  displayFormat: number;
+  choices: string[];
+  lookupList: string;
+  lookupField: string;
+  allowMultiple: boolean;
 }
 
 interface IListGroupingConfig {
@@ -130,6 +152,11 @@ export interface IListControlState {
   activeFilterFieldName: string;
   filterPopoverStyle: any;
   activeFilterIsDate: boolean;
+  activeFilterCompareDateOnly: boolean;
+  activeFilterFieldType: string;
+  activeFilterOptions: IFilterOption[];
+  activeFilterOptionsLoading: boolean;
+  activeFilterOptionsError: string;
   draftFilterOperator: FilterOperator;
   draftFilterValue: string;
   draftFilterEndValue: string;
@@ -149,6 +176,17 @@ export interface IListControlState {
   scrollArrowTop: number;
   scrollArrowLeft: number;
   scrollArrowRight: number;
+  attachmentDialogOpen: boolean;
+  attachmentDialogFiles: IAttachmentInfo[];
+  attachmentDialogLoading: boolean;
+  attachmentDialogError: string;
+  attachmentPreviewUrl: string;
+  attachmentPreviewName: string;
+}
+
+export interface IAttachmentInfo {
+  fileName: string;
+  serverRelativeUrl: string;
 }
 
 export type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
@@ -235,6 +273,28 @@ function tryParseObject(value: any): any {
   } catch (_error) {
     return value;
   }
+}
+
+function decodeHtmlEntities(value: string): string {
+  if (value.indexOf('&') < 0 || typeof document === 'undefined') {
+    return value;
+  }
+  var decoder = document.createElement('textarea');
+  decoder.innerHTML = value;
+  return decoder.value;
+}
+
+function getSerializedDisplayValue(value: string): string {
+  var propertyNames = ['DisplayName', 'displayName', 'Title', 'title', 'LookupValue', 'lookupValue', 'Name', 'name', 'Email', 'email'];
+  for (var i = 0; i < propertyNames.length; i += 1) {
+    var escapedName = propertyNames[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var expression = new RegExp('["\\\']' + escapedName + '["\\\']\\s*:\\s*(["\\\'])([\\s\\S]*?)\\1\\s*(?=,|})');
+    var match = expression.exec(value);
+    if (match && match[2]) {
+      return match[2].replace(/\\(["'\\])/g, '$1');
+    }
+  }
+  return '';
 }
 
 function toArray(value: any): any[] {
@@ -495,6 +555,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   private _pagingRuntimeFilterFieldNames: string[] = [];
   private _scrollArrowResizeHandler: any;
   private _scrollArrowScrollHandler: any;
+  private _lastReportedFilteredCount: number = -1;
 
   public constructor(props: IListControlProps) {
     super(props);
@@ -515,6 +576,11 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       activeFilterFieldName: '',
       filterPopoverStyle: {},
       activeFilterIsDate: false,
+      activeFilterCompareDateOnly: true,
+      activeFilterFieldType: '',
+      activeFilterOptions: [],
+      activeFilterOptionsLoading: false,
+      activeFilterOptionsError: '',
       draftFilterOperator: 'contains',
       draftFilterValue: '',
       draftFilterEndValue: '',
@@ -534,6 +600,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       scrollArrowTop: 0,
       scrollArrowLeft: 0,
       scrollArrowRight: 0,
+      attachmentDialogOpen: false,
+      attachmentDialogFiles: [],
+      attachmentDialogLoading: false,
+      attachmentDialogError: '',
+      attachmentPreviewUrl: '',
+      attachmentPreviewName: '',
     };
 
     this._refreshEventHandler = this.handleExternalRefresh.bind(this);
@@ -560,6 +632,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       window.dispatchEvent(requestEvent);
     }
     this.loadRows();
+    this.reportFilteredCount();
   }
 
   public componentWillUnmount(): void {
@@ -656,6 +729,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       || prevState.sortDirection !== this.state.sortDirection
       || prevState.columnFilters !== this.state.columnFilters
       || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
+      || prevProps.externalFilterJson !== this.props.externalFilterJson
       || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode) {
       this.loadAllRemainingRows();
     }
@@ -664,6 +738,16 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       this._stickyHeaderSourceHtml = '';
       window.setTimeout(() => this.refreshTableViewport(), 0);
     }
+    this.reportFilteredCount();
+  }
+
+  private reportFilteredCount(): void {
+    var count = this.getProcessedRows().length;
+    if (count === this._lastReportedFilteredCount) {
+      return;
+    }
+    this._lastReportedFilteredCount = count;
+    this.props.onFilteredCountChange(count);
   }
 
   private _setTableWrapRef = (el: HTMLDivElement): void => {
@@ -976,30 +1060,41 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   private async getJsonWithFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=verbose'
         }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=minimalmetadata'
         }
       });
+      this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=nometadata'
         }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     return response;
@@ -1007,14 +1102,17 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
   private async postJsonWithFallback(url: string, body: any): Promise<any> {
     var payload = JSON.stringify(body || {});
+    this.logDiagnostic('REST request: POST ' + url + ' payloadKeys=' + Object.keys(body || {}).join(','));
     var response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
       headers: {
         'Content-Type': 'application/json; charset=utf-8'
       },
       body: payload
     });
+    this.logDiagnostic('REST response: POST ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (verbose): POST ' + url);
       response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=verbose',
@@ -1022,9 +1120,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         },
         body: payload
       });
+      this.logDiagnostic('REST response (verbose): POST ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (minimalmetadata): POST ' + url);
       response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=minimalmetadata',
@@ -1032,9 +1133,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         },
         body: payload
       });
+      this.logDiagnostic('REST response (minimalmetadata): POST ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (nometadata): POST ' + url);
       response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=nometadata',
@@ -1042,6 +1146,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         },
         body: payload
       });
+      this.logDiagnostic('REST response (nometadata): POST ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     return response;
@@ -1354,6 +1460,44 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
   }
 
+  private async loadListFieldMetadataMap(viewFieldNames: string[]): Promise<{ [internalName: string]: IListFieldMetadata }> {
+    if (!viewFieldNames || viewFieldNames.length === 0) {
+      return {};
+    }
+    var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+      + "')/fields?$select=InternalName,TypeAsString,DisplayFormat,Choices,LookupList,LookupField,AllowMultipleValues";
+    var response = await this.getJsonWithFallback(endpoint);
+    if (!response.ok) {
+      throw new Error('Unable to load field metadata. HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+    }
+    var data = await response.json();
+    var fields = toArray(data.value);
+    if (fields.length === 0) {
+      fields = toArray(data && data.d && data.d.results);
+    }
+    var requested: { [name: string]: boolean } = {};
+    for (var requestedIndex = 0; requestedIndex < viewFieldNames.length; requestedIndex += 1) {
+      requested[String(viewFieldNames[requestedIndex] || '').toLowerCase()] = true;
+    }
+    var map: { [internalName: string]: IListFieldMetadata } = {};
+    for (var fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+      var source = fields[fieldIndex] || {};
+      var internalName = String(source.InternalName || '');
+      if (!internalName || !requested[internalName.toLowerCase()]) {
+        continue;
+      }
+      map[internalName.toLowerCase()] = {
+        typeAsString: String(source.TypeAsString || ''),
+        displayFormat: parseInt(String(source.DisplayFormat || '0'), 10) || 0,
+        choices: toArray(source.Choices).map(function(choice: any) { return String(choice); }),
+        lookupList: String(source.LookupList || '').replace(/^\{|\}$/g, ''),
+        lookupField: String(source.LookupField || 'Title'),
+        allowMultiple: source.AllowMultipleValues === true || String(source.TypeAsString || '').toLowerCase().indexOf('multi') >= 0
+      };
+    }
+    return map;
+  }
+
   private async loadListFieldTitleMap(): Promise<{ [internalName: string]: string }> {
     try {
       var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/fields?$select=InternalName,Title";
@@ -1405,6 +1549,23 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         DisplayFormat: this._fieldDisplayFormatMap[internalName.toLowerCase()]
       };
     }.bind(this));
+  }
+
+  private applyFieldMetadata(fields: IListFieldDefinition[], metadataMap: { [internalName: string]: IListFieldMetadata }): IListFieldDefinition[] {
+    return fields.map(function(field: IListFieldDefinition) {
+      var internalName = String(field.RealFieldName || field.Name || '');
+      var metadata = metadataMap[internalName.toLowerCase()];
+      if (!metadata) { return field; }
+      return {
+        ...field,
+        TypeAsString: metadata.typeAsString || field.TypeAsString || '',
+        DisplayFormat: metadata.displayFormat,
+        Choices: metadata.choices,
+        LookupList: metadata.lookupList,
+        LookupField: metadata.lookupField,
+        AllowMultipleValues: metadata.allowMultiple
+      };
+    });
   }
 
   private getRowFieldValue(row: any, field: IListFieldDefinition): any {
@@ -1472,13 +1633,18 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
     if (typeof value === 'string') {
       // RenderListDataAsStream can return Person/Lookup fields as JSON-encoded strings.
-      var trimmedValue = value.trim();
+      var trimmedValue = decodeHtmlEntities(value.trim());
       if (trimmedValue.length > 0 && (trimmedValue.charAt(0) === '{' || trimmedValue.charAt(0) === '[')) {
         var parsedJsonValue = tryParseObject(trimmedValue);
         if (parsedJsonValue && typeof parsedJsonValue === 'object') {
           return this.stringifyCellValue(parsedJsonValue);
         }
+        var serializedDisplayValue = getSerializedDisplayValue(trimmedValue);
+        if (serializedDisplayValue) {
+          return serializedDisplayValue;
+        }
       }
+      return trimmedValue;
     }
 
     if (typeof value === 'object') {
@@ -1741,8 +1907,13 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   private getRuntimeFilterFieldNames(): string[] {
     var conditions: any[] = [];
     try {
-      var parsed = JSON.parse(String(this.state.runtimeFilterJson || ''));
-      conditions = Array.isArray(parsed) ? parsed : [];
+      var runtimeSources = [String(this.state.runtimeFilterJson || ''), String(this.props.externalFilterJson || '')];
+      for (var sourceIndex = 0; sourceIndex < runtimeSources.length; sourceIndex += 1) {
+        var parsed = JSON.parse(runtimeSources[sourceIndex] || '[]');
+        if (Array.isArray(parsed)) {
+          conditions = conditions.concat(parsed);
+        }
+      }
     } catch (_parseError) {
       conditions = [];
     }
@@ -1921,8 +2092,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       var fieldTitleMap = await this.loadListFieldTitleMap();
       var visibleFieldNames = visibleFields.map((field: IListFieldDefinition) => this.getFieldKey(field));
       var fieldTypeMap = await this.loadListFieldTypeMap(visibleFieldNames);
+      var fieldMetadataMap = await this.loadListFieldMetadataMap(visibleFieldNames);
       visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
       visibleFields = this.applyFieldTypes(visibleFields, fieldTypeMap);
+      visibleFields = this.applyFieldMetadata(visibleFields, fieldMetadataMap);
       var renderableRows = this.filterRenderableRows(rows, visibleFields);
 
       if (requestId !== this._loadRowsRequestId) {
@@ -2135,6 +2308,111 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     console.log('[ListControl] ' + message);
   }
 
+  private resolveAttachmentUrl(serverRelativeUrl: string): string {
+    var url = String(serverRelativeUrl || '');
+    if (/^https?:\/\//i.test(url)) { return url; }
+    if (url.charAt(0) === '/' && typeof window !== 'undefined') {
+      return window.location.protocol + '//' + window.location.host + url;
+    }
+    return url;
+  }
+
+  private canPreviewAttachment(fileName: string): boolean {
+    return /\.(bmp|gif|jpe?g|pdf|png|txt|webp)$/i.test(String(fileName || ''));
+  }
+
+  private async loadAttachments(itemId: number): Promise<IAttachmentInfo[]> {
+    var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+      + "')/items(" + String(itemId) + ")?$select=AttachmentFiles&$expand=AttachmentFiles";
+    var response = await this.getJsonWithFallback(endpoint);
+    if (!response.ok) { throw new Error(strings.RuntimeAttachmentsLoadFailed); }
+    var data = await response.json();
+    var item = data && data.d ? data.d : data;
+    var files = toArray(item && item.AttachmentFiles);
+    return files.map(function(file: any): IAttachmentInfo {
+      var path = file && file.ServerRelativePath && file.ServerRelativePath.DecodedUrl;
+      return {
+        fileName: String(file && (file.FileName || file.Name) || ''),
+        serverRelativeUrl: String(file && (file.ServerRelativeUrl || path) || '')
+      };
+    }).filter(function(file: IAttachmentInfo) { return !!file.fileName && !!file.serverRelativeUrl; });
+  }
+
+  private async openAttachmentDialog(row: any): Promise<void> {
+    var itemId = this.getRowItemId(row);
+    if (itemId <= 0) { return; }
+    this.setState({
+      attachmentDialogOpen: true,
+      attachmentDialogFiles: [],
+      attachmentDialogLoading: true,
+      attachmentDialogError: '',
+      attachmentPreviewUrl: '',
+      attachmentPreviewName: ''
+    });
+    try {
+      var files = await this.loadAttachments(itemId);
+      this.setState({ attachmentDialogFiles: files, attachmentDialogLoading: false });
+    } catch (error) {
+      var attachmentError: any = error as any;
+      this.setState({
+        attachmentDialogLoading: false,
+        attachmentDialogError: attachmentError && attachmentError.message ? attachmentError.message : strings.RuntimeAttachmentsLoadFailed
+      });
+    }
+  }
+
+  private closeAttachmentDialog(): void {
+    this.setState({
+      attachmentDialogOpen: false,
+      attachmentDialogFiles: [],
+      attachmentDialogLoading: false,
+      attachmentDialogError: '',
+      attachmentPreviewUrl: '',
+      attachmentPreviewName: ''
+    });
+  }
+
+  private renderAttachmentDialog(): React.ReactNode {
+    if (!this.state.attachmentDialogOpen) { return null; }
+    return (
+      <div className="gc-attachment-overlay" role="presentation" onClick={() => this.closeAttachmentDialog()} onKeyDown={(ev) => {
+        if (ev.key === 'Escape') { this.closeAttachmentDialog(); }
+      }}>
+        <div className="gc-attachment-dialog" role="dialog" aria-modal="true" aria-label={strings.RuntimeAttachmentsTitle} onClick={(ev) => ev.stopPropagation()}>
+          <div className="gc-attachment-header">
+            <div className="gc-attachment-title">{strings.RuntimeAttachmentsTitle}</div>
+            <button type="button" className="gc-attachment-close" title={strings.RuntimeAttachmentsClose} aria-label={strings.RuntimeAttachmentsClose} onClick={() => this.closeAttachmentDialog()}>
+              <i className="ms-Icon ms-Icon--Cancel" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div className="gc-attachment-content">
+            <div className="gc-attachment-list">
+              {this.state.attachmentDialogLoading && <div className="gc-attachment-status">{strings.RuntimeLoading}</div>}
+              {!!this.state.attachmentDialogError && <div className="gc-attachment-status gc-attachment-error">{this.state.attachmentDialogError}</div>}
+              {!this.state.attachmentDialogLoading && !this.state.attachmentDialogError && this.state.attachmentDialogFiles.length === 0 && <div className="gc-attachment-status">{strings.RuntimeAttachmentsEmpty}</div>}
+              {this.state.attachmentDialogFiles.map((file, index) => {
+                var fileUrl = this.resolveAttachmentUrl(file.serverRelativeUrl);
+                return (
+                  <div className="gc-attachment-item" key={file.fileName + '-' + String(index)}>
+                    <button type="button" className="gc-attachment-preview-button" title={strings.RuntimeAttachmentsPreview} onClick={() => this.setState({ attachmentPreviewUrl: this.canPreviewAttachment(file.fileName) ? fileUrl : '', attachmentPreviewName: file.fileName })}>
+                      <i className="ms-Icon ms-Icon--Attach" aria-hidden="true"></i><span>{file.fileName}</span>
+                    </button>
+                    <a href={fileUrl} target="_blank" rel="noopener noreferrer">{strings.RuntimeAttachmentsOpen}</a>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="gc-attachment-preview">
+              {this.state.attachmentPreviewUrl
+                ? <iframe sandbox="" src={this.state.attachmentPreviewUrl} title={this.state.attachmentPreviewName}></iframe>
+                : <div className="gc-attachment-status">{this.state.attachmentPreviewName ? strings.RuntimeAttachmentsPreviewUnavailable : strings.RuntimeAttachmentsSelect}</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   private getCellMarkup(row: any, field: IListFieldDefinition): { __html: string } | null {
     var value = this.getRowFieldValue(row, field);
 
@@ -2257,8 +2535,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return String(field.Name || field.RealFieldName || '').trim();
   }
 
-  private getFilterOperatorOptions(): Array<{ key: FilterOperator; label: string }> {
-    return [
+  private getFilterOperatorOptions(field?: IListFieldDefinition): Array<{ key: FilterOperator; label: string }> {
+    var allOptions: Array<{ key: FilterOperator; label: string }> = [
       { key: 'eq', label: strings.RuntimeFilterOperatorEquals },
       { key: 'ne', label: strings.RuntimeFilterOperatorNotEquals },
       { key: 'contains', label: strings.RuntimeFilterOperatorContains },
@@ -2270,6 +2548,80 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       { key: 'lt', label: strings.RuntimeFilterOperatorLessThan },
       { key: 'le', label: strings.RuntimeFilterOperatorLessThanOrEqual }
     ];
+    var fieldType = String(field && field.TypeAsString || '').toLowerCase();
+    if (fieldType === 'boolean' || fieldType === 'choice' || fieldType === 'multichoice'
+      || fieldType === 'lookup' || fieldType === 'lookupmulti'
+      || fieldType === 'user' || fieldType === 'usermulti') {
+      return allOptions.filter(function(option) { return option.key === 'eq' || option.key === 'ne'; });
+    }
+    if (fieldType === 'number' || fieldType === 'currency' || fieldType === 'integer' || fieldType === 'counter') {
+      return allOptions.filter(function(option) {
+        return option.key === 'eq' || option.key === 'ne' || option.key === 'gt'
+          || option.key === 'ge' || option.key === 'lt' || option.key === 'le';
+      });
+    }
+    return allOptions;
+  }
+
+  private getStaticFilterOptions(field: IListFieldDefinition): IFilterOption[] {
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    if (fieldType === 'boolean') {
+      return [
+        { value: strings.RuntimeBooleanYes, text: strings.RuntimeBooleanYes },
+        { value: strings.RuntimeBooleanNo, text: strings.RuntimeBooleanNo }
+      ];
+    }
+    if (fieldType === 'choice' || fieldType === 'multichoice') {
+      return (field.Choices || []).map(function(choice: string) {
+        return { value: choice, text: choice };
+      });
+    }
+    return [];
+  }
+
+  private isLookupFilterField(field: IListFieldDefinition): boolean {
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    return fieldType === 'lookup' || fieldType === 'lookupmulti' || fieldType === 'user' || fieldType === 'usermulti';
+  }
+
+  private async loadFilterOptions(field: IListFieldDefinition): Promise<IFilterOption[]> {
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    var endpoint = '';
+    if (fieldType === 'user' || fieldType === 'usermulti') {
+      endpoint = this.getWebUrl() + '/_api/web/siteusers?$select=Id,Title,Email,PrincipalType&$top=5000';
+    } else if ((fieldType === 'lookup' || fieldType === 'lookupmulti') && field.LookupList) {
+      var lookupField = /^[A-Za-z0-9_]+$/.test(String(field.LookupField || '')) ? String(field.LookupField) : 'Title';
+      var lookupListSegment = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(field.LookupList)
+        ? "lists(guid'" + field.LookupList + "')"
+        : "lists/getByTitle('" + escapeODataText(field.LookupList) + "')";
+      endpoint = this.getWebUrl() + '/_api/web/' + lookupListSegment + '/items?$select='
+        + encodeURIComponent('Id,' + lookupField) + '&$top=5000';
+    }
+    if (!endpoint) {
+      throw new Error(strings.RuntimeFilterOptionsLoadFailed);
+    }
+    var response = await this.getJsonWithFallback(endpoint);
+    if (!response.ok) {
+      throw new Error(strings.RuntimeFilterOptionsLoadFailed + ' HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+    }
+    var data = await response.json();
+    var items = toArray(data.value);
+    if (items.length === 0) {
+      items = toArray(data && data.d && data.d.results);
+    }
+    var lookupValueField = /^[A-Za-z0-9_]+$/.test(String(field.LookupField || '')) ? String(field.LookupField) : 'Title';
+    return items.filter(function(item: any) {
+      if (!item || !String(item.Id || '').trim()) { return false; }
+      if (fieldType !== 'user' && fieldType !== 'usermulti') { return true; }
+      return parseInt(String(item.PrincipalType || '0'), 10) > 0;
+    }).map(function(item: any) {
+      return {
+        value: String(item.Id),
+        text: String(item[lookupValueField] || item.Title || item.Email || item.Id)
+      };
+    }).sort(function(left: IFilterOption, right: IFilterOption) {
+      return left.text.localeCompare(right.text);
+    });
   }
 
   private toggleSort(field: IListFieldDefinition): void {
@@ -2301,17 +2653,43 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     this._filterAnchorEl = anchorElement;
     var popoverStyle = this.getFilterPopoverStyle(anchorElement);
     var existing = this.state.columnFilters[fieldKey];
-    var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    var isDateField = fieldType === 'datetime';
+    var compareDateOnly = isDateField && field.DisplayFormat === 0;
+    var optionField = this.isLookupFilterField(field) || fieldType === 'choice'
+      || fieldType === 'multichoice' || fieldType === 'boolean';
+    var defaultOperator: FilterOperator = optionField || fieldType === 'number' || fieldType === 'currency'
+      || fieldType === 'integer' || fieldType === 'counter' ? 'eq' : 'contains';
+    var operatorOptions = this.getFilterOperatorOptions(field);
+    var existingOperatorIsValid = !!existing && operatorOptions.some(function(option) {
+      return option.key === existing.operator;
+    });
     this.setState({
       activeFilterFieldName: fieldKey,
       filterPopoverStyle: popoverStyle,
       activeFilterIsDate: isDateField,
-      draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
+      activeFilterCompareDateOnly: compareDateOnly,
+      activeFilterFieldType: fieldType,
+      activeFilterOptions: this.getStaticFilterOptions(field),
+      activeFilterOptionsLoading: this.isLookupFilterField(field),
+      activeFilterOptionsError: '',
+      draftFilterOperator: isDateField ? 'eq' : (existingOperatorIsValid ? existing.operator : defaultOperator),
       draftFilterValue: existing ? existing.value : '',
       draftFilterEndValue: existing ? String(existing.endValue || '') : '',
       datePickerTarget: '',
       datePickerMonth: ''
     });
+    if (this.isLookupFilterField(field)) {
+      this.loadFilterOptions(field).then((options: IFilterOption[]) => {
+        if (this.state.activeFilterFieldName !== fieldKey) { return; }
+        this.setState({ activeFilterOptions: options, activeFilterOptionsLoading: false, activeFilterOptionsError: '' });
+      }).catch((error: any) => {
+        if (this.state.activeFilterFieldName !== fieldKey) { return; }
+        var message = error && error.message ? error.message : strings.RuntimeFilterOptionsLoadFailed;
+        console.error('[ListControl] Filter options failed for ' + fieldKey + '.', error);
+        this.setState({ activeFilterOptions: [], activeFilterOptionsLoading: false, activeFilterOptionsError: message });
+      });
+    }
   }
 
   private getFilterPopoverStyle(anchorElement: HTMLElement): any {
@@ -2457,7 +2835,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         operator: 'eq',
         value: value,
         endValue: endValue,
-        compareDateOnly: true
+        compareDateOnly: this.state.activeFilterCompareDateOnly
       };
     } else {
       nextFilters[fieldKey] = {
@@ -2554,7 +2932,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var normalizedQuery = query.toLowerCase();
     var compareResult = this.compareComparableValues(candidate, query);
     var fieldType = String(field.TypeAsString || '').toLowerCase();
-    var lookupCandidates = fieldType.indexOf('lookup') >= 0
+    var hasDiscreteValues = fieldType.indexOf('lookup') >= 0 || fieldType.indexOf('user') >= 0 || fieldType === 'multichoice';
+    var lookupCandidates = hasDiscreteValues
       ? normalizedCandidate.split(';').map(function(value) { return value.trim(); }).filter(function(value) { return !!value; })
       : [];
 
@@ -2568,6 +2947,14 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       if (filter.endValue) {
         return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
       }
+    } else if (fieldType === 'datetime' && filter.endValue) {
+      var candidateTime = Date.parse(candidate);
+      var startTime = Date.parse(query);
+      var endTime = Date.parse(String(filter.endValue));
+      if (isNaN(candidateTime) || isNaN(startTime) || isNaN(endTime)) {
+        return false;
+      }
+      return candidateTime >= startTime && candidateTime <= endTime;
     }
 
     switch (filter.operator) {
@@ -2598,7 +2985,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
   private getFilterCellText(row: any, field: IListFieldDefinition): string {
     var fieldType = String(field.TypeAsString || '').toLowerCase();
-    if (fieldType.indexOf('lookup') < 0) {
+    if (fieldType.indexOf('lookup') < 0 && fieldType.indexOf('user') < 0) {
       return this.getCellPlainText(row, field);
     }
 
@@ -2650,7 +3037,11 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   private parsePresetFilterConditions(): IPresetFilterCondition[] {
-    var sources = [String(this.props.filterJson || '').trim(), String(this.state.runtimeFilterJson || '').trim()];
+    var sources = [
+      String(this.props.filterJson || '').trim(),
+      String(this.state.runtimeFilterJson || '').trim(),
+      String(this.props.externalFilterJson || '').trim()
+    ];
     var conditions: IPresetFilterCondition[] = [];
     for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
       var source = sources[sourceIndex];
@@ -3212,6 +3603,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       >
         {displayFields.map((field) => {
           var markup = this.getCellMarkup(row, field);
+          var isAttachmentField = String(field.TypeAsString || '') === 'Attachments';
+          var attachmentCount = isAttachmentField ? this.getAttachmentCountForRow(row, this.getRowFieldValue(row, field)) : 0;
           var urlCell = this.getUrlCellValue(row, field);
           var showItemLink = this.props.showLinkToItem && this.isTitleField(field);
           var itemLinkUrl = showItemLink ? this.getItemLinkUrl(row) : '';
@@ -3225,7 +3618,14 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           );
           return (
             <td key={field.Name} style={mergedCellStyle}>
-              {urlCell ? (
+              {isAttachmentField ? (
+                <button type="button" className="gc-attachment-count" disabled={attachmentCount <= 0} title={strings.RuntimeAttachmentsView} aria-label={strings.RuntimeAttachmentsView} onClick={(ev) => {
+                  ev.stopPropagation();
+                  this.openAttachmentDialog(row);
+                }}>
+                  <i className="ms-Icon ms-Icon--Attach" aria-hidden="true"></i><span>{attachmentCount}</span>
+                </button>
+              ) : urlCell ? (
                 <a
                   className="lc-item-link"
                   href={urlCell.href}
@@ -3510,7 +3910,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           <div>{hasActiveFilters ? strings.RuntimeNoItemsAfterFilter : strings.RuntimeNoItems}</div>
         )}
 
-        {!this.state.loading && !this.state.error && processedRows.length > 0 && (
+        {!this.state.loading && !this.state.error && (processedRows.length > 0 || hasActiveFilters) && (
           <div className="lc-table-container">
             <div className="lc-sticky-header-viewport" ref={this._setStickyHeaderViewportRef}></div>
             <div className="lc-table-wrap" ref={this._setTableWrapRef}>
@@ -3592,32 +3992,58 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                             >
                               {this.state.activeFilterIsDate ? (
                                 <div>
-                                  <label className="lc-filter-label">{strings.RuntimeFilterDateLabel}</label>
+                                  <label className="lc-filter-label">{this.state.activeFilterCompareDateOnly ? strings.RuntimeFilterDateLabel : strings.RuntimeFilterDateTimeLabel}</label>
                                   <div className="lc-date-input-row">
-                                    <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterValue} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} />
-                                    <button type="button" className="lc-date-picker-button gc-compact-icon-button" title="Choose from date" aria-label="Choose from date" onClick={() => this.toggleDatePicker('start')}><i className="ms-Icon ms-Icon--Calendar" aria-hidden="true"></i></button>
+                                    {this.state.activeFilterCompareDateOnly ? (
+                                      <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterValue} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} />
+                                    ) : this.props.timeDisplayFormat !== '12hour' ? (
+                                      <DateTime24HourInput value={this.state.draftFilterValue} minuteIncrement={this.props.timeMinuteIncrement} ariaLabel={strings.RuntimeFilterDateTimeLabel} onChange={(nextValue) => this.setState({ draftFilterValue: nextValue })} />
+                                    ) : (
+                                      <input className="lc-filter-input" type="datetime-local" value={this.state.draftFilterValue} lang="en-US" step={String(this.props.timeMinuteIncrement * 60)} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} />
+                                    )}
+                                    {this.state.activeFilterCompareDateOnly && <button type="button" className="lc-date-picker-button gc-compact-icon-button" title="Choose from date" aria-label="Choose from date" onClick={() => this.toggleDatePicker('start')}><i className="ms-Icon ms-Icon--Calendar" aria-hidden="true"></i></button>}
                                   </div>
-                                  <label className="lc-filter-label">{strings.RuntimeFilterEndDateLabel}</label>
+                                  <label className="lc-filter-label">{this.state.activeFilterCompareDateOnly ? strings.RuntimeFilterEndDateLabel : strings.RuntimeFilterEndDateTimeLabel}</label>
                                   <div className="lc-date-input-row">
-                                    <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterEndValue} onChange={(ev) => this.setState({ draftFilterEndValue: ev.currentTarget.value })} />
-                                    <button type="button" className="lc-date-picker-button gc-compact-icon-button" title="Choose to date" aria-label="Choose to date" onClick={() => this.toggleDatePicker('end')}><i className="ms-Icon ms-Icon--Calendar" aria-hidden="true"></i></button>
+                                    {this.state.activeFilterCompareDateOnly ? (
+                                      <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterEndValue} onChange={(ev) => this.setState({ draftFilterEndValue: ev.currentTarget.value })} />
+                                    ) : this.props.timeDisplayFormat !== '12hour' ? (
+                                      <DateTime24HourInput value={this.state.draftFilterEndValue} minuteIncrement={this.props.timeMinuteIncrement} ariaLabel={strings.RuntimeFilterEndDateTimeLabel} onChange={(nextValue) => this.setState({ draftFilterEndValue: nextValue })} />
+                                    ) : (
+                                      <input className="lc-filter-input" type="datetime-local" value={this.state.draftFilterEndValue} lang="en-US" step={String(this.props.timeMinuteIncrement * 60)} onChange={(ev) => this.setState({ draftFilterEndValue: ev.currentTarget.value })} />
+                                    )}
+                                    {this.state.activeFilterCompareDateOnly && <button type="button" className="lc-date-picker-button gc-compact-icon-button" title="Choose to date" aria-label="Choose to date" onClick={() => this.toggleDatePicker('end')}><i className="ms-Icon ms-Icon--Calendar" aria-hidden="true"></i></button>}
                                   </div>
-                                  {this.renderDatePicker()}
+                                  {this.state.activeFilterCompareDateOnly && this.renderDatePicker()}
                                 </div>
                               ) : (
                                 <div>
                                   <label className="lc-filter-label">{strings.RuntimeFilterOperatorLabel}</label>
                                   <select className="lc-filter-select" value={this.state.draftFilterOperator} onChange={(ev) => this.setState({ draftFilterOperator: ev.currentTarget.value as FilterOperator })}>
-                                    {this.getFilterOperatorOptions().map((option) => {
+                                    {this.getFilterOperatorOptions(field).map((option) => {
                                       return <option key={option.key} value={option.key}>{option.label}</option>;
                                     })}
                                   </select>
                                   <label className="lc-filter-label">{strings.RuntimeFilterValueLabel}</label>
-                                  <input className="lc-filter-input" type="text" value={this.state.draftFilterValue} placeholder={strings.RuntimeFilterValuePlaceholder} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} onKeyDown={(ev) => {
+                                  {this.state.activeFilterOptionsLoading && <div role="status">{strings.RuntimeLoading}</div>}
+                                  {!!this.state.activeFilterOptionsError && <div role="alert">{this.state.activeFilterOptionsError}</div>}
+                                  {!this.state.activeFilterOptionsLoading && !this.state.activeFilterOptionsError
+                                    && (this.state.activeFilterOptions.length > 0 || this.isLookupFilterField(field)
+                                      || this.state.activeFilterFieldType === 'choice' || this.state.activeFilterFieldType === 'multichoice'
+                                      || this.state.activeFilterFieldType === 'boolean')
+                                    && <select className="lc-filter-select" value={this.state.draftFilterValue} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })}>
+                                      <option value="">{strings.RuntimeFilterSelectValue}</option>
+                                      {this.state.activeFilterOptions.map((option: IFilterOption) => <option key={option.value} value={option.value}>{option.text}</option>)}
+                                    </select>}
+                                  {!this.state.activeFilterOptionsLoading && !this.state.activeFilterOptionsError
+                                    && this.state.activeFilterOptions.length === 0 && !this.isLookupFilterField(field)
+                                    && this.state.activeFilterFieldType !== 'choice' && this.state.activeFilterFieldType !== 'multichoice'
+                                    && this.state.activeFilterFieldType !== 'boolean'
+                                    && <input className="lc-filter-input" type={this.state.activeFilterFieldType === 'number' || this.state.activeFilterFieldType === 'currency' || this.state.activeFilterFieldType === 'integer' || this.state.activeFilterFieldType === 'counter' ? 'number' : 'text'} value={this.state.draftFilterValue} placeholder={strings.RuntimeFilterValuePlaceholder} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} onKeyDown={(ev) => {
                                     if (ev.key === 'Enter') {
                                       this.applyActiveFilter();
                                     }
-                                  }} />
+                                  }} />}
                                 </div>
                               )}
                               <div className="lc-filter-actions">
@@ -3677,6 +4103,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
             )}
           </div>
         )}
+        {this.renderAttachmentDialog()}
       </div>
     );
   }

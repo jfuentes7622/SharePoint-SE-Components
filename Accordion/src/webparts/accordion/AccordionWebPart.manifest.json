@@ -32,7 +32,8 @@
       "closeBarFontBold": false,
       "closeBarAlignment": "right",
       "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-      "fontStyle": "normal"
+      "fontStyle": "normal",
+      "excludeFromTabs": false
     }
   }]
 }

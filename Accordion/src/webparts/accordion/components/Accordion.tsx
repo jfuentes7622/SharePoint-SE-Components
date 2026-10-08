@@ -56,15 +56,10 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
       this.buildAccordion(this.props.listName, this.props.itemName, this.props.itemContent);
       this.render();
     }
-    if (this.props.overrideCssUrl !== prevProps.overrideCssUrl) {
-      this._applyOverrideStylesheet();
-    }
   }
 
   public componentDidMount() {
    this.logDiagnostic('componentDidMount() called');
-   this._applyOverrideStylesheet();
-
    /*  this.getColumnRealName(this.props.listName, this.props.itemName).then(val => {
       console.log('valN from getColumnRealname:' + val);
       this.setState({ itemN: val });
@@ -84,11 +79,19 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
 
 
   public fetchLists(url: string): Promise<any> {
-    this.logDiagnostic('fetchLists() requesting url: ' + url);
+    this.logDiagnostic('REST request: GET ' + url);
     return this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1)
       .then((response: SPHttpClientResponse) => {
+        this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
+          + String(response.status) + ' ' + response.statusText);
         if (response.ok) {
-          return response.json();
+          return response.json().then((data: any) => {
+            const results = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : undefined);
+            this.logDiagnostic('REST payload summary: GET ' + url + ' -> '
+              + (Array.isArray(results) ? 'items=' + String(results.length)
+                : 'keys=' + Object.keys(data || {}).slice(0, 20).join(',')));
+            return data;
+          });
         }
         else {
           console.error(LOG_SOURCE+ "Failed to get url:" + url + ". Error=" + response.statusText);
@@ -154,21 +157,6 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
     }
 
     console.log('[Accordion] ' + message);
-  }
-
-  private _applyOverrideStylesheet(): void {
-    if (this.props.overrideCssUrl) {
-      this.logDiagnostic('Applying override stylesheet: ' + this.props.overrideCssUrl);
-      const existingLink: HTMLElement = document.getElementById('accordion-component-override-css');
-      if (existingLink) {
-        existingLink.remove();
-      }
-      const link: HTMLLinkElement = document.createElement('link');
-      link.id = 'accordion-component-override-css';
-      link.rel = 'stylesheet';
-      link.href = this.props.overrideCssUrl;
-      document.head.appendChild(link);
-    }
   }
 
   private _getHeaderStyle(): React.CSSProperties {
@@ -279,4 +267,3 @@ export default class AccordionReact extends React.Component<IAccordionProps, IRe
      }
   }
 } 
-

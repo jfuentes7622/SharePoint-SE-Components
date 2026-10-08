@@ -11,6 +11,7 @@ import { DisplayMode } from '@microsoft/sp-core-library';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
 import { PropertyFieldCollectionData, CustomCollectionFieldType } from '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData';
 import * as strings from 'FormNavigatorWebPartStrings';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 import './FormNavigator.css';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
@@ -18,6 +19,7 @@ const DYNAMIC_FORM_COMPONENT_ID = 'da1a4e74-6fba-498c-8cda-af20071f7ed3';
 const REPORT_FORM_COMPONENT_ID = 'e47c4f0e-0f0d-49d5-bcab-7a4d05742037';
 const NAVIGATE_EVENT = 'spse:dynamicform-wizard-navigate';
 const STATE_EVENT = 'spse:dynamicform-state-changed';
+const FORM_ACTIVATION_QUERY_EVENT = 'spse:form-activation-query';
 
 export type NavigationPolicy = 'free' | 'completed' | 'sequential' | 'preview';
 export type NavigationLayout = 'vertical' | 'horizontal' | 'tree';
@@ -59,6 +61,8 @@ export interface IFormNavigatorWebPartProps {
   nodeGap?: number;
   categoryGap?: number;
   indentSize?: number;
+  excludeFromTabs?: boolean;
+  overrideCssUrl?: string;
   enableDiagnostics?: boolean;
 }
 
@@ -71,21 +75,29 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
   private _initializedConfiguration: string = '';
   private _initializationAttempts: number = 0;
   private _initializationTimer: number = 0;
+  private _activationQueryHandler: (event: Event) => void;
 
   public constructor() {
     super();
     this._stateHandler = (event: Event) => this.handleStateChanged(event);
+    this._activationQueryHandler = (event: Event) => this.handleActivationQuery(event);
   }
 
   protected onInit(): Promise<void> {
-    if (typeof window !== 'undefined') { window.addEventListener(STATE_EVENT, this._stateHandler); }
+    if (typeof window !== 'undefined') {
+      window.addEventListener(STATE_EVENT, this._stateHandler);
+      window.addEventListener(FORM_ACTIVATION_QUERY_EVENT, this._activationQueryHandler);
+    }
     this.migrateLegacyConfiguration();
     this.discoverForms();
     return Promise.resolve();
   }
 
   protected onDispose(): void {
-    if (typeof window !== 'undefined') { window.removeEventListener(STATE_EVENT, this._stateHandler); }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(STATE_EVENT, this._stateHandler);
+      window.removeEventListener(FORM_ACTIVATION_QUERY_EVENT, this._activationQueryHandler);
+    }
     if (this._initializationTimer) { window.clearTimeout(this._initializationTimer); }
   }
 
@@ -100,6 +112,34 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
   }
 
   private normalizeId(value: string): string { return String(value || '').replace(/[{}]/g, '').toLowerCase(); }
+
+  private handleActivationQuery(event: Event): void {
+    if (this.displayMode === DisplayMode.Edit) { return; }
+    var detail: any = (event as any).detail || {};
+    var instanceId = this.normalizeId(String(detail.instanceId || ''));
+    var forms = this.properties.forms || [];
+    var configuredForm: IFormConfig | undefined;
+    for (var index = 0; index < forms.length; index += 1) {
+      if (this.normalizeId(forms[index].instanceId) === instanceId) {
+        configuredForm = forms[index];
+        break;
+      }
+    }
+    if (!configuredForm) { return; }
+    var activeForm = forms[0];
+    for (var stateIndex = 0; stateIndex < forms.length; stateIndex += 1) {
+      if ((this._states[this.normalizeId(forms[stateIndex].instanceId)] || {} as IFormState).active) {
+        activeForm = forms[stateIndex];
+        break;
+      }
+    }
+    detail.responses = detail.responses || [];
+    detail.responses.push({
+      controllerId: this.context.instanceId,
+      controllerType: 'navigator',
+      active: !!activeForm && this.normalizeId(activeForm.instanceId) === instanceId
+    });
+  }
 
   private migrateLegacyConfiguration(): void {
     if (!Array.isArray(this.properties.categories) && this.properties.categoriesJson) {
@@ -272,6 +312,8 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this.discoverForms();
     var config = this.parseConfiguration();
     var rootStyle = 'background:' + (this.properties.surfaceBackgroundColor || '#ffffff') + ';color:' + (this.properties.surfaceTextColor || '#201f1e')
@@ -401,7 +443,16 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
       ] },
       { groupName: strings.StateAppearanceGroup, groupFields: [this.colorField('activeBackgroundColor', strings.ActiveBackgroundLabel), this.colorField('activeTextColor', strings.ActiveTextLabel), this.colorField('completeColor', strings.CompleteColorLabel), this.colorField('lockedColor', strings.LockedColorLabel), this.colorField('errorColor', strings.ErrorColorLabel)] },
       { groupName: strings.SpacingGroup, groupFields: [this.colorField('borderColor', strings.BorderColorLabel), PropertyPaneSlider('borderWidth', { label: strings.BorderWidthLabel, min: 0, max: 10, step: 1 }), PropertyPaneSlider('cornerRadius', { label: strings.CornerRadiusLabel, min: 0, max: 30, step: 1 }), PropertyPaneSlider('nodePadding', { label: strings.NodePaddingLabel, min: 2, max: 30, step: 1 }), PropertyPaneSlider('nodeGap', { label: strings.NodeGapLabel, min: 0, max: 30, step: 1 }), PropertyPaneSlider('categoryGap', { label: strings.CategoryGapLabel, min: 0, max: 50, step: 1 }), PropertyPaneSlider('indentSize', { label: strings.IndentSizeLabel, min: 0, max: 60, step: 1 })] },
-      { groupName: strings.DiagnosticsGroup, groupFields: [PropertyPaneCheckbox('enableDiagnostics', { text: strings.DiagnosticsLabel, checked: this.properties.enableDiagnostics !== false })] }
+      { groupName: strings.DiagnosticsGroup, groupFields: [
+        PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+          var oldValue = this.properties.overrideCssUrl || '';
+          this.properties.overrideCssUrl = newValue;
+          this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+          this.render();
+        }),
+        PropertyPaneCheckbox('excludeFromTabs', { text: 'Exclude this web part from SPS Tabs', checked: this.properties.excludeFromTabs === true }),
+        PropertyPaneCheckbox('enableDiagnostics', { text: strings.DiagnosticsLabel, checked: this.properties.enableDiagnostics !== false })
+      ] }
     ] }] };
   }
 }

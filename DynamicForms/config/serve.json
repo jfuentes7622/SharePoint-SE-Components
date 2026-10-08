@@ -4,7 +4,7 @@
   "https": true,
   "serveConfigurations": {
     "default": {
-      "pageUrl": "https://goldentroutfarms.sharepoint.com/_layouts/workbench.aspx"
+      "pageUrl": "https://goldentroutfarms.sharepoint.com/_layouts/15/workbench.aspx?loadSPFX=true&debugManifestsFile=https://localhost:4321/temp/manifests.js"
     },
     "navinLab": {
       "pageUrl": "https://sharepoint.lab.navintechnologies.com/_layouts/workbench.aspx"

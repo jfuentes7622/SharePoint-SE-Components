@@ -392,6 +392,28 @@
       z-index: 2;
     }
 
+    .eventContent {
+      display: flex;
+      align-items: center;
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .eventContentTitle {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .recurringEventIcon {
+      flex: 0 0 auto;
+      margin-left: 5px;
+      font-size: 12px;
+      line-height: inherit;
+    }
+
     .eventEditAction {
       position: absolute;
       top: 1px;
@@ -411,6 +433,10 @@
       font-weight: 600;
       line-height: 18px;
       text-align: center;
+    }
+
+    .recurringEvent .eventEditAction {
+      right: 20px;
     }
 
     :global(.fc-event:hover) .eventEditAction,
@@ -612,6 +638,21 @@
     cursor: pointer;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .swimlaneEventContent {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .swimlaneEventTitle {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .swimlaneEventTime {

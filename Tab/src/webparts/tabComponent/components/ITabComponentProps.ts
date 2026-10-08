@@ -38,6 +38,7 @@ export interface ITabComponentProps {
   TabConfigs: ITabVisualSettings[];
   GlobalFontSettings: ITabGlobalFontSettings;
   EnableDiagnostics?: boolean;
+  OnSelectedTabChanged?: (selectedIndex: number) => void;
 }
 
 export interface ITabControlState {

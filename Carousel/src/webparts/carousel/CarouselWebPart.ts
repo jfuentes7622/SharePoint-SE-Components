@@ -26,6 +26,7 @@ import RecordSvc from '../../services/RecordService';
 import { SPContexts } from './components/SPContexts';
 import { ConfigData } from './components/ConfigData';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 import SlideItemModel from './components/SlideItem';
 import {SPHttpClient,
@@ -44,6 +45,7 @@ export interface ICarouselWebPartProps {
   carouselSlideInterval: string;
   carouselSlideItems: Array<SlideItemModel>;
   carouselSlideLibrary: string;
+  carouselViewId: string;
   slideTitleField: string;
   slideDescriptionField: string;
   slideLinkField: string;
@@ -86,6 +88,8 @@ export interface ICarouselWebPartProps {
   slideLinkAlignment: string;
   slideCaptionBackgroundColor: string;
   slideCaptionPadding: number;
+  excludeFromTabs: boolean;
+  overrideCssUrl?: string;
   enableDiagnostics: boolean;
   recSvc: RecordSvc;
   spfxContext: WebPartContext;
@@ -96,6 +100,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
   private _recordSvc: RecordSvc;
   private _siteLists: string[] = [];
   private _columnOptions: IPropertyPaneDropdownOption[] = [];
+  private _viewOptions: IPropertyPaneDropdownOption[] = [];
 
   public constructor() {
     super();
@@ -112,6 +117,8 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
 
     this.logDiagnostic('render() called');
@@ -148,6 +155,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
         carouselWidth: this.properties.carouselWidth,
         carouselHeight: this.properties.carouselHeight,
         carouselSlideLibrary: this.properties.carouselSlideLibrary,
+        carouselViewId: this.properties.carouselViewId || '',
         slideTitleField: this.properties.slideTitleField || 'Title',
         slideDescriptionField: this.properties.slideDescriptionField || '',
         slideLinkField: this.properties.slideLinkField || '',
@@ -207,7 +215,9 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
       endpoint,
       SPHttpClient.configurations.v1);
   
-    const lists: string[] = (await rawResponse.json()).value.map(
+    const json: any = await rawResponse.json();
+    const results: any[] = json && json.value ? json.value : (json && json.d && json.d.results ? json.d.results : []);
+    const lists: string[] = results.map(
       (list: {Title: string}) => {
         return list.Title;
       }
@@ -231,7 +241,8 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
 
     const json: any = await response.json();
     const options: IPropertyPaneDropdownOption[] = [{ key: '', text: '(None)' }];
-    (json.value || []).forEach((field: any): void => {
+    const fields: any[] = json && json.value ? json.value : (json && json.d && json.d.results ? json.d.results : []);
+    fields.forEach((field: any): void => {
       if (field.InternalName) {
         options.push({
           key: field.InternalName,
@@ -240,6 +251,39 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
       }
     });
     options.splice(1, options.length - 1, ...options.slice(1).sort((left, right): number => String(left.text).localeCompare(String(right.text))));
+    return options;
+  }
+
+  private async loadLibraryViews(libraryTitle: string): Promise<IPropertyPaneDropdownOption[]> {
+    if (!libraryTitle) {
+      return [];
+    }
+
+    const escapedTitle = libraryTitle.replace(/'/g, "''");
+    const endpoint = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/GetByTitle('${escapedTitle}')/views?$select=Id,Title,DefaultView&$orderby=Title`;
+    const response = await this.context.spHttpClient.get(endpoint, SPHttpClient.configurations.v1);
+    if (!response.ok) {
+      this.logDiagnostic('Unable to load library views: HTTP ' + response.status + ' ' + response.statusText);
+      return [];
+    }
+
+    const json: any = await response.json();
+    const views: any[] = json && json.value ? json.value : (json && json.d && json.d.results ? json.d.results : []);
+    const options: IPropertyPaneDropdownOption[] = [{ key: '__all__', text: '(All library items)' }];
+    let defaultViewId: string = '';
+    views.forEach((view: any): void => {
+      options.push({ key: String(view.Id), text: String(view.Title || view.Id) });
+      if (view.DefaultView === true) {
+        defaultViewId = String(view.Id);
+      }
+    });
+    const configuredViewId: string = String(this.properties.carouselViewId || '');
+    const configuredViewExists: boolean = options.some((option: IPropertyPaneDropdownOption): boolean => {
+      return String(option.key).replace(/[{}]/g, '').toLowerCase() === configuredViewId.replace(/[{}]/g, '').toLowerCase();
+    });
+    if (!configuredViewExists) {
+      this.properties.carouselViewId = defaultViewId || '__all__';
+    }
     return options;
   }
 
@@ -262,6 +306,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
     return new RecordSvc(
       <ConfigData>{        
         slideListName: this.properties.carouselSlideLibrary,
+        slideViewId: this.properties.carouselViewId || '',
         slideTitleField: this.properties.slideTitleField || 'Title',
         slideDescriptionField: this.properties.slideDescriptionField || '',
         slideLinkField: this.properties.slideLinkField || '',
@@ -291,6 +336,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
     this.logDiagnostic('onInit() called');
     this._siteLists = await this._getSiteLists();
     this._columnOptions = await this.loadLibraryColumns(this.properties.carouselSlideLibrary);
+    this._viewOptions = await this.loadLibraryViews(this.properties.carouselSlideLibrary);
     this.resolveColumnMappings();
     return super.onInit();
   }
@@ -301,6 +347,8 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
     (this.properties as any)[propertyPath] = newValue;
     if (propertyPath === 'carouselSlideLibrary') {
       this._columnOptions = await this.loadLibraryColumns(String(newValue || ''));
+      this.properties.carouselViewId = '';
+      this._viewOptions = await this.loadLibraryViews(String(newValue || ''));
       this.resolveColumnMappings();
       this.context.propertyPane.refresh();
     }
@@ -368,6 +416,11 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                   };
                  }),
                 }),
+                  PropertyPaneDropdown('carouselViewId', {
+                    label: 'SharePoint View',
+                    options: this._viewOptions,
+                    selectedKey: this.properties.carouselViewId || ''
+                  }),
                 PropertyPaneDropdown('slideTitleField', {
                   label: 'Slide Title Column',
                   options: this._columnOptions,
@@ -630,6 +683,16 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
             {
               groupName: 'Diagnostics',
               groupFields: [
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                  const oldValue = this.properties.overrideCssUrl || '';
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
+                }),
+                PropertyPaneCheckbox('excludeFromTabs', {
+                  text: 'Exclude this web part from SPS Tabs',
+                  checked: this.properties.excludeFromTabs === true
+                }),
                 PropertyPaneCheckbox('enableDiagnostics', {
                   text: strings.PropEnableDiagnosticsLabel,
                   checked: this.properties.enableDiagnostics !== false

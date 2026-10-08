@@ -1,0 +1,35 @@
+{
+  "name": "sps-search-control",
+  "version": "1.0.12",
+  "author": "Jose Fuentes <josefuentes@modulusse.com>",
+  "private": true,
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "scripts": {
+    "build": "gulp clean && gulp bundle --ship && gulp package-solution --ship",
+    "clean": "gulp clean"
+  },
+  "dependencies": {
+    "@microsoft/sp-core-library": "~1.5.1",
+    "@microsoft/sp-lodash-subset": "~1.5.1",
+    "@microsoft/sp-office-ui-fabric-core": "~1.5.1",
+    "@microsoft/sp-http": "1.5.1",
+    "@microsoft/sp-webpart-base": "~1.5.1",
+    "@pnp/spfx-property-controls": "1.5.1",
+    "@types/es6-promise": "0.0.33",
+    "@types/react": "15.0.38",
+    "@types/react-dom": "15.5.6",
+    "@types/webpack-env": "1.13.1",
+    "react": "15.6.2",
+    "react-dom": "15.6.2"
+  },
+  "devDependencies": {
+    "@microsoft/sp-build-web": "~1.5.1",
+    "@microsoft/sp-module-interfaces": "~1.5.1",
+    "@microsoft/sp-webpart-workbench": "~1.5.1",
+    "ajv": "~5.2.2",
+    "gulp": "^3.9.1",
+    "typescript": "2.4"
+  }
+}

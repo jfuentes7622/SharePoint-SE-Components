@@ -43,7 +43,8 @@
       "titleFontBold": true,
       "titleAlignment": "center",
       "titleBottomSpacing": 0,
-      "enableDiagnostics": false
+      "enableDiagnostics": false,
+      "excludeFromTabs": false
     }
   }]
 }

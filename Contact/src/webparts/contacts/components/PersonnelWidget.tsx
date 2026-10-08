@@ -9,6 +9,7 @@ import { Guid } from '@microsoft/sp-core-library';
 
 export interface IPersonnelWidgetProps {  
     PersonGroups: Array<PersonGroupModel>;
+    contactsPerRow: number;
 }
 
 export default class PersonnelWidget extends React.Component<IPersonnelWidgetProps, {}> {
@@ -19,7 +20,7 @@ export default class PersonnelWidget extends React.Component<IPersonnelWidgetPro
                 this.props.PersonGroups.map( d => {
                     const guid = Guid.newGuid().toString();
                     return (
-                        <PersonnelWidgetGroup PersonGroup={d} key={guid}/>
+                        <PersonnelWidgetGroup PersonGroup={d} contactsPerRow={this.props.contactsPerRow} key={guid}/>
                     );
                 })
             }

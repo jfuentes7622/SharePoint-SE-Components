@@ -1,0 +1,25 @@
+{
+  "extends": "@microsoft/sp-tslint-rules/base-tslint.json",
+  "rules": {
+    "no-any": false,
+    "no-var-keyword": false,
+    "prefer-const": false,
+    "one-line": false,
+    "max-line-length": false,
+    "no-unused-variable": true,
+    "no-eval": true,
+    "no-function-expression": false,
+    "no-function-constructor-with-string-args": true,
+    "no-shadowed-variable": false,
+    "no-switch-case-fall-through": true,
+    "no-duplicate-variable": true,
+    "label-position": true,
+    "semicolon": true,
+    "trailing-comma": true,
+    "typedef": true,
+    "typedef-whitespace": true,
+    "variable-name": false,
+    "member-ordering": false,
+    "whitespace": true
+  }
+}

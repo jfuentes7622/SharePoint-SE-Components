@@ -1,12 +1,14 @@
 import { DisplayMode } from '@microsoft/sp-core-library';
 import {
   BaseClientSideWebPart,
-  IPropertyPaneConfiguration
+  IPropertyPaneConfiguration,
+  PropertyPaneCheckbox
 } from '@microsoft/sp-webpart-base';
 import {
   releaseSectionFullWidth,
   updateResponsiveSectionFullWidth
 } from '../shared/sectionFullWidth';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 interface IInlineStyleValue {
   value: string;
@@ -19,12 +21,16 @@ interface IHostStyleSnapshot {
 }
 
 export interface IFullWidthControlWebPartProps {
+  excludeFromTabs?: boolean;
+  overrideCssUrl?: string;
 }
 
 export default class FullWidthControlWebPart extends BaseClientSideWebPart<IFullWidthControlWebPartProps> {
   private hostSnapshot: IHostStyleSnapshot | undefined;
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     updateResponsiveSectionFullWidth(this.domElement, this.context.instanceId);
     this.updateOwnHostVisibility(this.displayMode === DisplayMode.Edit);
 
@@ -42,7 +48,22 @@ export default class FullWidthControlWebPart extends BaseClientSideWebPart<IFull
   }
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
-    return { pages: [] };
+    return {
+      pages: [{
+        groups: [{
+          groupName: 'SPS Tabs',
+          groupFields: [PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+            const oldValue = this.properties.overrideCssUrl || '';
+            this.properties.overrideCssUrl = newValue;
+            this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+            this.render();
+          }), PropertyPaneCheckbox('excludeFromTabs', {
+            text: 'Exclude this web part from SPS Tabs',
+            checked: this.properties.excludeFromTabs === true
+          })]
+        }]
+      }]
+    };
   }
 
   private renderEditMarker(): void {

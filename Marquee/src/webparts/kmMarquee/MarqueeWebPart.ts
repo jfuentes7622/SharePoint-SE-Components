@@ -23,6 +23,7 @@ PropertyPaneToggle
 import * as strings from 'KmMarqueeWebPartStrings';
 import KmMarquee from './components/Marquee';
 import { IKmMarqueeProps } from './components/IMarqueeProps';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -54,6 +55,8 @@ export interface IKmMarqueeWebPartProps {
   viewId: string;
   messageField: string;
   messageDuration: number;
+  excludeFromTabs: boolean;
+  overrideCssUrl?: string;
   enableDiagnostics: boolean;
 }
 
@@ -63,6 +66,8 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
   private _listFields: IDropdownOption[] = [];
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     const element: React.ReactElement<IKmMarqueeProps> = React.createElement(
       KmMarquee,
       {
@@ -164,25 +169,39 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
   }
 
   private async getJsonWithAcceptFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     let response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry with Accept=application/json;odata=verbose: GET ' + url);
       response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: 'application/json;odata=verbose' }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry with Accept=application/json;odata=nometadata: GET ' + url);
       response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: 'application/json;odata=nometadata' }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
       throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
     }
 
-    return response.json();
+    const data = await response.json();
+    const results = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : undefined);
+    const root = data && data.d && !data.value ? data.d : data;
+    this.logDiagnostic('REST payload summary: GET ' + url + ' -> '
+      + (Array.isArray(results) ? 'items=' + String(results.length)
+        : 'keys=' + Object.keys(root || {}).slice(0, 20).join(',')));
+    return data;
   }
 
   private async loadLists(): Promise<void> {
@@ -348,9 +367,9 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
       { key: 'left', text: 'Right to left' },
       { key: 'right', text: 'Left to right' }
     ];
-    const listOptions: IPropertyPaneDropdownOption[] = this._lists.map((list) => {
+    const listOptions: IPropertyPaneDropdownOption[] = [{ key: '', text: '(Use Scrolling Text)' }].concat(this._lists.map((list) => {
       return { key: list.key, text: list.text };
-    });
+    }));
     const listFieldOptions: IPropertyPaneDropdownOption[] = this._listFields.map((field) => {
       return { key: field.key, text: field.text };
     });
@@ -505,6 +524,16 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
             {
               groupName: strings.DiagnosticsGroupName,
               groupFields: [
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                  const oldValue = this.properties.overrideCssUrl || '';
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
+                }),
+                PropertyPaneCheckbox('excludeFromTabs', {
+                  text: 'Exclude this web part from SPS Tabs',
+                  checked: this.properties.excludeFromTabs === true
+                }),
                 PropertyPaneCheckbox('enableDiagnostics', {
                   text: strings.PropEnableDiagnosticsLabel,
                   checked: this.properties.enableDiagnostics !== false

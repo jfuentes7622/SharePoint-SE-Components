@@ -8,6 +8,7 @@ export interface IGridDesignerProps {
   listName: string;
   viewId: string;
   schemaJson: string;
+  enableDiagnostics?: boolean;
   onSave: (schemaJson: string) => void;
   onCancel: () => void;
 }
@@ -316,16 +317,26 @@ export class GridDesigner extends React.Component<IGridDesignerProps, IGridDesig
     ];
     var response: any;
     for (var i = 0; i < acceptHeaders.length; i += 1) {
+      this.logDiagnostic('REST request: GET ' + url + (acceptHeaders[i] ? ' Accept=' + acceptHeaders[i] : ''));
       response = await this.props.context.spHttpClient.get(
         url,
         SPHttpClient.configurations.v1,
         acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined
       );
+      this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
       if (response.ok) {
         return response;
       }
     }
     return response;
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.props.enableDiagnostics === false) {
+      return;
+    }
+    console.log('[GridDesigner] ' + message);
   }
 
   private async loadFields(): Promise<void> {
@@ -352,7 +363,7 @@ export class GridDesigner extends React.Component<IGridDesignerProps, IGridDesig
         var isAttachment = field.InternalName === 'Attachments';
         var isCommonSystemField = field.InternalName === 'Author' || field.InternalName === 'Editor'
           || field.InternalName === 'Created' || field.InternalName === 'Modified';
-        return !field.Hidden && !SYSTEM_FIELDS[field.InternalName]
+        return (!field.Hidden || isAttachment) && !SYSTEM_FIELDS[field.InternalName]
           && (!field.FromBaseType || field.InternalName === 'Title' || isAttachment || isCommonSystemField);
       }).map(function(field: any) {
         return {

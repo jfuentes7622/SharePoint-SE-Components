@@ -64,7 +64,10 @@ export default class RecordSvc implements IRecordService {
 
   public async GetSPListFieldChoices(listName: string, fieldName: string): Promise<Array<string>> {
     const data = await this._spListService.GetFieldInfo(listName, fieldName);
-    return data.Choices || [];
+    if (!data || !Array.isArray(data.Choices)) {
+      throw new Error('SharePoint field "' + fieldName + '" did not return a Choices collection.');
+    }
+    return data.Choices;
   } 
 
   //Create personnel like list from the Collection Data Input

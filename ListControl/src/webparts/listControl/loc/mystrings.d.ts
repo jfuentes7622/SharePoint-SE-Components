@@ -188,6 +188,7 @@ declare interface IListControlWebPartStrings {
   PropCustomFormatTextCaseUpper: string;
   PropCustomFormatTextCaseLower: string;
   PropTimeDisplayFormatLabel: string;
+  PropTimeMinuteIncrementLabel: string;
   PropTimeDisplayFormatCustom: string;
   PropTimeCustomFormatLabel: string;
   PropTimeCustomFormatDescription: string;
@@ -247,6 +248,10 @@ declare interface IListControlWebPartStrings {
   RuntimeFilterOperatorLabel: string;
   RuntimeFilterValueLabel: string;
   RuntimeFilterValuePlaceholder: string;
+  RuntimeFilterSelectValue: string;
+  RuntimeFilterOptionsLoadFailed: string;
+  RuntimeFilterDateTimeLabel: string;
+  RuntimeFilterEndDateTimeLabel: string;
   RuntimeFilterDateLabel: string;
   RuntimeFilterEndDateLabel: string;
   RuntimeFilterApply: string;
@@ -262,6 +267,15 @@ declare interface IListControlWebPartStrings {
   RuntimeFilterOperatorGreaterThanOrEqual: string;
   RuntimeFilterOperatorLessThan: string;
   RuntimeFilterOperatorLessThanOrEqual: string;
+  RuntimeAttachmentsTitle: string;
+  RuntimeAttachmentsView: string;
+  RuntimeAttachmentsEmpty: string;
+  RuntimeAttachmentsLoadFailed: string;
+  RuntimeAttachmentsPreview: string;
+  RuntimeAttachmentsOpen: string;
+  RuntimeAttachmentsSelect: string;
+  RuntimeAttachmentsPreviewUnavailable: string;
+  RuntimeAttachmentsClose: string;
   RuntimeDeleteConfirm: string;
   RuntimeDeleteSuccess: string;
   RuntimeDeleteFailed: string;

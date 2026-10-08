@@ -56,6 +56,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 var React = require("react");
 var sp_http_1 = require("@microsoft/sp-http");
 var strings = require("ListControlWebPartStrings");
+var DateTime24HourInput_1 = require("./DateTime24HourInput");
 require("./ListControl.css");
 var LIST_CONTROL_REFRESH_EVENT = 'spse:listcontrol-refresh';
 var LIST_CONTROL_RUNTIME_CONFIG_EVENT = 'spse:listcontrol-runtime-config';
@@ -80,6 +81,26 @@ function tryParseObject(value) {
     catch (_error) {
         return value;
     }
+}
+function decodeHtmlEntities(value) {
+    if (value.indexOf('&') < 0 || typeof document === 'undefined') {
+        return value;
+    }
+    var decoder = document.createElement('textarea');
+    decoder.innerHTML = value;
+    return decoder.value;
+}
+function getSerializedDisplayValue(value) {
+    var propertyNames = ['DisplayName', 'displayName', 'Title', 'title', 'LookupValue', 'lookupValue', 'Name', 'name', 'Email', 'email'];
+    for (var i = 0; i < propertyNames.length; i += 1) {
+        var escapedName = propertyNames[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var expression = new RegExp('["\\\']' + escapedName + '["\\\']\\s*:\\s*(["\\\'])([\\s\\S]*?)\\1\\s*(?=,|})');
+        var match = expression.exec(value);
+        if (match && match[2]) {
+            return match[2].replace(/\\(["'\\])/g, '$1');
+        }
+    }
+    return '';
 }
 function toArray(value) {
     var parsed = tryParseObject(value);
@@ -290,6 +311,7 @@ var ListControl = (function (_super) {
         _this._pagingEndpoint = '';
         _this._pagingRequestBody = undefined;
         _this._pagingRuntimeFilterFieldNames = [];
+        _this._lastReportedFilteredCount = -1;
         _this.setDisplayFormFrameRef = function (frame) {
             if (!frame) {
                 return;
@@ -359,6 +381,11 @@ var ListControl = (function (_super) {
             activeFilterFieldName: '',
             filterPopoverStyle: {},
             activeFilterIsDate: false,
+            activeFilterCompareDateOnly: true,
+            activeFilterFieldType: '',
+            activeFilterOptions: [],
+            activeFilterOptionsLoading: false,
+            activeFilterOptionsError: '',
             draftFilterOperator: 'contains',
             draftFilterValue: '',
             draftFilterEndValue: '',
@@ -378,6 +405,12 @@ var ListControl = (function (_super) {
             scrollArrowTop: 0,
             scrollArrowLeft: 0,
             scrollArrowRight: 0,
+            attachmentDialogOpen: false,
+            attachmentDialogFiles: [],
+            attachmentDialogLoading: false,
+            attachmentDialogError: '',
+            attachmentPreviewUrl: '',
+            attachmentPreviewName: '',
         };
         _this._refreshEventHandler = _this.handleExternalRefresh.bind(_this);
         _this._runtimeConfigEventHandler = _this.handleRuntimeConfig.bind(_this);
@@ -404,6 +437,7 @@ var ListControl = (function (_super) {
             window.dispatchEvent(requestEvent);
         }
         this.loadRows();
+        this.reportFilteredCount();
     };
     ListControl.prototype.componentWillUnmount = function () {
         this._loadRowsRequestId += 1;
@@ -486,6 +520,7 @@ var ListControl = (function (_super) {
             || prevState.sortDirection !== this.state.sortDirection
             || prevState.columnFilters !== this.state.columnFilters
             || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
+            || prevProps.externalFilterJson !== this.props.externalFilterJson
             || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode) {
             this.loadAllRemainingRows();
         }
@@ -493,6 +528,15 @@ var ListControl = (function (_super) {
             this._stickyHeaderSourceHtml = '';
             window.setTimeout(function () { return _this.refreshTableViewport(); }, 0);
         }
+        this.reportFilteredCount();
+    };
+    ListControl.prototype.reportFilteredCount = function () {
+        var count = this.getProcessedRows().length;
+        if (count === this._lastReportedFilteredCount) {
+            return;
+        }
+        this._lastReportedFilteredCount = count;
+        this.props.onFilteredCountChange(count);
     };
     ListControl.prototype.getStickyHeaderControls = function (root) {
         var controls = root.querySelectorAll('button,input');
@@ -753,10 +797,14 @@ var ListControl = (function (_super) {
             var response;
             return __generator(this, function (_a) {
                 switch (_a.label) {
-                    case 0: return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1)];
+                    case 0:
+                        this.logDiagnostic('REST request: GET ' + url);
+                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1)];
                     case 1:
                         response = _a.sent();
+                        this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
                         if (!!response.ok) return [3 /*break*/, 3];
+                        this.logDiagnostic('REST retry (verbose): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=verbose'
@@ -764,9 +812,12 @@ var ListControl = (function (_super) {
                             })];
                     case 2:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 3;
                     case 3:
                         if (!!response.ok) return [3 /*break*/, 5];
+                        this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=minimalmetadata'
@@ -774,9 +825,12 @@ var ListControl = (function (_super) {
                             })];
                     case 4:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 5;
                     case 5:
                         if (!!response.ok) return [3 /*break*/, 7];
+                        this.logDiagnostic('REST retry (nometadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=nometadata'
@@ -784,6 +838,8 @@ var ListControl = (function (_super) {
                             })];
                     case 6:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 7;
                     case 7: return [2 /*return*/, response];
                 }
@@ -797,6 +853,7 @@ var ListControl = (function (_super) {
                 switch (_a.label) {
                     case 0:
                         payload = JSON.stringify(body || {});
+                        this.logDiagnostic('REST request: POST ' + url + ' payloadKeys=' + Object.keys(body || {}).join(','));
                         return [4 /*yield*/, this.props.context.spHttpClient.post(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     'Content-Type': 'application/json; charset=utf-8'
@@ -805,7 +862,9 @@ var ListControl = (function (_super) {
                             })];
                     case 1:
                         response = _a.sent();
+                        this.logDiagnostic('REST response: POST ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
                         if (!!response.ok) return [3 /*break*/, 3];
+                        this.logDiagnostic('REST retry (verbose): POST ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.post(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=verbose',
@@ -815,9 +874,12 @@ var ListControl = (function (_super) {
                             })];
                     case 2:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (verbose): POST ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 3;
                     case 3:
                         if (!!response.ok) return [3 /*break*/, 5];
+                        this.logDiagnostic('REST retry (minimalmetadata): POST ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.post(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=minimalmetadata',
@@ -827,9 +889,12 @@ var ListControl = (function (_super) {
                             })];
                     case 4:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (minimalmetadata): POST ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 5;
                     case 5:
                         if (!!response.ok) return [3 /*break*/, 7];
+                        this.logDiagnostic('REST retry (nometadata): POST ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.post(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=nometadata',
@@ -839,6 +904,8 @@ var ListControl = (function (_super) {
                             })];
                     case 6:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (nometadata): POST ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 7;
                     case 7: return [2 /*return*/, response];
                 }
@@ -1178,6 +1245,55 @@ var ListControl = (function (_super) {
             });
         });
     };
+    ListControl.prototype.loadListFieldMetadataMap = function (viewFieldNames) {
+        return __awaiter(this, void 0, void 0, function () {
+            var endpoint, response, data, fields, requested, requestedIndex, map, fieldIndex, source, internalName;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        if (!viewFieldNames || viewFieldNames.length === 0) {
+                            return [2 /*return*/, {}];
+                        }
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+                            + "')/fields?$select=InternalName,TypeAsString,DisplayFormat,Choices,LookupList,LookupField,AllowMultipleValues";
+                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                    case 1:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            throw new Error('Unable to load field metadata. HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 2:
+                        data = _a.sent();
+                        fields = toArray(data.value);
+                        if (fields.length === 0) {
+                            fields = toArray(data && data.d && data.d.results);
+                        }
+                        requested = {};
+                        for (requestedIndex = 0; requestedIndex < viewFieldNames.length; requestedIndex += 1) {
+                            requested[String(viewFieldNames[requestedIndex] || '').toLowerCase()] = true;
+                        }
+                        map = {};
+                        for (fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+                            source = fields[fieldIndex] || {};
+                            internalName = String(source.InternalName || '');
+                            if (!internalName || !requested[internalName.toLowerCase()]) {
+                                continue;
+                            }
+                            map[internalName.toLowerCase()] = {
+                                typeAsString: String(source.TypeAsString || ''),
+                                displayFormat: parseInt(String(source.DisplayFormat || '0'), 10) || 0,
+                                choices: toArray(source.Choices).map(function (choice) { return String(choice); }),
+                                lookupList: String(source.LookupList || '').replace(/^\{|\}$/g, ''),
+                                lookupField: String(source.LookupField || 'Title'),
+                                allowMultiple: source.AllowMultipleValues === true || String(source.TypeAsString || '').toLowerCase().indexOf('multi') >= 0
+                            };
+                        }
+                        return [2 /*return*/, map];
+                }
+            });
+        });
+    };
     ListControl.prototype.loadListFieldTitleMap = function () {
         return __awaiter(this, void 0, void 0, function () {
             var endpoint, response, data, fields, map, i, field, internalName, title, error_2;
@@ -1230,6 +1346,16 @@ var ListControl = (function (_super) {
             var internalName = String(field.RealFieldName || field.Name || '');
             return __assign({}, field, { TypeAsString: typeMap[internalName] || typeMap[internalName.toLowerCase()] || field.TypeAsString || '', DisplayFormat: this._fieldDisplayFormatMap[internalName.toLowerCase()] });
         }.bind(this));
+    };
+    ListControl.prototype.applyFieldMetadata = function (fields, metadataMap) {
+        return fields.map(function (field) {
+            var internalName = String(field.RealFieldName || field.Name || '');
+            var metadata = metadataMap[internalName.toLowerCase()];
+            if (!metadata) {
+                return field;
+            }
+            return __assign({}, field, { TypeAsString: metadata.typeAsString || field.TypeAsString || '', DisplayFormat: metadata.displayFormat, Choices: metadata.choices, LookupList: metadata.lookupList, LookupField: metadata.lookupField, AllowMultipleValues: metadata.allowMultiple });
+        });
     };
     ListControl.prototype.getRowFieldValue = function (row, field) {
         var fieldName = field.Name || field.RealFieldName || '';
@@ -1295,13 +1421,18 @@ var ListControl = (function (_super) {
         }
         if (typeof value === 'string') {
             // RenderListDataAsStream can return Person/Lookup fields as JSON-encoded strings.
-            var trimmedValue = value.trim();
+            var trimmedValue = decodeHtmlEntities(value.trim());
             if (trimmedValue.length > 0 && (trimmedValue.charAt(0) === '{' || trimmedValue.charAt(0) === '[')) {
                 var parsedJsonValue = tryParseObject(trimmedValue);
                 if (parsedJsonValue && typeof parsedJsonValue === 'object') {
                     return this.stringifyCellValue(parsedJsonValue);
                 }
+                var serializedDisplayValue = getSerializedDisplayValue(trimmedValue);
+                if (serializedDisplayValue) {
+                    return serializedDisplayValue;
+                }
             }
+            return trimmedValue;
         }
         if (typeof value === 'object') {
             if (Array.isArray(value.results)) {
@@ -1547,8 +1678,13 @@ var ListControl = (function (_super) {
     ListControl.prototype.getRuntimeFilterFieldNames = function () {
         var conditions = [];
         try {
-            var parsed = JSON.parse(String(this.state.runtimeFilterJson || ''));
-            conditions = Array.isArray(parsed) ? parsed : [];
+            var runtimeSources = [String(this.state.runtimeFilterJson || ''), String(this.props.externalFilterJson || '')];
+            for (var sourceIndex = 0; sourceIndex < runtimeSources.length; sourceIndex += 1) {
+                var parsed = JSON.parse(runtimeSources[sourceIndex] || '[]');
+                if (Array.isArray(parsed)) {
+                    conditions = conditions.concat(parsed);
+                }
+            }
         }
         catch (_parseError) {
             conditions = [];
@@ -1632,7 +1768,7 @@ var ListControl = (function (_super) {
     ListControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, fieldTitleMap, visibleFieldNames, fieldTypeMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _a, error_3, loadError;
+            var requestId, baseEndpoint, selectedViewId, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, fieldTitleMap, visibleFieldNames, fieldTypeMap, fieldMetadataMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _a, error_3, loadError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -1645,7 +1781,7 @@ var ListControl = (function (_super) {
                         this.setState({ loading: true, loadingMore: false, nextPageHref: '', error: null });
                         _b.label = 1;
                     case 1:
-                        _b.trys.push([1, 23, , 24]);
+                        _b.trys.push([1, 24, , 25]);
                         baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
                         selectedViewId = this.state.selectedViewId;
                         return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
@@ -1764,8 +1900,12 @@ var ListControl = (function (_super) {
                         return [4 /*yield*/, this.loadListFieldTypeMap(visibleFieldNames)];
                     case 19:
                         fieldTypeMap = _b.sent();
+                        return [4 /*yield*/, this.loadListFieldMetadataMap(visibleFieldNames)];
+                    case 20:
+                        fieldMetadataMap = _b.sent();
                         visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
                         visibleFields = this.applyFieldTypes(visibleFields, fieldTypeMap);
+                        visibleFields = this.applyFieldMetadata(visibleFields, fieldMetadataMap);
                         renderableRows = this.filterRenderableRows(rows, visibleFields);
                         if (requestId !== this._loadRowsRequestId) {
                             this.logDiagnostic('Ignoring stale loadRows result. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
@@ -1774,15 +1914,15 @@ var ListControl = (function (_super) {
                         hasAttachmentsField = visibleFields.some(function (field) {
                             return String(field.TypeAsString || '') === 'Attachments';
                         });
-                        if (!hasAttachmentsField) return [3 /*break*/, 21];
+                        if (!hasAttachmentsField) return [3 /*break*/, 22];
                         return [4 /*yield*/, this.loadAttachmentCounts(renderableRows.map(function (row) { return _this.getRowItemId(row); }))];
-                    case 20:
-                        _a = _b.sent();
-                        return [3 /*break*/, 22];
                     case 21:
-                        _a = {};
-                        _b.label = 22;
+                        _a = _b.sent();
+                        return [3 /*break*/, 23];
                     case 22:
+                        _a = {};
+                        _b.label = 23;
+                    case 23:
                         attachmentCountsByItemId = _a;
                         if (requestId !== this._loadRowsRequestId) {
                             this.logDiagnostic('Ignoring stale loadRows result after attachment count fetch. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
@@ -1802,8 +1942,8 @@ var ListControl = (function (_super) {
                             }
                         });
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
-                        return [3 /*break*/, 24];
-                    case 23:
+                        return [3 /*break*/, 25];
+                    case 24:
                         error_3 = _b.sent();
                         loadError = error_3;
                         if (requestId !== this._loadRowsRequestId) {
@@ -1819,8 +1959,8 @@ var ListControl = (function (_super) {
                             rows: []
                         });
                         this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
-                        return [3 /*break*/, 24];
-                    case 24: return [2 /*return*/];
+                        return [3 /*break*/, 25];
+                    case 25: return [2 /*return*/];
                 }
             });
         });
@@ -2014,6 +2154,130 @@ var ListControl = (function (_super) {
         }
         console.log('[ListControl] ' + message);
     };
+    ListControl.prototype.resolveAttachmentUrl = function (serverRelativeUrl) {
+        var url = String(serverRelativeUrl || '');
+        if (/^https?:\/\//i.test(url)) {
+            return url;
+        }
+        if (url.charAt(0) === '/' && typeof window !== 'undefined') {
+            return window.location.protocol + '//' + window.location.host + url;
+        }
+        return url;
+    };
+    ListControl.prototype.canPreviewAttachment = function (fileName) {
+        return /\.(bmp|gif|jpe?g|pdf|png|txt|webp)$/i.test(String(fileName || ''));
+    };
+    ListControl.prototype.loadAttachments = function (itemId) {
+        return __awaiter(this, void 0, void 0, function () {
+            var endpoint, response, data, item, files;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+                            + "')/items(" + String(itemId) + ")?$select=AttachmentFiles&$expand=AttachmentFiles";
+                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                    case 1:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            throw new Error(strings.RuntimeAttachmentsLoadFailed);
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 2:
+                        data = _a.sent();
+                        item = data && data.d ? data.d : data;
+                        files = toArray(item && item.AttachmentFiles);
+                        return [2 /*return*/, files.map(function (file) {
+                                var path = file && file.ServerRelativePath && file.ServerRelativePath.DecodedUrl;
+                                return {
+                                    fileName: String(file && (file.FileName || file.Name) || ''),
+                                    serverRelativeUrl: String(file && (file.ServerRelativeUrl || path) || '')
+                                };
+                            }).filter(function (file) { return !!file.fileName && !!file.serverRelativeUrl; })];
+                }
+            });
+        });
+    };
+    ListControl.prototype.openAttachmentDialog = function (row) {
+        return __awaiter(this, void 0, void 0, function () {
+            var itemId, files, error_6, attachmentError;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        itemId = this.getRowItemId(row);
+                        if (itemId <= 0) {
+                            return [2 /*return*/];
+                        }
+                        this.setState({
+                            attachmentDialogOpen: true,
+                            attachmentDialogFiles: [],
+                            attachmentDialogLoading: true,
+                            attachmentDialogError: '',
+                            attachmentPreviewUrl: '',
+                            attachmentPreviewName: ''
+                        });
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, this.loadAttachments(itemId)];
+                    case 2:
+                        files = _a.sent();
+                        this.setState({ attachmentDialogFiles: files, attachmentDialogLoading: false });
+                        return [3 /*break*/, 4];
+                    case 3:
+                        error_6 = _a.sent();
+                        attachmentError = error_6;
+                        this.setState({
+                            attachmentDialogLoading: false,
+                            attachmentDialogError: attachmentError && attachmentError.message ? attachmentError.message : strings.RuntimeAttachmentsLoadFailed
+                        });
+                        return [3 /*break*/, 4];
+                    case 4: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    ListControl.prototype.closeAttachmentDialog = function () {
+        this.setState({
+            attachmentDialogOpen: false,
+            attachmentDialogFiles: [],
+            attachmentDialogLoading: false,
+            attachmentDialogError: '',
+            attachmentPreviewUrl: '',
+            attachmentPreviewName: ''
+        });
+    };
+    ListControl.prototype.renderAttachmentDialog = function () {
+        var _this = this;
+        if (!this.state.attachmentDialogOpen) {
+            return null;
+        }
+        return (React.createElement("div", { className: "gc-attachment-overlay", role: "presentation", onClick: function () { return _this.closeAttachmentDialog(); }, onKeyDown: function (ev) {
+                if (ev.key === 'Escape') {
+                    _this.closeAttachmentDialog();
+                }
+            } },
+            React.createElement("div", { className: "gc-attachment-dialog", role: "dialog", "aria-modal": "true", "aria-label": strings.RuntimeAttachmentsTitle, onClick: function (ev) { return ev.stopPropagation(); } },
+                React.createElement("div", { className: "gc-attachment-header" },
+                    React.createElement("div", { className: "gc-attachment-title" }, strings.RuntimeAttachmentsTitle),
+                    React.createElement("button", { type: "button", className: "gc-attachment-close", title: strings.RuntimeAttachmentsClose, "aria-label": strings.RuntimeAttachmentsClose, onClick: function () { return _this.closeAttachmentDialog(); } },
+                        React.createElement("i", { className: "ms-Icon ms-Icon--Cancel", "aria-hidden": "true" }))),
+                React.createElement("div", { className: "gc-attachment-content" },
+                    React.createElement("div", { className: "gc-attachment-list" },
+                        this.state.attachmentDialogLoading && React.createElement("div", { className: "gc-attachment-status" }, strings.RuntimeLoading),
+                        !!this.state.attachmentDialogError && React.createElement("div", { className: "gc-attachment-status gc-attachment-error" }, this.state.attachmentDialogError),
+                        !this.state.attachmentDialogLoading && !this.state.attachmentDialogError && this.state.attachmentDialogFiles.length === 0 && React.createElement("div", { className: "gc-attachment-status" }, strings.RuntimeAttachmentsEmpty),
+                        this.state.attachmentDialogFiles.map(function (file, index) {
+                            var fileUrl = _this.resolveAttachmentUrl(file.serverRelativeUrl);
+                            return (React.createElement("div", { className: "gc-attachment-item", key: file.fileName + '-' + String(index) },
+                                React.createElement("button", { type: "button", className: "gc-attachment-preview-button", title: strings.RuntimeAttachmentsPreview, onClick: function () { return _this.setState({ attachmentPreviewUrl: _this.canPreviewAttachment(file.fileName) ? fileUrl : '', attachmentPreviewName: file.fileName }); } },
+                                    React.createElement("i", { className: "ms-Icon ms-Icon--Attach", "aria-hidden": "true" }),
+                                    React.createElement("span", null, file.fileName)),
+                                React.createElement("a", { href: fileUrl, target: "_blank", rel: "noopener noreferrer" }, strings.RuntimeAttachmentsOpen)));
+                        })),
+                    React.createElement("div", { className: "gc-attachment-preview" }, this.state.attachmentPreviewUrl
+                        ? React.createElement("iframe", { sandbox: "", src: this.state.attachmentPreviewUrl, title: this.state.attachmentPreviewName })
+                        : React.createElement("div", { className: "gc-attachment-status" }, this.state.attachmentPreviewName ? strings.RuntimeAttachmentsPreviewUnavailable : strings.RuntimeAttachmentsSelect))))));
+    };
     ListControl.prototype.getCellMarkup = function (row, field) {
         var value = this.getRowFieldValue(row, field);
         if (value === undefined || value === null || value === '') {
@@ -2118,8 +2382,8 @@ var ListControl = (function (_super) {
     ListControl.prototype.getFieldKey = function (field) {
         return String(field.Name || field.RealFieldName || '').trim();
     };
-    ListControl.prototype.getFilterOperatorOptions = function () {
-        return [
+    ListControl.prototype.getFilterOperatorOptions = function (field) {
+        var allOptions = [
             { key: 'eq', label: strings.RuntimeFilterOperatorEquals },
             { key: 'ne', label: strings.RuntimeFilterOperatorNotEquals },
             { key: 'contains', label: strings.RuntimeFilterOperatorContains },
@@ -2131,6 +2395,94 @@ var ListControl = (function (_super) {
             { key: 'lt', label: strings.RuntimeFilterOperatorLessThan },
             { key: 'le', label: strings.RuntimeFilterOperatorLessThanOrEqual }
         ];
+        var fieldType = String(field && field.TypeAsString || '').toLowerCase();
+        if (fieldType === 'boolean' || fieldType === 'choice' || fieldType === 'multichoice'
+            || fieldType === 'lookup' || fieldType === 'lookupmulti'
+            || fieldType === 'user' || fieldType === 'usermulti') {
+            return allOptions.filter(function (option) { return option.key === 'eq' || option.key === 'ne'; });
+        }
+        if (fieldType === 'number' || fieldType === 'currency' || fieldType === 'integer' || fieldType === 'counter') {
+            return allOptions.filter(function (option) {
+                return option.key === 'eq' || option.key === 'ne' || option.key === 'gt'
+                    || option.key === 'ge' || option.key === 'lt' || option.key === 'le';
+            });
+        }
+        return allOptions;
+    };
+    ListControl.prototype.getStaticFilterOptions = function (field) {
+        var fieldType = String(field.TypeAsString || '').toLowerCase();
+        if (fieldType === 'boolean') {
+            return [
+                { value: strings.RuntimeBooleanYes, text: strings.RuntimeBooleanYes },
+                { value: strings.RuntimeBooleanNo, text: strings.RuntimeBooleanNo }
+            ];
+        }
+        if (fieldType === 'choice' || fieldType === 'multichoice') {
+            return (field.Choices || []).map(function (choice) {
+                return { value: choice, text: choice };
+            });
+        }
+        return [];
+    };
+    ListControl.prototype.isLookupFilterField = function (field) {
+        var fieldType = String(field.TypeAsString || '').toLowerCase();
+        return fieldType === 'lookup' || fieldType === 'lookupmulti' || fieldType === 'user' || fieldType === 'usermulti';
+    };
+    ListControl.prototype.loadFilterOptions = function (field) {
+        return __awaiter(this, void 0, void 0, function () {
+            var fieldType, endpoint, lookupField, lookupListSegment, response, data, items, lookupValueField;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        fieldType = String(field.TypeAsString || '').toLowerCase();
+                        endpoint = '';
+                        if (fieldType === 'user' || fieldType === 'usermulti') {
+                            endpoint = this.getWebUrl() + '/_api/web/siteusers?$select=Id,Title,Email,PrincipalType&$top=5000';
+                        }
+                        else if ((fieldType === 'lookup' || fieldType === 'lookupmulti') && field.LookupList) {
+                            lookupField = /^[A-Za-z0-9_]+$/.test(String(field.LookupField || '')) ? String(field.LookupField) : 'Title';
+                            lookupListSegment = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(field.LookupList)
+                                ? "lists(guid'" + field.LookupList + "')"
+                                : "lists/getByTitle('" + escapeODataText(field.LookupList) + "')";
+                            endpoint = this.getWebUrl() + '/_api/web/' + lookupListSegment + '/items?$select='
+                                + encodeURIComponent('Id,' + lookupField) + '&$top=5000';
+                        }
+                        if (!endpoint) {
+                            throw new Error(strings.RuntimeFilterOptionsLoadFailed);
+                        }
+                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                    case 1:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            throw new Error(strings.RuntimeFilterOptionsLoadFailed + ' HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 2:
+                        data = _a.sent();
+                        items = toArray(data.value);
+                        if (items.length === 0) {
+                            items = toArray(data && data.d && data.d.results);
+                        }
+                        lookupValueField = /^[A-Za-z0-9_]+$/.test(String(field.LookupField || '')) ? String(field.LookupField) : 'Title';
+                        return [2 /*return*/, items.filter(function (item) {
+                                if (!item || !String(item.Id || '').trim()) {
+                                    return false;
+                                }
+                                if (fieldType !== 'user' && fieldType !== 'usermulti') {
+                                    return true;
+                                }
+                                return parseInt(String(item.PrincipalType || '0'), 10) > 0;
+                            }).map(function (item) {
+                                return {
+                                    value: String(item.Id),
+                                    text: String(item[lookupValueField] || item.Title || item.Email || item.Id)
+                                };
+                            }).sort(function (left, right) {
+                                return left.text.localeCompare(right.text);
+                            })];
+                }
+            });
+        });
     };
     ListControl.prototype.toggleSort = function (field) {
         var fieldKey = this.getFieldKey(field);
@@ -2151,6 +2503,7 @@ var ListControl = (function (_super) {
         });
     };
     ListControl.prototype.openFilter = function (field, anchorElement) {
+        var _this = this;
         var fieldKey = this.getFieldKey(field);
         if (!fieldKey) {
             return;
@@ -2158,17 +2511,47 @@ var ListControl = (function (_super) {
         this._filterAnchorEl = anchorElement;
         var popoverStyle = this.getFilterPopoverStyle(anchorElement);
         var existing = this.state.columnFilters[fieldKey];
-        var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
+        var fieldType = String(field.TypeAsString || '').toLowerCase();
+        var isDateField = fieldType === 'datetime';
+        var compareDateOnly = isDateField && field.DisplayFormat === 0;
+        var optionField = this.isLookupFilterField(field) || fieldType === 'choice'
+            || fieldType === 'multichoice' || fieldType === 'boolean';
+        var defaultOperator = optionField || fieldType === 'number' || fieldType === 'currency'
+            || fieldType === 'integer' || fieldType === 'counter' ? 'eq' : 'contains';
+        var operatorOptions = this.getFilterOperatorOptions(field);
+        var existingOperatorIsValid = !!existing && operatorOptions.some(function (option) {
+            return option.key === existing.operator;
+        });
         this.setState({
             activeFilterFieldName: fieldKey,
             filterPopoverStyle: popoverStyle,
             activeFilterIsDate: isDateField,
-            draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
+            activeFilterCompareDateOnly: compareDateOnly,
+            activeFilterFieldType: fieldType,
+            activeFilterOptions: this.getStaticFilterOptions(field),
+            activeFilterOptionsLoading: this.isLookupFilterField(field),
+            activeFilterOptionsError: '',
+            draftFilterOperator: isDateField ? 'eq' : (existingOperatorIsValid ? existing.operator : defaultOperator),
             draftFilterValue: existing ? existing.value : '',
             draftFilterEndValue: existing ? String(existing.endValue || '') : '',
             datePickerTarget: '',
             datePickerMonth: ''
         });
+        if (this.isLookupFilterField(field)) {
+            this.loadFilterOptions(field).then(function (options) {
+                if (_this.state.activeFilterFieldName !== fieldKey) {
+                    return;
+                }
+                _this.setState({ activeFilterOptions: options, activeFilterOptionsLoading: false, activeFilterOptionsError: '' });
+            }).catch(function (error) {
+                if (_this.state.activeFilterFieldName !== fieldKey) {
+                    return;
+                }
+                var message = error && error.message ? error.message : strings.RuntimeFilterOptionsLoadFailed;
+                console.error('[ListControl] Filter options failed for ' + fieldKey + '.', error);
+                _this.setState({ activeFilterOptions: [], activeFilterOptionsLoading: false, activeFilterOptionsError: message });
+            });
+        }
     };
     ListControl.prototype.getFilterPopoverStyle = function (anchorElement) {
         var anchorRect = anchorElement.getBoundingClientRect();
@@ -2309,7 +2692,7 @@ var ListControl = (function (_super) {
                 operator: 'eq',
                 value: value,
                 endValue: endValue,
-                compareDateOnly: true
+                compareDateOnly: this.state.activeFilterCompareDateOnly
             };
         }
         else {
@@ -2400,7 +2783,8 @@ var ListControl = (function (_super) {
         var normalizedQuery = query.toLowerCase();
         var compareResult = this.compareComparableValues(candidate, query);
         var fieldType = String(field.TypeAsString || '').toLowerCase();
-        var lookupCandidates = fieldType.indexOf('lookup') >= 0
+        var hasDiscreteValues = fieldType.indexOf('lookup') >= 0 || fieldType.indexOf('user') >= 0 || fieldType === 'multichoice';
+        var lookupCandidates = hasDiscreteValues
             ? normalizedCandidate.split(';').map(function (value) { return value.trim(); }).filter(function (value) { return !!value; })
             : [];
         if (filter.compareDateOnly) {
@@ -2413,6 +2797,15 @@ var ListControl = (function (_super) {
             if (filter.endValue) {
                 return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
             }
+        }
+        else if (fieldType === 'datetime' && filter.endValue) {
+            var candidateTime = Date.parse(candidate);
+            var startTime = Date.parse(query);
+            var endTime = Date.parse(String(filter.endValue));
+            if (isNaN(candidateTime) || isNaN(startTime) || isNaN(endTime)) {
+                return false;
+            }
+            return candidateTime >= startTime && candidateTime <= endTime;
         }
         switch (filter.operator) {
             case 'eq':
@@ -2441,7 +2834,7 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.getFilterCellText = function (row, field) {
         var fieldType = String(field.TypeAsString || '').toLowerCase();
-        if (fieldType.indexOf('lookup') < 0) {
+        if (fieldType.indexOf('lookup') < 0 && fieldType.indexOf('user') < 0) {
             return this.getCellPlainText(row, field);
         }
         var rawValue = this.getRowFieldValue(row, field);
@@ -2491,7 +2884,11 @@ var ListControl = (function (_super) {
         return lookupIds.length > 0 ? lookupIds.join('; ') : this.getCellPlainText(row, field);
     };
     ListControl.prototype.parsePresetFilterConditions = function () {
-        var sources = [String(this.props.filterJson || '').trim(), String(this.state.runtimeFilterJson || '').trim()];
+        var sources = [
+            String(this.props.filterJson || '').trim(),
+            String(this.state.runtimeFilterJson || '').trim(),
+            String(this.props.externalFilterJson || '').trim()
+        ];
         var conditions = [];
         for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
             var source = sources[sourceIndex];
@@ -2983,6 +3380,8 @@ var ListControl = (function (_super) {
         var conditionalStyle = this.getConditionalStyleForRow(row, fieldsByKey, conditionalRules);
         return (React.createElement("tr", { key: rowItemId > 0 ? String(rowItemId) : keySuffix, onClick: function () { return _this.selectRow(row); }, className: joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '']) }, displayFields.map(function (field) {
             var markup = _this.getCellMarkup(row, field);
+            var isAttachmentField = String(field.TypeAsString || '') === 'Attachments';
+            var attachmentCount = isAttachmentField ? _this.getAttachmentCountForRow(row, _this.getRowFieldValue(row, field)) : 0;
             var urlCell = _this.getUrlCellValue(row, field);
             var showItemLink = _this.props.showLinkToItem && _this.isTitleField(field);
             var itemLinkUrl = showItemLink ? _this.getItemLinkUrl(row) : '';
@@ -2991,7 +3390,12 @@ var ListControl = (function (_super) {
             var cellFieldKey = _this.getFieldKey(field);
             var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
             var mergedCellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
-            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, target: linkOpenBehavior === 'newTab' ? '_blank' : undefined, rel: linkOpenBehavior === 'newTab' ? 'noopener noreferrer' : undefined, onClick: function (ev) {
+            return (React.createElement("td", { key: field.Name, style: mergedCellStyle }, isAttachmentField ? (React.createElement("button", { type: "button", className: "gc-attachment-count", disabled: attachmentCount <= 0, title: strings.RuntimeAttachmentsView, "aria-label": strings.RuntimeAttachmentsView, onClick: function (ev) {
+                    ev.stopPropagation();
+                    _this.openAttachmentDialog(row);
+                } },
+                React.createElement("i", { className: "ms-Icon ms-Icon--Attach", "aria-hidden": "true" }),
+                React.createElement("span", null, attachmentCount))) : urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, target: linkOpenBehavior === 'newTab' ? '_blank' : undefined, rel: linkOpenBehavior === 'newTab' ? 'noopener noreferrer' : undefined, onClick: function (ev) {
                     ev.stopPropagation();
                     if (linkOpenBehavior === 'dialog') {
                         ev.preventDefault();
@@ -3155,7 +3559,7 @@ var ListControl = (function (_super) {
             this.state.loading && React.createElement("div", null, strings.RuntimeLoading),
             !!this.state.error && React.createElement("div", null, this.state.error),
             !this.state.loading && !this.state.error && processedRows.length === 0 && (React.createElement("div", null, hasActiveFilters ? strings.RuntimeNoItemsAfterFilter : strings.RuntimeNoItems)),
-            !this.state.loading && !this.state.error && processedRows.length > 0 && (React.createElement("div", { className: "lc-table-container" },
+            !this.state.loading && !this.state.error && (processedRows.length > 0 || hasActiveFilters) && (React.createElement("div", { className: "lc-table-container" },
                 React.createElement("div", { className: "lc-sticky-header-viewport", ref: this._setStickyHeaderViewportRef }),
                 React.createElement("div", { className: "lc-table-wrap", ref: this._setTableWrapRef },
                     this.state.showScrollArrows && (React.createElement("button", { type: "button", className: "lc-scroll-arrow lc-scroll-arrow-left", style: { top: this.state.scrollArrowTop + 'px', left: (this.state.scrollArrowLeft + 6) + 'px' }, title: strings.RuntimeScrollLeft, "aria-label": strings.RuntimeScrollLeft, onClick: function () { return _this.scrollTableHorizontally(-1); } }, "\u2039")),
@@ -3197,27 +3601,40 @@ var ListControl = (function (_super) {
                                                 ev.stopPropagation();
                                             } },
                                             _this.state.activeFilterIsDate ? (React.createElement("div", null,
-                                                React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterDateLabel),
+                                                React.createElement("label", { className: "lc-filter-label" }, _this.state.activeFilterCompareDateOnly ? strings.RuntimeFilterDateLabel : strings.RuntimeFilterDateTimeLabel),
                                                 React.createElement("div", { className: "lc-date-input-row" },
-                                                    React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterValue, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } }),
-                                                    React.createElement("button", { type: "button", className: "lc-date-picker-button gc-compact-icon-button", title: "Choose from date", "aria-label": "Choose from date", onClick: function () { return _this.toggleDatePicker('start'); } },
+                                                    _this.state.activeFilterCompareDateOnly ? (React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterValue, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } })) : _this.props.timeDisplayFormat !== '12hour' ? (React.createElement(DateTime24HourInput_1.DateTime24HourInput, { value: _this.state.draftFilterValue, minuteIncrement: _this.props.timeMinuteIncrement, ariaLabel: strings.RuntimeFilterDateTimeLabel, onChange: function (nextValue) { return _this.setState({ draftFilterValue: nextValue }); } })) : (React.createElement("input", { className: "lc-filter-input", type: "datetime-local", value: _this.state.draftFilterValue, lang: "en-US", step: String(_this.props.timeMinuteIncrement * 60), onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } })),
+                                                    _this.state.activeFilterCompareDateOnly && React.createElement("button", { type: "button", className: "lc-date-picker-button gc-compact-icon-button", title: "Choose from date", "aria-label": "Choose from date", onClick: function () { return _this.toggleDatePicker('start'); } },
                                                         React.createElement("i", { className: "ms-Icon ms-Icon--Calendar", "aria-hidden": "true" }))),
-                                                React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterEndDateLabel),
+                                                React.createElement("label", { className: "lc-filter-label" }, _this.state.activeFilterCompareDateOnly ? strings.RuntimeFilterEndDateLabel : strings.RuntimeFilterEndDateTimeLabel),
                                                 React.createElement("div", { className: "lc-date-input-row" },
-                                                    React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterEndValue, onChange: function (ev) { return _this.setState({ draftFilterEndValue: ev.currentTarget.value }); } }),
-                                                    React.createElement("button", { type: "button", className: "lc-date-picker-button gc-compact-icon-button", title: "Choose to date", "aria-label": "Choose to date", onClick: function () { return _this.toggleDatePicker('end'); } },
+                                                    _this.state.activeFilterCompareDateOnly ? (React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterEndValue, onChange: function (ev) { return _this.setState({ draftFilterEndValue: ev.currentTarget.value }); } })) : _this.props.timeDisplayFormat !== '12hour' ? (React.createElement(DateTime24HourInput_1.DateTime24HourInput, { value: _this.state.draftFilterEndValue, minuteIncrement: _this.props.timeMinuteIncrement, ariaLabel: strings.RuntimeFilterEndDateTimeLabel, onChange: function (nextValue) { return _this.setState({ draftFilterEndValue: nextValue }); } })) : (React.createElement("input", { className: "lc-filter-input", type: "datetime-local", value: _this.state.draftFilterEndValue, lang: "en-US", step: String(_this.props.timeMinuteIncrement * 60), onChange: function (ev) { return _this.setState({ draftFilterEndValue: ev.currentTarget.value }); } })),
+                                                    _this.state.activeFilterCompareDateOnly && React.createElement("button", { type: "button", className: "lc-date-picker-button gc-compact-icon-button", title: "Choose to date", "aria-label": "Choose to date", onClick: function () { return _this.toggleDatePicker('end'); } },
                                                         React.createElement("i", { className: "ms-Icon ms-Icon--Calendar", "aria-hidden": "true" }))),
-                                                _this.renderDatePicker())) : (React.createElement("div", null,
+                                                _this.state.activeFilterCompareDateOnly && _this.renderDatePicker())) : (React.createElement("div", null,
                                                 React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterOperatorLabel),
-                                                React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterOperator, onChange: function (ev) { return _this.setState({ draftFilterOperator: ev.currentTarget.value }); } }, _this.getFilterOperatorOptions().map(function (option) {
+                                                React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterOperator, onChange: function (ev) { return _this.setState({ draftFilterOperator: ev.currentTarget.value }); } }, _this.getFilterOperatorOptions(field).map(function (option) {
                                                     return React.createElement("option", { key: option.key, value: option.key }, option.label);
                                                 })),
                                                 React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterValueLabel),
-                                                React.createElement("input", { className: "lc-filter-input", type: "text", value: _this.state.draftFilterValue, placeholder: strings.RuntimeFilterValuePlaceholder, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); }, onKeyDown: function (ev) {
-                                                        if (ev.key === 'Enter') {
-                                                            _this.applyActiveFilter();
-                                                        }
-                                                    } }))),
+                                                _this.state.activeFilterOptionsLoading && React.createElement("div", { role: "status" }, strings.RuntimeLoading),
+                                                !!_this.state.activeFilterOptionsError && React.createElement("div", { role: "alert" }, _this.state.activeFilterOptionsError),
+                                                !_this.state.activeFilterOptionsLoading && !_this.state.activeFilterOptionsError
+                                                    && (_this.state.activeFilterOptions.length > 0 || _this.isLookupFilterField(field)
+                                                        || _this.state.activeFilterFieldType === 'choice' || _this.state.activeFilterFieldType === 'multichoice'
+                                                        || _this.state.activeFilterFieldType === 'boolean')
+                                                    && React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterValue, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } },
+                                                        React.createElement("option", { value: "" }, strings.RuntimeFilterSelectValue),
+                                                        _this.state.activeFilterOptions.map(function (option) { return React.createElement("option", { key: option.value, value: option.value }, option.text); })),
+                                                !_this.state.activeFilterOptionsLoading && !_this.state.activeFilterOptionsError
+                                                    && _this.state.activeFilterOptions.length === 0 && !_this.isLookupFilterField(field)
+                                                    && _this.state.activeFilterFieldType !== 'choice' && _this.state.activeFilterFieldType !== 'multichoice'
+                                                    && _this.state.activeFilterFieldType !== 'boolean'
+                                                    && React.createElement("input", { className: "lc-filter-input", type: _this.state.activeFilterFieldType === 'number' || _this.state.activeFilterFieldType === 'currency' || _this.state.activeFilterFieldType === 'integer' || _this.state.activeFilterFieldType === 'counter' ? 'number' : 'text', value: _this.state.draftFilterValue, placeholder: strings.RuntimeFilterValuePlaceholder, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); }, onKeyDown: function (ev) {
+                                                            if (ev.key === 'Enter') {
+                                                                _this.applyActiveFilter();
+                                                            }
+                                                        } }))),
                                             React.createElement("div", { className: "lc-filter-actions" },
                                                 React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterApply, "aria-label": strings.RuntimeFilterApply, onClick: function () { return _this.applyActiveFilter(); } }, _this.renderCommandContent('CheckMark', strings.RuntimeFilterApply)),
                                                 React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterClear, "aria-label": strings.RuntimeFilterClear, onClick: function () { return _this.clearActiveFilter(); } }, _this.renderCommandContent('ClearFilter', strings.RuntimeFilterClear)),
@@ -3234,7 +3651,8 @@ var ListControl = (function (_super) {
                     React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: currentPage === 0, title: strings.RuntimePreviousPage, "aria-label": strings.RuntimePreviousPage, onClick: function () { return _this.setState({ currentPage: Math.max(0, currentPage - 1) }); } }, this.renderCommandContent('ChevronLeft', strings.RuntimePreviousPage)),
                     React.createElement("span", null, (this.state.nextPageHref ? strings.RuntimePageStatusMore : strings.RuntimePageStatus).replace('{0}', String(currentPage + 1)).replace('{1}', String(pageCount)).replace('{2}', String(pageSize))),
                     React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: this.state.loadingMore || (currentPage >= pageCount - 1 && !this.state.nextPageHref), title: strings.RuntimeNextPage, "aria-label": strings.RuntimeNextPage, onClick: function () { return _this.goToNextPage(currentPage, pageCount); } }, this.renderCommandContent('ChevronRight', strings.RuntimeNextPage)),
-                    this.state.loadingMore && React.createElement("span", null, strings.RuntimeLoadingMore)))))));
+                    this.state.loadingMore && React.createElement("span", null, strings.RuntimeLoadingMore))))),
+            this.renderAttachmentDialog()));
     };
     return ListControl;
 }(React.Component));

@@ -190,6 +190,7 @@ declare interface IGridControlWebPartStrings {
   PropCustomFormatTextCaseUpper: string;
   PropCustomFormatTextCaseLower: string;
   PropTimeDisplayFormatLabel: string;
+  PropTimeMinuteIncrementLabel: string;
   PropTimeDisplayFormatCustom: string;
   PropTimeCustomFormatLabel: string;
   PropTimeCustomFormatDescription: string;
@@ -270,6 +271,20 @@ declare interface IGridControlWebPartStrings {
   RuntimeFilterOperatorGreaterThanOrEqual: string;
   RuntimeFilterOperatorLessThan: string;
   RuntimeFilterOperatorLessThanOrEqual: string;
+  RuntimeAttachmentsTitle: string;
+  RuntimeAttachmentsView: string;
+  RuntimeAttachmentsEmpty: string;
+  RuntimeAttachmentsLoadFailed: string;
+  RuntimeAttachmentsPreview: string;
+  RuntimeAttachmentsPreviewAction: string;
+  RuntimeAttachmentsOpen: string;
+  RuntimeAttachmentsSelect: string;
+  RuntimeAttachmentsPreviewUnavailable: string;
+  RuntimeAttachmentsClose: string;
+  RuntimeAttachmentsAdd: string;
+  RuntimeAttachmentsUploading: string;
+  RuntimeAttachmentsUploadFailed: string;
+  RuntimeAttachmentsCreatedUploadFailed: string;
   RuntimeDeleteConfirm: string;
   RuntimeDeleteSuccess: string;
   RuntimeDeleteFailed: string;

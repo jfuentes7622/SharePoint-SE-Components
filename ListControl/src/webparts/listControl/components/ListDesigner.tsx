@@ -21,6 +21,7 @@ export interface IListDesignerProps {
   viewId: string;
   viewColumns: IListDesignerColumn[];
   groupingJson: string;
+  enableDiagnostics?: boolean;
   onSave: (columns: IListDesignerColumn[], groupingJson: string) => void;
   onCancel: () => void;
 }
@@ -183,16 +184,26 @@ export class ListDesigner extends React.Component<IListDesignerProps, IListDesig
     ];
     var response: any;
     for (var i = 0; i < acceptHeaders.length; i += 1) {
+      this.logDiagnostic('REST request: GET ' + url + (acceptHeaders[i] ? ' Accept=' + acceptHeaders[i] : ''));
       response = await this.props.context.spHttpClient.get(
         url,
         SPHttpClient.configurations.v1,
         acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined
       );
+      this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
       if (response.ok) {
         return response;
       }
     }
     return response;
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.props.enableDiagnostics === false) {
+      return;
+    }
+    console.log('[ListDesigner] ' + message);
   }
 
   private async loadFields(): Promise<void> {

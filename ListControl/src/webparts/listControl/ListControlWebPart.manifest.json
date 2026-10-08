@@ -35,6 +35,7 @@
         "linkTargetIdParam": "itemid",
         "includeReturnUrlParam": false,
         "enableDiagnostics": true,
+        "excludeFromTabs": false,
         "showRefresh": true,
         "showAdd": true,
         "showEdit": true,

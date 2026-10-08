@@ -1,0 +1,16 @@
+logs
+*.log
+node_modules
+dist
+lib
+temp
+*.sppkg
+!sharepoint/solution/
+sharepoint/solution/*
+!sharepoint/solution/sps-search-control.sppkg
+coverage
+.DS_Store
+.vs
+bin
+obj
+*.scss.ts

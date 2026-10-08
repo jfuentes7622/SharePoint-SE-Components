@@ -302,9 +302,12 @@ var GridDesigner = (function (_super) {
                         _a.label = 1;
                     case 1:
                         if (!(i < acceptHeaders.length)) return [3 /*break*/, 4];
+                        this.logDiagnostic('REST request: GET ' + url + (acceptHeaders[i] ? ' Accept=' + acceptHeaders[i] : ''));
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined)];
                     case 2:
                         response = _a.sent();
+                        this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         if (response.ok) {
                             return [2 /*return*/, response];
                         }
@@ -316,6 +319,12 @@ var GridDesigner = (function (_super) {
                 }
             });
         });
+    };
+    GridDesigner.prototype.logDiagnostic = function (message) {
+        if (this.props.enableDiagnostics === false) {
+            return;
+        }
+        console.log('[GridDesigner] ' + message);
     };
     GridDesigner.prototype.loadFields = function () {
         return __awaiter(this, void 0, void 0, function () {
@@ -355,7 +364,7 @@ var GridDesigner = (function (_super) {
                             var isAttachment = field.InternalName === 'Attachments';
                             var isCommonSystemField = field.InternalName === 'Author' || field.InternalName === 'Editor'
                                 || field.InternalName === 'Created' || field.InternalName === 'Modified';
-                            return !field.Hidden && !SYSTEM_FIELDS[field.InternalName]
+                            return (!field.Hidden || isAttachment) && !SYSTEM_FIELDS[field.InternalName]
                                 && (!field.FromBaseType || field.InternalName === 'Title' || isAttachment || isCommonSystemField);
                         }).map(function (field) {
                             return {

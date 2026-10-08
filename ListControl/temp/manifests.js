@@ -2676,7 +2676,7 @@ function getManifests() {
     "id": "3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001",
     "alias": "ListControlWebPart",
     "componentType": "WebPart",
-    "version": "0.0.33",
+    "version": "1.0.106",
     "manifestVersion": 2,
     "requiresCustomScript": false,
     "supportsFullBleed": true,
@@ -2708,6 +2708,7 @@ function getManifests() {
           "linkTargetIdParam": "itemid",
           "includeReturnUrlParam": false,
           "enableDiagnostics": true,
+          "excludeFromTabs": false,
           "showRefresh": true,
           "showAdd": true,
           "showEdit": true,
@@ -2810,15 +2811,15 @@ function getManifests() {
           "version": "1.5.1",
           "id": "c07208f0-ea3b-4c1a-9965-ac1b825211a6"
         },
-        "@microsoft/sp-core-library": {
-          "type": "component",
-          "version": "1.5.1",
-          "id": "7263c7d0-1d6a-45ec-8d85-d4d1d234171b"
-        },
         "@microsoft/sp-webpart-base": {
           "type": "component",
           "version": "1.5.1",
           "id": "974a7777-0990-4136-8fa6-95d80114c2e0"
+        },
+        "@microsoft/sp-core-library": {
+          "type": "component",
+          "version": "1.5.1",
+          "id": "7263c7d0-1d6a-45ec-8d85-d4d1d234171b"
         }
       }
     }

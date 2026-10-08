@@ -28,15 +28,19 @@ If the collection is empty, ListControl falls back to the selected SharePoint vi
 
 Lookup values are normalized to their SharePoint display text. Object or JSON-shaped values containing `lookupValue`/`LookupValue` are shown as the readable lookup label rather than raw JSON.
 
-Person/User columns, including **Modified By** (`Editor`) and **Created By** (`Author`), prefer the SharePoint display name or title across uppercase and lowercase response variants. Account name, email, and numeric ID are used only when no display label is available, preventing expanded user metadata from appearing in cells, sorting, grouping, or filters.
+Person/User columns, including **Modified By** (`Editor`) and **Created By** (`Author`), prefer the SharePoint display name or title across uppercase and lowercase response variants. Strict JSON, HTML-encoded JSON, and SharePoint Server's single-quoted serialized person payloads are normalized before display. Account name, email, and numeric ID are used only when no display label is available, preventing expanded user metadata from appearing in cells, sorting, grouping, or filters.
 
 ## Display And Actions
 
 - `pageSize` controls client-side pagination; `0` or blank uses Automatic (50), and the maximum is 100 rows per page.
 - SharePoint rows are cached progressively using paged batches (500 by default, configurable from 100 to 2000). The next batch is prefetched near the cache boundary, page totals show `+` while more rows exist, and client-only filtering, sorting, or grouping completes the cache before totals become final.
 - The interactive column header follows page scrolling while the list is visible, stops at the bottom of the table, and keeps open filter dialogs anchored to their header buttons; horizontal scrolling remains synchronized with the columns.
+- Column filters use field-aware editors: choice and Boolean columns show fixed options, lookup and person columns load selectable values when opened, numeric columns use numeric inputs and comparison operators, and date/date-time columns use appropriate range inputs.
+- Date-time filter inputs use the global time format and minute increment. Time defaults to a 24-hour clock with 5-minute increments; supported increments are 1, 5, 10, and 15 minutes.
 - When the table is wider than its viewport, left/right navigation arrows appear on hover or keyboard focus and move with the visible portion of the list.
+- Group headers remain left-aligned at their configured nesting level when expanded or collapsed, independent of SharePoint host table-cell alignment styles.
 - The view selector, Refresh, Add, Edit, View, Delete, and Link to Item controls can be shown or hidden independently.
+- Attachment columns display a clickable paperclip count. The attachment dialog lists files, previews supported browser formats, and provides an Open link.
 - Link to Item can navigate to the list's default display form or an `.aspx` page discovered from the current site's Site Pages and publishing Pages libraries. It passes the selected ID through a configurable query parameter, can optionally include a return URL, and can open in the same tab, a new tab, a sized new window, or a resizable in-page dialog. The dialog closes from its Close button or embedded callback; releasing a native resize handle does not dismiss it. Previously saved custom target URLs remain available in the dropdown.
 - Body, header, selected-row, alternating-row, table, button, and web-part-container styles are configurable in the property pane.
 - Preset filters and conditional formatting rules can be built in their property-pane designers and stored as JSON. Conditional overrides include background, foreground, font, alignment, border color/type/thickness, and square or rounded corners with a configurable radius.
@@ -86,3 +90,6 @@ Selecting a different list or view can rebuild the column collection. Review cus
 - A dashboard table that highlights status, deadlines, ownership, or exceptions.
 - A paged list linked to a custom details/report page through an item ID query parameter.
 - A wide, read-only results table paired with Full Width Control.
+# Search Control integration
+
+List Control publishes its instance, list, and typed field metadata as the `searchMetadata` SPFx Dynamic Data property. An SPS Search Control can select this instance and publish an addressed `searchState`; List Control applies that state through its existing client-side filter engine. Clearing or retargeting the Search Control removes only the filter owned by that Dynamic Data source.

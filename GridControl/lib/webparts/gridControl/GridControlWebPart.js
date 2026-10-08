@@ -56,6 +56,7 @@ var strings = require("GridControlWebPartStrings");
 var GridControl_1 = require("./components/GridControl");
 var GridDesigner_1 = require("./components/GridDesigner");
 var deterministicFullWidth_1 = require("../shared/deterministicFullWidth");
+var overrideCss_1 = require("../shared/overrideCss");
 var packageSolutionConfig = require('../../../config/package-solution.json');
 function escapeODataText(value) {
     return value.replace(/'/g, "''");
@@ -98,6 +99,7 @@ var GridControlWebPart = (function (_super) {
         _this._siteGroups = [];
         _this._selectedItemId = 0;
         _this._selectedMode = 'view';
+        _this._searchResultCount = 0;
         _this._filterJsonValidationMessage = '';
         _this._filterDesignerMessage = '';
         _this._showFilterExpressionHelp = false;
@@ -107,6 +109,7 @@ var GridControlWebPart = (function (_super) {
         _this._isEditingConditionalStyle = false;
         _this._conditionalStyleDesignerRevision = 0;
         _this._fieldTypeByInternalName = {};
+        _this._fieldDisplayFormatByInternalName = {};
         _this._fieldChoicesByInternalName = {};
         _this._fieldLookupListByInternalName = {};
         _this._filterLookupItemOptions = [];
@@ -114,6 +117,10 @@ var GridControlWebPart = (function (_super) {
         _this._filterLookupMessage = '';
         _this._conditionalStyleLookupMessage = '';
         _this._isGridDesignerOpen = false;
+        _this._externalSearchFilterJson = '';
+        _this._searchSourceHandlers = {};
+        _this._searchSourceDiscoveryTimer = 0;
+        _this._searchSourceDiscoveryAttempts = 0;
         _this.onPropertyPaneFieldChanged = _this.onPropertyPaneFieldChanged.bind(_this);
         return _this;
     }
@@ -159,6 +166,16 @@ var GridControlWebPart = (function (_super) {
                 id: 'selectedMode',
                 title: strings.DynamicPropertySelectedModeTitle,
                 description: strings.DynamicPropertySelectedModeDescription,
+            },
+            {
+                id: 'searchMetadata',
+                title: 'Search metadata',
+                description: 'List and field metadata for connected Search Control web parts.',
+            },
+            {
+                id: 'searchResultCount',
+                title: 'Search result count',
+                description: 'Number of items remaining after the current filters are applied.',
             }
         ];
     };
@@ -175,10 +192,18 @@ var GridControlWebPart = (function (_super) {
         if (propertyId === 'selectedMode') {
             return this._selectedMode;
         }
+        if (propertyId === 'searchMetadata') {
+            return this.getSearchMetadata();
+        }
+        if (propertyId === 'searchResultCount') {
+            return this._searchResultCount;
+        }
         throw new Error('Bad property id');
     };
     GridControlWebPart.prototype.render = function () {
         var _this = this;
+        this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+        overrideCss_1.applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
         deterministicFullWidth_1.updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
         if (this._isGridDesignerOpen) {
             var designerElement = React.createElement(GridDesigner_1.GridDesigner, {
@@ -186,6 +211,7 @@ var GridControlWebPart = (function (_super) {
                 listName: this.properties.listName || '',
                 viewId: this.properties.viewId || '',
                 schemaJson: this.properties.gridSchemaJson || '',
+                enableDiagnostics: this.properties.enableDiagnostics !== false,
                 onSave: function (schemaJson) { return _this.saveGridDesign(schemaJson); },
                 onCancel: function () { return _this.closeGridDesigner(); }
             });
@@ -202,16 +228,16 @@ var GridControlWebPart = (function (_super) {
             pageSize: normalizePageSize(this.properties.pageSize),
             fetchBatchSize: normalizeFetchBatchSize(this.properties.fetchBatchSize),
             isEditMode: this.displayMode === sp_core_library_1.DisplayMode.Edit,
-            showViewSelector: this.properties.showViewSelector !== false,
+            showViewSelector: this.properties.showViewSelector === true,
             showViewAsDropdown: this.properties.showViewAsDropdown !== false,
             showRefresh: this.properties.showRefresh !== false,
             showAdd: this.properties.showAdd !== false,
             showDelete: this.properties.showDelete !== false,
             showHistory: this.properties.showHistory !== false,
             historyAvailable: this.isSelectedListVersioningEnabled(),
-            actionButtonsPosition: this.properties.actionButtonsPosition === 'beginning' ? 'beginning' : 'end',
-            buttonDisplayMode: this.properties.buttonDisplayMode === 'icon' || this.properties.buttonDisplayMode === 'iconText'
-                ? this.properties.buttonDisplayMode : 'text',
+            actionButtonsPosition: this.properties.actionButtonsPosition === 'end' ? 'end' : 'beginning',
+            buttonDisplayMode: this.properties.buttonDisplayMode === 'text' || this.properties.buttonDisplayMode === 'iconText'
+                ? this.properties.buttonDisplayMode : 'icon',
             readSecurityGroupId: this.properties.readSecurityGroupId || '',
             editSecurityGroupId: this.properties.editSecurityGroupId || '',
             readAccessDeniedMessage: this.properties.readAccessDeniedMessage || strings.RuntimeReadAccessDenied,
@@ -232,6 +258,8 @@ var GridControlWebPart = (function (_super) {
             dateCustomFormat: this.properties.dateCustomFormat || '',
             dateCustomFormatCase: this.properties.dateCustomFormatCase || 'default',
             timeDisplayFormat: this.properties.timeDisplayFormat || '24hour',
+            timeMinuteIncrement: [1, 5, 10, 15].indexOf(parseInt(String(this.properties.timeMinuteIncrement || '5'), 10)) >= 0
+                ? parseInt(String(this.properties.timeMinuteIncrement || '5'), 10) : 5,
             timeCustomFormat: this.properties.timeCustomFormat || '',
             timeCustomFormatCase: this.properties.timeCustomFormatCase || 'default',
             selectedTextColor: this.properties.selectedTextColor || '',
@@ -267,8 +295,10 @@ var GridControlWebPart = (function (_super) {
             webpartBorderColor: this.properties.webpartBorderColor || '#ccc',
             webpartBorderWidth: this.properties.webpartBorderWidth || 0,
             filterJson: this.properties.filterJson || '',
+            externalFilterJson: this._externalSearchFilterJson,
             conditionalStyleJson: this.properties.conditionalStyleJson || '',
-            onSelectionChange: function (itemId, mode) { return _this.handleSelectionChange(itemId, mode); }
+            onSelectionChange: function (itemId, mode) { return _this.handleSelectionChange(itemId, mode); },
+            onFilteredCountChange: function (count) { return _this.handleFilteredCountChange(count); }
         });
         ReactDom.render(element, this.domElement);
     };
@@ -277,6 +307,7 @@ var GridControlWebPart = (function (_super) {
         this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
         this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
         this.initializeDynamicDataSource();
+        this.discoverSearchSources();
         return Promise.all([this.loadLists(), this.loadSitePages(), this.loadSiteGroups()]).then(function () {
             _this.logDiagnostic('List metadata loaded. Count=' + String(_this._lists.length));
             if (_this.properties.listName) {
@@ -403,6 +434,7 @@ var GridControlWebPart = (function (_super) {
                         if (!listName) {
                             this._listFields = [];
                             this._fieldTypeByInternalName = {};
+                            this._fieldDisplayFormatByInternalName = {};
                             this._fieldChoicesByInternalName = {};
                             this._fieldLookupListByInternalName = {};
                             this.context.propertyPane.refresh();
@@ -412,7 +444,7 @@ var GridControlWebPart = (function (_super) {
                     case 1:
                         _a.trys.push([1, 3, , 4]);
                         endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
                         return [4 /*yield*/, this.getJsonWithAcceptFallback(endpoint)];
                     case 2:
                         data = _a.sent();
@@ -421,6 +453,7 @@ var GridControlWebPart = (function (_super) {
                             fields = data && data.d && data.d.results ? data.d.results : [];
                         }
                         this._fieldTypeByInternalName = {};
+                        this._fieldDisplayFormatByInternalName = {};
                         this._fieldChoicesByInternalName = {};
                         this._fieldLookupListByInternalName = {};
                         fields.forEach(function (field) {
@@ -429,6 +462,9 @@ var GridControlWebPart = (function (_super) {
                                 return;
                             }
                             _this._fieldTypeByInternalName[fieldInternalName] = String(field.TypeAsString || '').toLowerCase();
+                            if (field.DisplayFormat !== undefined && field.DisplayFormat !== null) {
+                                _this._fieldDisplayFormatByInternalName[fieldInternalName] = Number(field.DisplayFormat);
+                            }
                             var rawChoices = field.Choices;
                             _this._fieldChoicesByInternalName[fieldInternalName] = Array.isArray(rawChoices)
                                 ? rawChoices.map(function (choice) { return String(choice); })
@@ -719,8 +755,91 @@ var GridControlWebPart = (function (_super) {
         this.render();
     };
     GridControlWebPart.prototype.onDispose = function () {
+        this.unregisterSearchSources();
         deterministicFullWidth_1.releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
         ReactDom.unmountComponentAtNode(this.domElement);
+    };
+    GridControlWebPart.prototype.getSearchMetadata = function () {
+        var _this = this;
+        return {
+            instanceId: this.context.instanceId,
+            instanceName: String(this.properties.instanceName || '').trim() || strings.DynamicSourceTitle,
+            controlType: 'grid',
+            listName: String(this.properties.listName || ''),
+            fields: this._listFields.map(function (option) {
+                var internalName = String(option.key || '');
+                return {
+                    internalName: internalName,
+                    title: String(option.text || internalName),
+                    typeAsString: _this._fieldTypeByInternalName[internalName] || _this._fieldTypeByInternalName[internalName.toLowerCase()] || 'Text',
+                    dateOnly: _this._fieldDisplayFormatByInternalName[internalName] === 0
+                        || _this._fieldDisplayFormatByInternalName[internalName.toLowerCase()] === 0,
+                    choices: _this._fieldChoicesByInternalName[internalName] || _this._fieldChoicesByInternalName[internalName.toLowerCase()] || [],
+                    lookupList: _this._fieldLookupListByInternalName[internalName] || _this._fieldLookupListByInternalName[internalName.toLowerCase()] || ''
+                };
+            })
+        };
+    };
+    GridControlWebPart.prototype.discoverSearchSources = function () {
+        var _this = this;
+        var provider = this.context.dynamicDataProvider || this.context._dynamicDataProvider;
+        if (!provider || !provider.getAvailableSources) {
+            return;
+        }
+        var sources = provider.getAvailableSources() || [];
+        for (var index = 0; index < sources.length; index += 1) {
+            var source = sources[index];
+            var alias = String(source && source.metadata && source.metadata.alias || '').toLowerCase();
+            var sourceId = String(source && source.id || '');
+            if (alias !== 'searchcontrolwebpart' || !sourceId || this._searchSourceHandlers[sourceId]) {
+                continue;
+            }
+            var handler = this.createSearchSourceHandler(source);
+            this._searchSourceHandlers[sourceId] = handler;
+            if (provider.registerSourceChanged) {
+                provider.registerSourceChanged(sourceId, handler);
+            }
+            this.applySearchSource(source);
+        }
+        this._searchSourceDiscoveryAttempts += 1;
+        this._searchSourceDiscoveryTimer = window.setTimeout(function () { return _this.discoverSearchSources(); }, 1000);
+    };
+    GridControlWebPart.prototype.createSearchSourceHandler = function (source) {
+        var _this = this;
+        return function () { return _this.applySearchSource(source); };
+    };
+    GridControlWebPart.prototype.applySearchSource = function (source) {
+        try {
+            var state = source && source.getPropertyValue ? source.getPropertyValue('searchState') : undefined;
+            if (!state || String(state.targetInstanceId || '').toLowerCase() !== String(this.context.instanceId || '').toLowerCase()) {
+                return;
+            }
+            var nextFilter = String(state.filterJson || '');
+            if (nextFilter === this._externalSearchFilterJson) {
+                return;
+            }
+            this._externalSearchFilterJson = nextFilter;
+            this.logDiagnostic('Applied Search Control filter from source ' + String(source.id || '') + '.');
+            this.render();
+        }
+        catch (error) {
+            console.error('[GridControlWebPart] Failed to apply Search Control Dynamic Data.', error);
+        }
+    };
+    GridControlWebPart.prototype.unregisterSearchSources = function () {
+        if (this._searchSourceDiscoveryTimer) {
+            window.clearTimeout(this._searchSourceDiscoveryTimer);
+            this._searchSourceDiscoveryTimer = 0;
+        }
+        var provider = this.context.dynamicDataProvider || this.context._dynamicDataProvider;
+        var sourceId;
+        for (sourceId in this._searchSourceHandlers) {
+            if (Object.prototype.hasOwnProperty.call(this._searchSourceHandlers, sourceId)
+                && provider && provider.unregisterSourceChanged) {
+                provider.unregisterSourceChanged(sourceId, this._searchSourceHandlers[sourceId]);
+            }
+        }
+        this._searchSourceHandlers = {};
     };
     Object.defineProperty(GridControlWebPart.prototype, "dataVersion", {
         get: function () {
@@ -730,6 +849,7 @@ var GridControlWebPart = (function (_super) {
         configurable: true
     });
     GridControlWebPart.prototype.getPropertyPaneConfiguration = function () {
+        var _this = this;
         var fontFamilyOptions = this.getFontFamilyOptions();
         var fontStyleOptions = this.getFontStyleOptions();
         var fullVersionLabel = 'Version: ' + this.getWebPartVersion();
@@ -893,9 +1013,9 @@ var GridControlWebPart = (function (_super) {
                                 }),
                                 sp_webpart_base_1.PropertyPaneCheckbox('showViewSelector', {
                                     text: strings.PropShowViewSelectorLabel,
-                                    checked: this.properties.showViewSelector !== false
+                                    checked: this.properties.showViewSelector === true
                                 })
-                            ].concat((this.properties.showViewSelector !== false ? [
+                            ].concat((this.properties.showViewSelector === true ? [
                                 sp_webpart_base_1.PropertyPaneCheckbox('showViewAsDropdown', {
                                     text: strings.PropShowViewAsDropdownLabel,
                                     checked: this.properties.showViewAsDropdown !== false
@@ -955,7 +1075,7 @@ var GridControlWebPart = (function (_super) {
                                         { key: 'beginning', text: strings.PropActionButtonsPositionBeginning },
                                         { key: 'end', text: strings.PropActionButtonsPositionEnd }
                                     ],
-                                    selectedKey: this.properties.actionButtonsPosition === 'beginning' ? 'beginning' : 'end'
+                                    selectedKey: this.properties.actionButtonsPosition === 'end' ? 'end' : 'beginning'
                                 }),
                                 sp_webpart_base_1.PropertyPaneDropdown('buttonDisplayMode', {
                                     label: strings.PropButtonDisplayModeLabel,
@@ -964,8 +1084,8 @@ var GridControlWebPart = (function (_super) {
                                         { key: 'iconText', text: strings.PropButtonDisplayModeIconText },
                                         { key: 'icon', text: strings.PropButtonDisplayModeIcon }
                                     ],
-                                    selectedKey: this.properties.buttonDisplayMode === 'icon' || this.properties.buttonDisplayMode === 'iconText'
-                                        ? this.properties.buttonDisplayMode : 'text'
+                                    selectedKey: this.properties.buttonDisplayMode === 'text' || this.properties.buttonDisplayMode === 'iconText'
+                                        ? this.properties.buttonDisplayMode : 'icon'
                                 })
                             ])
                         },
@@ -1091,7 +1211,19 @@ var GridControlWebPart = (function (_super) {
                                     ],
                                     selectedKey: this.properties.timeCustomFormatCase || 'default'
                                 })
-                            ] : []))
+                            ] : []), [
+                                sp_webpart_base_1.PropertyPaneDropdown('timeMinuteIncrement', {
+                                    label: strings.PropTimeMinuteIncrementLabel,
+                                    options: [
+                                        { key: 1, text: 'Every 1 minute' },
+                                        { key: 5, text: 'Every 5 minutes' },
+                                        { key: 10, text: 'Every 10 minutes' },
+                                        { key: 15, text: 'Every 15 minutes' }
+                                    ],
+                                    selectedKey: [1, 5, 10, 15].indexOf(parseInt(String(this.properties.timeMinuteIncrement || '5'), 10)) >= 0
+                                        ? parseInt(String(this.properties.timeMinuteIncrement || '5'), 10) : 5
+                                })
+                            ])
                         },
                         {
                             groupName: strings.PropertyGroupSelectedStyle,
@@ -1350,6 +1482,16 @@ var GridControlWebPart = (function (_super) {
                         {
                             groupName: 'Diagnostics',
                             groupFields: [
+                                overrideCss_1.PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, function (newValue) {
+                                    var oldValue = _this.properties.overrideCssUrl || '';
+                                    _this.properties.overrideCssUrl = newValue;
+                                    _this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                                    _this.render();
+                                }),
+                                sp_webpart_base_1.PropertyPaneCheckbox('excludeFromTabs', {
+                                    text: 'Exclude this web part from SPS Tabs',
+                                    checked: this.properties.excludeFromTabs === true
+                                }),
                                 sp_webpart_base_1.PropertyPaneCheckbox('enableDiagnostics', {
                                     text: strings.PropEnableDiagnosticsLabel,
                                     checked: this.properties.enableDiagnostics !== false
@@ -2400,6 +2542,13 @@ var GridControlWebPart = (function (_super) {
         this.notifyDynamicData('selectedItemId');
         this.notifyDynamicData('selectedMode');
         this.render();
+    };
+    GridControlWebPart.prototype.handleFilteredCountChange = function (count) {
+        if (count === this._searchResultCount) {
+            return;
+        }
+        this._searchResultCount = count;
+        this.notifyDynamicData('searchResultCount');
     };
     GridControlWebPart.prototype.getJsonWithAcceptFallback = function (url) {
         return __awaiter(this, void 0, void 0, function () {

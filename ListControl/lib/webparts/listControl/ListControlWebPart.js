@@ -56,6 +56,7 @@ var strings = require("ListControlWebPartStrings");
 var ListControl_1 = require("./components/ListControl");
 var ListDesigner_1 = require("./components/ListDesigner");
 var deterministicFullWidth_1 = require("../shared/deterministicFullWidth");
+var overrideCss_1 = require("../shared/overrideCss");
 var packageSolutionConfig = require('../../../config/package-solution.json');
 function escapeODataText(value) {
     return value.replace(/'/g, "''");
@@ -97,6 +98,7 @@ var ListControlWebPart = (function (_super) {
         _this._isListDesignerOpen = false;
         _this._selectedItemId = 0;
         _this._selectedMode = 'view';
+        _this._searchResultCount = 0;
         _this._filterJsonValidationMessage = '';
         _this._filterDesignerMessage = '';
         _this._showFilterExpressionHelp = false;
@@ -106,12 +108,17 @@ var ListControlWebPart = (function (_super) {
         _this._isEditingConditionalStyle = false;
         _this._conditionalStyleDesignerRevision = 0;
         _this._fieldTypeByInternalName = {};
+        _this._fieldDisplayFormatByInternalName = {};
         _this._fieldChoicesByInternalName = {};
         _this._fieldLookupListByInternalName = {};
         _this._filterLookupItemOptions = [];
         _this._conditionalStyleLookupItemOptions = [];
         _this._filterLookupMessage = '';
         _this._conditionalStyleLookupMessage = '';
+        _this._externalSearchFilterJson = '';
+        _this._searchSourceHandlers = {};
+        _this._searchSourceDiscoveryTimer = 0;
+        _this._searchSourceDiscoveryAttempts = 0;
         _this.onPropertyPaneFieldChanged = _this.onPropertyPaneFieldChanged.bind(_this);
         return _this;
     }
@@ -157,6 +164,16 @@ var ListControlWebPart = (function (_super) {
                 id: 'selectedMode',
                 title: strings.DynamicPropertySelectedModeTitle,
                 description: strings.DynamicPropertySelectedModeDescription,
+            },
+            {
+                id: 'searchMetadata',
+                title: 'Search metadata',
+                description: 'List and field metadata for connected Search Control web parts.',
+            },
+            {
+                id: 'searchResultCount',
+                title: 'Search result count',
+                description: 'Number of items remaining after the current filters are applied.',
             }
         ];
     };
@@ -173,10 +190,18 @@ var ListControlWebPart = (function (_super) {
         if (propertyId === 'selectedMode') {
             return this._selectedMode;
         }
+        if (propertyId === 'searchMetadata') {
+            return this.getSearchMetadata();
+        }
+        if (propertyId === 'searchResultCount') {
+            return this._searchResultCount;
+        }
         throw new Error('Bad property id');
     };
     ListControlWebPart.prototype.render = function () {
         var _this = this;
+        this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+        overrideCss_1.applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
         deterministicFullWidth_1.updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
         if (this._isListDesignerOpen) {
             var designerElement = React.createElement(ListDesigner_1.ListDesigner, {
@@ -185,6 +210,7 @@ var ListControlWebPart = (function (_super) {
                 viewId: this.properties.viewId || '',
                 viewColumns: this.properties.viewColumns || [],
                 groupingJson: this.properties.groupingJson || '',
+                enableDiagnostics: this.properties.enableDiagnostics !== false,
                 onSave: function (columns, groupingJson) { return _this.saveListDesign(columns, groupingJson); },
                 onCancel: function () { return _this.closeListDesigner(); }
             });
@@ -225,6 +251,8 @@ var ListControlWebPart = (function (_super) {
             dateCustomFormat: this.properties.dateCustomFormat || '',
             dateCustomFormatCase: this.properties.dateCustomFormatCase || 'default',
             timeDisplayFormat: this.properties.timeDisplayFormat || '24hour',
+            timeMinuteIncrement: [1, 5, 10, 15].indexOf(parseInt(String(this.properties.timeMinuteIncrement || '5'), 10)) >= 0
+                ? parseInt(String(this.properties.timeMinuteIncrement || '5'), 10) : 5,
             timeCustomFormat: this.properties.timeCustomFormat || '',
             timeCustomFormatCase: this.properties.timeCustomFormatCase || 'default',
             selectedTextColor: this.properties.selectedTextColor || '',
@@ -262,8 +290,10 @@ var ListControlWebPart = (function (_super) {
             webpartBorderColor: this.properties.webpartBorderColor || '#ccc',
             webpartBorderWidth: this.properties.webpartBorderWidth || 0,
             filterJson: this.properties.filterJson || '',
+            externalFilterJson: this._externalSearchFilterJson,
             conditionalStyleJson: this.properties.conditionalStyleJson || '',
-            onSelectionChange: function (itemId, mode) { return _this.handleSelectionChange(itemId, mode); }
+            onSelectionChange: function (itemId, mode) { return _this.handleSelectionChange(itemId, mode); },
+            onFilteredCountChange: function (count) { return _this.handleFilteredCountChange(count); }
         });
         ReactDom.render(element, this.domElement);
     };
@@ -272,6 +302,7 @@ var ListControlWebPart = (function (_super) {
         this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
         this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
         this.initializeDynamicDataSource();
+        this.discoverSearchSources();
         return Promise.all([this.loadLists(), this.loadSitePages()]).then(function () {
             _this.logDiagnostic('List metadata loaded. Count=' + String(_this._lists.length));
             if (_this.properties.listName) {
@@ -405,6 +436,7 @@ var ListControlWebPart = (function (_super) {
                         if (!listName) {
                             this._listFields = [];
                             this._fieldTypeByInternalName = {};
+                            this._fieldDisplayFormatByInternalName = {};
                             this._fieldChoicesByInternalName = {};
                             this._fieldLookupListByInternalName = {};
                             this.context.propertyPane.refresh();
@@ -414,7 +446,7 @@ var ListControlWebPart = (function (_super) {
                     case 1:
                         _a.trys.push([1, 3, , 4]);
                         endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
                         return [4 /*yield*/, this.getJsonWithAcceptFallback(endpoint)];
                     case 2:
                         data = _a.sent();
@@ -423,6 +455,7 @@ var ListControlWebPart = (function (_super) {
                             fields = data && data.d && data.d.results ? data.d.results : [];
                         }
                         this._fieldTypeByInternalName = {};
+                        this._fieldDisplayFormatByInternalName = {};
                         this._fieldChoicesByInternalName = {};
                         this._fieldLookupListByInternalName = {};
                         fields.forEach(function (field) {
@@ -431,6 +464,9 @@ var ListControlWebPart = (function (_super) {
                                 return;
                             }
                             _this._fieldTypeByInternalName[fieldInternalName] = String(field.TypeAsString || '').toLowerCase();
+                            if (field.DisplayFormat !== undefined && field.DisplayFormat !== null) {
+                                _this._fieldDisplayFormatByInternalName[fieldInternalName] = Number(field.DisplayFormat);
+                            }
                             var rawChoices = field.Choices;
                             _this._fieldChoicesByInternalName[fieldInternalName] = Array.isArray(rawChoices)
                                 ? rawChoices.map(function (choice) { return String(choice); })
@@ -721,8 +757,91 @@ var ListControlWebPart = (function (_super) {
         this.render();
     };
     ListControlWebPart.prototype.onDispose = function () {
+        this.unregisterSearchSources();
         deterministicFullWidth_1.releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
         ReactDom.unmountComponentAtNode(this.domElement);
+    };
+    ListControlWebPart.prototype.getSearchMetadata = function () {
+        var _this = this;
+        return {
+            instanceId: this.context.instanceId,
+            instanceName: String(this.properties.instanceName || '').trim() || strings.DynamicSourceTitle,
+            controlType: 'list',
+            listName: String(this.properties.listName || ''),
+            fields: this._listFields.map(function (option) {
+                var internalName = String(option.key || '');
+                return {
+                    internalName: internalName,
+                    title: String(option.text || internalName),
+                    typeAsString: _this._fieldTypeByInternalName[internalName] || _this._fieldTypeByInternalName[internalName.toLowerCase()] || 'Text',
+                    dateOnly: _this._fieldDisplayFormatByInternalName[internalName] === 0
+                        || _this._fieldDisplayFormatByInternalName[internalName.toLowerCase()] === 0,
+                    choices: _this._fieldChoicesByInternalName[internalName] || _this._fieldChoicesByInternalName[internalName.toLowerCase()] || [],
+                    lookupList: _this._fieldLookupListByInternalName[internalName] || _this._fieldLookupListByInternalName[internalName.toLowerCase()] || ''
+                };
+            })
+        };
+    };
+    ListControlWebPart.prototype.discoverSearchSources = function () {
+        var _this = this;
+        var provider = this.context.dynamicDataProvider || this.context._dynamicDataProvider;
+        if (!provider || !provider.getAvailableSources) {
+            return;
+        }
+        var sources = provider.getAvailableSources() || [];
+        for (var index = 0; index < sources.length; index += 1) {
+            var source = sources[index];
+            var alias = String(source && source.metadata && source.metadata.alias || '').toLowerCase();
+            var sourceId = String(source && source.id || '');
+            if (alias !== 'searchcontrolwebpart' || !sourceId || this._searchSourceHandlers[sourceId]) {
+                continue;
+            }
+            var handler = this.createSearchSourceHandler(source);
+            this._searchSourceHandlers[sourceId] = handler;
+            if (provider.registerSourceChanged) {
+                provider.registerSourceChanged(sourceId, handler);
+            }
+            this.applySearchSource(source);
+        }
+        this._searchSourceDiscoveryAttempts += 1;
+        this._searchSourceDiscoveryTimer = window.setTimeout(function () { return _this.discoverSearchSources(); }, 1000);
+    };
+    ListControlWebPart.prototype.createSearchSourceHandler = function (source) {
+        var _this = this;
+        return function () { return _this.applySearchSource(source); };
+    };
+    ListControlWebPart.prototype.applySearchSource = function (source) {
+        try {
+            var state = source && source.getPropertyValue ? source.getPropertyValue('searchState') : undefined;
+            if (!state || String(state.targetInstanceId || '').toLowerCase() !== String(this.context.instanceId || '').toLowerCase()) {
+                return;
+            }
+            var nextFilter = String(state.filterJson || '');
+            if (nextFilter === this._externalSearchFilterJson) {
+                return;
+            }
+            this._externalSearchFilterJson = nextFilter;
+            this.logDiagnostic('Applied Search Control filter from source ' + String(source.id || '') + '.');
+            this.render();
+        }
+        catch (error) {
+            console.error('[ListControlWebPart] Failed to apply Search Control Dynamic Data.', error);
+        }
+    };
+    ListControlWebPart.prototype.unregisterSearchSources = function () {
+        if (this._searchSourceDiscoveryTimer) {
+            window.clearTimeout(this._searchSourceDiscoveryTimer);
+            this._searchSourceDiscoveryTimer = 0;
+        }
+        var provider = this.context.dynamicDataProvider || this.context._dynamicDataProvider;
+        var sourceId;
+        for (sourceId in this._searchSourceHandlers) {
+            if (Object.prototype.hasOwnProperty.call(this._searchSourceHandlers, sourceId)
+                && provider && provider.unregisterSourceChanged) {
+                provider.unregisterSourceChanged(sourceId, this._searchSourceHandlers[sourceId]);
+            }
+        }
+        this._searchSourceHandlers = {};
     };
     Object.defineProperty(ListControlWebPart.prototype, "dataVersion", {
         get: function () {
@@ -732,6 +851,7 @@ var ListControlWebPart = (function (_super) {
         configurable: true
     });
     ListControlWebPart.prototype.getPropertyPaneConfiguration = function () {
+        var _this = this;
         var fontFamilyOptions = this.getFontFamilyOptions();
         var fontStyleOptions = this.getFontStyleOptions();
         var fullVersionLabel = 'Version: ' + this.getWebPartVersion();
@@ -1065,7 +1185,19 @@ var ListControlWebPart = (function (_super) {
                                     ],
                                     selectedKey: this.properties.timeCustomFormatCase || 'default'
                                 })
-                            ] : []))
+                            ] : []), [
+                                sp_webpart_base_1.PropertyPaneDropdown('timeMinuteIncrement', {
+                                    label: strings.PropTimeMinuteIncrementLabel,
+                                    options: [
+                                        { key: 1, text: 'Every 1 minute' },
+                                        { key: 5, text: 'Every 5 minutes' },
+                                        { key: 10, text: 'Every 10 minutes' },
+                                        { key: 15, text: 'Every 15 minutes' }
+                                    ],
+                                    selectedKey: [1, 5, 10, 15].indexOf(parseInt(String(this.properties.timeMinuteIncrement || '5'), 10)) >= 0
+                                        ? parseInt(String(this.properties.timeMinuteIncrement || '5'), 10) : 5
+                                })
+                            ])
                         },
                         {
                             groupName: strings.PropertyGroupSelectedStyle,
@@ -1324,6 +1456,16 @@ var ListControlWebPart = (function (_super) {
                         {
                             groupName: 'Diagnostics',
                             groupFields: [
+                                overrideCss_1.PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, function (newValue) {
+                                    var oldValue = _this.properties.overrideCssUrl || '';
+                                    _this.properties.overrideCssUrl = newValue;
+                                    _this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                                    _this.render();
+                                }),
+                                sp_webpart_base_1.PropertyPaneCheckbox('excludeFromTabs', {
+                                    text: 'Exclude this web part from SPS Tabs',
+                                    checked: this.properties.excludeFromTabs === true
+                                }),
                                 sp_webpart_base_1.PropertyPaneCheckbox('enableDiagnostics', {
                                     text: strings.PropEnableDiagnosticsLabel,
                                     checked: this.properties.enableDiagnostics !== false
@@ -2338,6 +2480,13 @@ var ListControlWebPart = (function (_super) {
         this.notifyDynamicData('selectedItemId');
         this.notifyDynamicData('selectedMode');
         this.render();
+    };
+    ListControlWebPart.prototype.handleFilteredCountChange = function (count) {
+        if (count === this._searchResultCount) {
+            return;
+        }
+        this._searchResultCount = count;
+        this.notifyDynamicData('searchResultCount');
     };
     ListControlWebPart.prototype.getJsonWithAcceptFallback = function (url) {
         return __awaiter(this, void 0, void 0, function () {

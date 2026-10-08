@@ -6,11 +6,14 @@ import { PersonGroupModel } from './shared/PersonGroup';
 
 export interface IPersonnelWidgetGroupProps {
     PersonGroup: PersonGroupModel;
+    contactsPerRow: number;
 }
 
 export default class PersonnelWidgetGroup extends React.Component<IPersonnelWidgetGroupProps, {}> {
 
     public render(): React.ReactElement<IPersonnelWidgetGroupProps> {
+        const contactsPerRow: number = Math.max(1, Math.min(4, Number(this.props.contactsPerRow) || 1));
+        const itemClassName: string = styles['contactGridItem' + contactsPerRow];
         return (
             <div className='ms-Grid'>
                 <div className='ms-Grid-row'>
@@ -22,14 +25,12 @@ export default class PersonnelWidgetGroup extends React.Component<IPersonnelWidg
                 </div>
                 <div className='ms-Grid-row'>
                     <div className='ms-Grid-col ms-sm12'>
-                        <div className={styles.personnelFrame}>
+                        <div className={styles.personnelFrame + ' ' + styles.contactGrid}>
                             {
                                 this.props.PersonGroup.personList.map(d => {
                                     return (
-                                        <div className={'ms-Grid-row ' + styles.personnelRow}>
-                                            <div className={'ms-Grid-col ms-sm12'} id={d.Id}>
-                                                <PersonnelWidgetPerson personObject={d} key={d.Id} />
-                                            </div>
+                                        <div className={styles.personnelRow + ' ' + itemClassName} id={d.Id} key={d.Id}>
+                                            <PersonnelWidgetPerson personObject={d} />
                                         </div>
                                     );
                                 })

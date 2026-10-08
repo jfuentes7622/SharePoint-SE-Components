@@ -11,6 +11,14 @@ declare interface ISharePointDynamicFormWebPartStrings {
   PropModeNew: string;
   PropModeEdit: string;
   PropModeView: string;
+  PropTimeDisplayFormatLabel: string;
+  PropTimeDisplayFormat24Hour: string;
+  PropTimeDisplayFormat12Hour: string;
+  PropTimeMinuteIncrementLabel: string;
+  PropTimeMinuteIncrement1: string;
+  PropTimeMinuteIncrement5: string;
+  PropTimeMinuteIncrement10: string;
+  PropTimeMinuteIncrement15: string;
   PropItemIdQueryParamLabel: string;
   PropDynamicItemIdLabel: string;
   PropDynamicSourceNone: string;

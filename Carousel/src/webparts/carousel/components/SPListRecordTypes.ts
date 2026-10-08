@@ -9,7 +9,7 @@ export type carouselSlideRecord = {
   FileRef: string;
   FileLeafRef?: string;
   FSObjType?: number;
-  Display?: string | boolean;
+  Display?: string | boolean | number;
   Expiration?: string;
   StartDate?: string;
   File?: {

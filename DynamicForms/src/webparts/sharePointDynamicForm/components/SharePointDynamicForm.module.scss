@@ -96,6 +96,15 @@
   box-sizing: border-box;
 }
 
+.designerPalettePanel {
+  position: sticky;
+  top: 73px;
+  max-height: calc(100vh - 97px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 .designerPanelSection + .designerPanelSection {
   margin-top: 20px;
 }
@@ -388,5 +397,19 @@
     writing-mode: horizontal-tb !important;
     text-orientation: mixed !important;
     word-break: break-word !important;
+  }
+}
+
+.richTextReadOnly {
+  box-sizing: border-box;
+  overflow: auto;
+  pointer-events: auto;
+  touch-action: pan-x pan-y;
+  user-select: text;
+  -webkit-overflow-scrolling: touch;
+
+  &:focus {
+    outline: 2px solid "[theme:themePrimary, default:#0078d4]";
+    outline-offset: 2px;
   }
 }

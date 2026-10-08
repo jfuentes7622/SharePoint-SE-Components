@@ -23,8 +23,12 @@ import { FormSchema, FormMode } from '../../formEngine/core/types';
 import { SharePointDynamicFormContainer, SharePointDynamicFormContainerProps } from './components/SharePointDynamicForm';
 import { RepeatedReportForms } from './components/RepeatedReportForms';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
+var FORM_ACTIVATION_EVENT = 'spse:form-activation-changed';
+var FORM_ACTIVATION_QUERY_EVENT = 'spse:form-activation-query';
+var STANDALONE_ACTIVATION_DELAY = 500;
 
 export interface ISharePointDynamicFormWebPartProps {
   instanceName?: string;
@@ -53,6 +57,8 @@ export interface ISharePointDynamicFormWebPartProps {
   isInDesignerMode: boolean;
   labelPosition?: 'top' | 'left';
   showFieldDescription?: boolean;
+  excludeFromTabs?: boolean;
+  overrideCssUrl?: string;
   enableDynamicDiagnostics?: boolean;
   // Button configuration
   submitButtonLabel?: string;
@@ -331,6 +337,14 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   private _navigatorRuntimeState: any = {};
   private _navigatorRuntimeSnapshot: string = '';
   private _navigatorHandler?: (event: Event) => void;
+  private _tabManaged: boolean = false;
+  private _tabActive: boolean = true;
+  private _activationResolved: boolean = false;
+  private _activationFallbackTimer: number = 0;
+  private _formActivationHandler?: (event: Event) => void;
+  private _runtimeInitializationStarted: boolean = false;
+  private _runtimeInitializationComplete: boolean = false;
+  private _runtimeInitializationError: string = '';
 
   public get id(): string { return this.context.instanceId; }
 
@@ -375,14 +389,22 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
+    this.domElement.setAttribute('data-spse-form-instance-id', this.context.instanceId);
     var forceFullWidth = this.properties.forceFullWidth === true;
     this.refreshFullWidthLayout();
     this.tryRebindDynamicReferences();
     this.ensureDynamicValueChangeHandler();
-    var navigatorActive = this.displayMode === DisplayMode.Edit || this._navigatorActive;
+    var navigatorActive = this.displayMode === DisplayMode.Edit
+      || (this._activationResolved && this._navigatorActive && (!this._tabManaged || this._tabActive));
     this.domElement.style.display = navigatorActive ? '' : 'none';
     if (!navigatorActive) {
-      ReactDom.unmountComponentAtNode(this.domElement);
+      return;
+    }
+    if (!this._runtimeInitializationComplete) {
+      this.renderInitializationState();
+      this.ensureRuntimeInitialized();
       return;
     }
 
@@ -472,23 +494,124 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this.properties.itemIdQueryParam = normalizeQueryParamName(this.properties.itemIdQueryParam, 'itemid');
     this.initializeDynamicDataSource();
     this.registerNavigator();
+    this.registerFormActivation();
     this.getRuntimeDynamicItemProperty();
     this.getRuntimeDynamicItemModeProperty();
     this.promoteRuntimeDynamicProperties();
     this.enforceAllowedDynamicSources();
     this.registerDynamicSourceChangeHandler();
 
-    return this._getEnvironmentMessage().then(() => {
-      return this.loadLists().then(() => {
-        if (this.properties.listName) {
-          return this.loadListFields(this.properties.listName).then(() => {
-            this.refreshAvailableListControlSources();
-          });
-        }
-        this.refreshAvailableListControlSources();
-        return Promise.resolve();
-      });
+    if (this.displayMode === DisplayMode.Edit) {
+      this._activationResolved = true;
+    } else {
+      this.resolveInitialActivation();
+    }
+    return Promise.resolve();
+  }
+
+  private ensureRuntimeInitialized(): Promise<void> {
+    if (this._runtimeInitializationComplete) { return Promise.resolve(); }
+    if (this._runtimeInitializationStarted) { return Promise.resolve(); }
+    this._runtimeInitializationStarted = true;
+    this._runtimeInitializationError = '';
+    return this._getEnvironmentMessage().then(() => this.loadLists()).then(() => {
+      if (this.properties.listName) {
+        return this.loadListFields(this.properties.listName);
+      }
+      return Promise.resolve();
+    }).then(() => {
+      this.refreshAvailableListControlSources();
+      this._runtimeInitializationComplete = true;
+      this._runtimeInitializationStarted = false;
+      this.render();
+    }).catch((error: any) => {
+      this._runtimeInitializationStarted = false;
+      this._runtimeInitializationError = error && error.message ? error.message : 'The report form could not be initialized.';
+      console.error('[ReportFormsWebPart] Runtime initialization failed.', error);
+      this.render();
     });
+  }
+
+  private renderInitializationState(): void {
+    ReactDom.unmountComponentAtNode(this.domElement);
+    this.domElement.innerHTML = '';
+    var status = document.createElement('div');
+    status.setAttribute('role', this._runtimeInitializationError ? 'alert' : 'status');
+    status.style.padding = '16px';
+    status.style.border = '1px solid ' + (this._runtimeInitializationError ? '#a80000' : '#d2d0ce');
+    status.style.backgroundColor = this._runtimeInitializationError ? '#fde7e9' : '#faf9f8';
+    status.textContent = this._runtimeInitializationError
+      ? 'Unable to load this report form: ' + this._runtimeInitializationError
+      : 'Loading report form...';
+    if (this._runtimeInitializationError) {
+      var retry = document.createElement('button');
+      retry.type = 'button';
+      retry.textContent = 'Retry';
+      retry.style.marginLeft = '12px';
+      retry.onclick = () => {
+        this._runtimeInitializationError = '';
+        this.ensureRuntimeInitialized();
+        this.render();
+      };
+      status.appendChild(retry);
+    }
+    this.domElement.appendChild(status);
+  }
+
+  private resolveInitialActivation(): void {
+    var detail: any = { instanceId: this.context.instanceId, formElement: this.domElement, responses: [] };
+    var event: any;
+    if (typeof CustomEvent === 'function') {
+      event = new CustomEvent(FORM_ACTIVATION_QUERY_EVENT, { detail: detail });
+    } else {
+      event = document.createEvent('CustomEvent');
+      event.initCustomEvent(FORM_ACTIVATION_QUERY_EVENT, false, false, detail);
+    }
+    window.dispatchEvent(event);
+    this.applyActivationResponses(detail.responses || []);
+    if (this._activationResolved) { return; }
+    this._activationFallbackTimer = window.setTimeout(() => {
+      this._activationResolved = true;
+      this.render();
+    }, STANDALONE_ACTIVATION_DELAY);
+  }
+
+  private applyActivationResponses(responses: any[]): void {
+    if (!responses.length) { return; }
+    this._activationResolved = true;
+    for (var index = 0; index < responses.length; index += 1) {
+      if (responses[index].controllerType === 'tab') {
+        this._tabManaged = true;
+        this._tabActive = responses[index].active === true;
+      } else if (responses[index].controllerType === 'navigator') {
+        this._navigatorActive = responses[index].active === true;
+      }
+    }
+  }
+
+  private registerFormActivation(): void {
+    if (typeof window === 'undefined' || this._formActivationHandler) { return; }
+    this._formActivationHandler = (event: Event) => {
+      var detail: any = (event as any).detail || {};
+      if (detail.controllerType !== 'tab' || !Array.isArray(detail.controlledZones)) { return; }
+      var managed = false;
+      for (var index = 0; index < detail.controlledZones.length; index += 1) {
+        if (detail.controlledZones[index].contains(this.domElement)) {
+          managed = true;
+          this._tabActive = detail.controlledZones[index] === detail.activeZone;
+          break;
+        }
+      }
+      if (!managed) { return; }
+      this._tabManaged = true;
+      this._activationResolved = true;
+      if (this._activationFallbackTimer) {
+        window.clearTimeout(this._activationFallbackTimer);
+        this._activationFallbackTimer = 0;
+      }
+      this.render();
+    };
+    window.addEventListener(FORM_ACTIVATION_EVENT, this._formActivationHandler);
   }
 
   protected onPropertyPaneConfigurationStart(): void {
@@ -1479,6 +1602,15 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this.unregisterDynamicValueChangeHandler();
     this.unregisterDynamicSourceChangeHandler();
     this.unregisterNavigator();
+    if (this._formActivationHandler) {
+      window.removeEventListener(FORM_ACTIVATION_EVENT, this._formActivationHandler);
+      this._formActivationHandler = undefined;
+    }
+    if (this._activationFallbackTimer) {
+      window.clearTimeout(this._activationFallbackTimer);
+      this._activationFallbackTimer = 0;
+    }
+    this.domElement.removeAttribute('data-spse-form-instance-id');
     this.domElement.style.display = '';
     releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
     ReactDom.unmountComponentAtNode(this.domElement);
@@ -1544,11 +1676,13 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
           return String(instanceId || '').replace(/[{}]/g, '').toLowerCase() === currentId;
         });
         if (!isManaged) { return; }
+        this._activationResolved = true;
         this._navigatorActive = false;
         this.render();
         this.handleRuntimeStateChanged(this._navigatorRuntimeState);
         return;
       }
+      this._activationResolved = true;
       this._navigatorActive = true;
       detail.handled = true;
       this.render();
@@ -2901,6 +3035,16 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                   onText: strings.PropToggleOn,
                   offText: strings.PropToggleOff,
                   checked: this.properties.showFieldDescription,
+                }),
+                PropertyPaneCheckbox('excludeFromTabs', {
+                  text: 'Exclude this web part from SPS Tabs',
+                  checked: this.properties.excludeFromTabs === true
+                }),
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                  var oldValue = this.properties.overrideCssUrl || '';
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
                 }),
                 PropertyPaneToggle('enableDynamicDiagnostics', {
                   label: strings.PropEnableDynamicDiagnosticsLabel,

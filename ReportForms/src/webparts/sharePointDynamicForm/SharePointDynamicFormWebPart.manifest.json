@@ -38,7 +38,8 @@
       "isInDesignerMode": false,
       "labelPosition": "top",
       "showFieldDescription": false,
-      "enableDynamicDiagnostics": true
+      "enableDynamicDiagnostics": true,
+      "excludeFromTabs": false
     }
   }]
 }

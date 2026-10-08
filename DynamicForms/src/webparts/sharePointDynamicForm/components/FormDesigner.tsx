@@ -5,6 +5,7 @@ import styles from './SharePointDynamicForm.module.scss';
 import { ConditionalFieldRule, FormField, FormSchema, FormStep, SPFieldInfo, SPFieldType, FieldConfig, FieldType } from '../../../formEngine/core/types';
 import * as strings from 'SharePointDynamicFormWebPartStrings';
 import { RichTextEditor } from './RichTextEditor';
+import { DateTime24HourInput } from './DateTime24HourInput';
 
 type SPFxContext = any;
 
@@ -12,6 +13,9 @@ export interface FormDesignerProps {
   schema: FormSchema;
   context: SPFxContext;
   listName: string;
+  timeDisplayFormat: '24hour' | '12hour';
+  timeMinuteIncrement: number;
+  enableDiagnostics?: boolean;
   onChange: (schema: FormSchema) => void;
 }
 
@@ -304,33 +308,48 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
   }
 
   private async getWithAcceptFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=verbose'
         }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=minimalmetadata'
         }
       });
+      this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=nometadata'
         }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
     }
 
     return response;
+  }
+
+  private logDiagnostic(message: string): void {
+    if (this.props.enableDiagnostics === false) {
+      return;
+    }
+    console.log('[FormDesigner] ' + message);
   }
 
   private async loadFields(): Promise<void> {
@@ -1391,7 +1410,12 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
     var availableFields = this.getAvailableFields();
 
     return (
-      <div className={styles.designerPanel}>
+      <div
+        className={styles.designerPanel + ' ' + styles.designerPalettePanel}
+        role="region"
+        aria-label={strings.DesignerCustomFields + ' / ' + strings.DesignerSPFields}
+        tabIndex={0}
+      >
         <div className={styles.designerPanelSection}>
           <div className={styles.designerPanelTitle}>{strings.DesignerCustomFields}</div>
           <div className={styles.designerPanelHint}>{strings.DesignerCustomFieldsDesc}</div>
@@ -2167,16 +2191,31 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
                 </div>
               )}
               <label className={styles.designerFormLabel}>{strings.PropertyPanelDefaultDateTime}</label>
-              <input
-                className={styles.designerInput}
-                type={field.config && field.config.displayFormat === 'dateOnly' ? 'date' : field.config && field.config.displayFormat === 'timeOnly' ? 'time' : 'datetime-local'}
-                value={scalarDefault}
-                title={strings.PropertyPanelDefaultDateTime}
-                onChange={(ev) => this.updateSelectedField(function(nextField) {
-                  nextField.defaultValue = ev.currentTarget.value;
-                  return nextField;
-                })}
-              />
+              {this.props.timeDisplayFormat !== '12hour' && (!field.config || field.config.displayFormat !== 'dateOnly') ? (
+                <DateTime24HourInput
+                  value={scalarDefault}
+                  displayFormat={field.config && field.config.displayFormat === 'timeOnly' ? 'timeOnly' : 'dateTime'}
+                  minuteIncrement={this.props.timeMinuteIncrement}
+                  ariaLabel={strings.PropertyPanelDefaultDateTime}
+                  onChange={(nextValue) => this.updateSelectedField(function(nextField) {
+                    nextField.defaultValue = nextValue;
+                    return nextField;
+                  })}
+                />
+              ) : (
+                <input
+                  className={styles.designerInput}
+                  type={field.config && field.config.displayFormat === 'dateOnly' ? 'date' : field.config && field.config.displayFormat === 'timeOnly' ? 'time' : 'datetime-local'}
+                  value={scalarDefault}
+                  title={strings.PropertyPanelDefaultDateTime}
+                  lang={this.props.timeDisplayFormat === '12hour' ? 'en-US' : 'en-GB'}
+                  step={field.config && field.config.displayFormat === 'dateOnly' ? undefined : String(this.props.timeMinuteIncrement * 60)}
+                  onChange={(ev) => this.updateSelectedField(function(nextField) {
+                    nextField.defaultValue = ev.currentTarget.value;
+                    return nextField;
+                  })}
+                />
+              )}
             </div>
           )}
 

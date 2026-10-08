@@ -19,6 +19,7 @@
       "carouselSlideInterval": 5000,
       "carouselWidth": 500,
       "carouselHeight": 0,
+      "carouselViewId": "",
       "carouselTransitionInterval": 1500,
       "slideTitleField": "Title",
       "slideDescriptionField": "",
@@ -61,7 +62,8 @@
       "slideLinkFontBold": true,
       "slideLinkAlignment": "left",
       "slideCaptionBackgroundColor": "rgba(0,0,0,0.65)",
-      "slideCaptionPadding": 12
+      "slideCaptionPadding": 12,
+      "excludeFromTabs": false
     }
   }]
 }

@@ -90,6 +90,8 @@ DateTime fields support three per-field display formats:
 
 DateTime and Time Only fields can interpret values as **UTC (Zulu)** or **Local browser time**. UTC is the default when `timeZone` is not set. Existing forms that require the previous browser-local interpretation should select Local browser time for those fields.
 
+The web part's global time-entry settings apply to every DateTime and Time Only field, including designer default-value inputs. Time entry defaults to a 24-hour clock with 5-minute increments; authors can select a 12-hour clock and 1, 5, 10, or 15-minute increments.
+
 ### Permission Messages
 
 The designer's **Form messages** settings include a single customizable permission-denied message. It is used consistently when access is denied based on the form list, a lookup list, or a lookup item, and when a submission is blocked by the same permission check.

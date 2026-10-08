@@ -9,6 +9,7 @@ export interface ICarouselProps {
   carouselSlideItems: Array<SlideItemModel>;
   carouselTransitionInterval: string;
   carouselSlideLibrary: string;
+  carouselViewId: string;
   slideTitleField: string;
   slideDescriptionField: string;
   slideLinkField: string;

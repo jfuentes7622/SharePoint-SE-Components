@@ -1,0 +1,39 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "815c93ef-b0db-4bae-ac37-20994b7be23a",
+  "alias": "SearchControlWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+    "group": { "default": "SPS" },
+    "title": { "default": "SPS Search Control" },
+    "description": { "default": "Search and filter a connected SPS List Control or Grid Control." },
+    "officeFabricIconFontName": "Search",
+    "properties": {
+      "title": "Search",
+      "targetInstanceId": "",
+      "defaultMode": "simple",
+      "showModeToggle": true,
+      "buttonDisplayMode": "icon",
+      "simplePlaceholder": "Search...",
+      "searchOnType": false,
+      "minimumCharacters": 2,
+      "debounceMilliseconds": 300,
+      "timeDisplayFormat": "24hour",
+      "timeMinuteIncrement": 5,
+      "surfaceBackgroundColor": "#ffffff",
+      "surfaceTextColor": "#201f1e",
+      "accentColor": "#0078d4",
+      "borderColor": "#d2d0ce",
+      "borderWidth": 1,
+      "cornerRadius": 4,
+      "fontFamily": "Segoe UI",
+      "fontSize": 14,
+      "excludeFromTabs": false,
+      "enableDiagnostics": true
+    }
+  }]
+}

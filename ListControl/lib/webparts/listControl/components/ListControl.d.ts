@@ -44,6 +44,7 @@ export interface IListControlProps {
     dateCustomFormat?: string;
     dateCustomFormatCase?: string;
     timeDisplayFormat: string;
+    timeMinuteIncrement: number;
     timeCustomFormat?: string;
     timeCustomFormatCase?: string;
     selectedTextColor: string;
@@ -80,8 +81,10 @@ export interface IListControlProps {
     webpartBorderColor: string;
     webpartBorderWidth: number;
     filterJson?: string;
+    externalFilterJson?: string;
     conditionalStyleJson?: string;
     onSelectionChange: (itemId: number, mode: string) => void;
+    onFilteredCountChange: (count: number) => void;
 }
 export interface IListFieldDefinition {
     Name: string;
@@ -89,9 +92,17 @@ export interface IListFieldDefinition {
     DisplayName?: string;
     TypeAsString?: string;
     DisplayFormat?: number;
+    Choices?: string[];
+    LookupList?: string;
+    LookupField?: string;
+    AllowMultipleValues?: boolean;
     Hidden?: string | boolean;
     ConfiguredWidth?: string;
     RuntimeFilterOnly?: boolean;
+}
+export interface IFilterOption {
+    value: string;
+    text: string;
 }
 export interface IListControlState {
     selectedViewId: string;
@@ -109,6 +120,11 @@ export interface IListControlState {
     activeFilterFieldName: string;
     filterPopoverStyle: any;
     activeFilterIsDate: boolean;
+    activeFilterCompareDateOnly: boolean;
+    activeFilterFieldType: string;
+    activeFilterOptions: IFilterOption[];
+    activeFilterOptionsLoading: boolean;
+    activeFilterOptionsError: string;
     draftFilterOperator: FilterOperator;
     draftFilterValue: string;
     draftFilterEndValue: string;
@@ -134,6 +150,16 @@ export interface IListControlState {
     scrollArrowTop: number;
     scrollArrowLeft: number;
     scrollArrowRight: number;
+    attachmentDialogOpen: boolean;
+    attachmentDialogFiles: IAttachmentInfo[];
+    attachmentDialogLoading: boolean;
+    attachmentDialogError: string;
+    attachmentPreviewUrl: string;
+    attachmentPreviewName: string;
+}
+export interface IAttachmentInfo {
+    fileName: string;
+    serverRelativeUrl: string;
 }
 export declare type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
 export interface IColumnFilter {
@@ -158,6 +184,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private _pagingRuntimeFilterFieldNames;
     private _scrollArrowResizeHandler;
     private _scrollArrowScrollHandler;
+    private _lastReportedFilteredCount;
     constructor(props: IListControlProps);
     componentDidMount(): void;
     componentWillUnmount(): void;
@@ -166,6 +193,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private closeDefaultDisplayForm();
     private setDisplayFormFrameRef;
     componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void;
+    private reportFilteredCount();
     private _setTableWrapRef;
     private _setTableHeadRef;
     private _setStickyHeaderViewportRef;
@@ -195,9 +223,11 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private getConfiguredColumnStyle(field);
     private getFieldsForConsumption(rawFields, viewFieldNames);
     private loadListFieldTypeMap(viewFieldNames);
+    private loadListFieldMetadataMap(viewFieldNames);
     private loadListFieldTitleMap();
     private applyFieldDisplayNames(fields, titleMap);
     private applyFieldTypes(fields, typeMap);
+    private applyFieldMetadata(fields, metadataMap);
     private getRowFieldValue(row, field);
     private getUrlCellValue(row, field);
     private stringifyCellValue(value);
@@ -217,13 +247,22 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private selectRow(row);
     private deleteSelected();
     private logDiagnostic(message);
+    private resolveAttachmentUrl(serverRelativeUrl);
+    private canPreviewAttachment(fileName);
+    private loadAttachments(itemId);
+    private openAttachmentDialog(row);
+    private closeAttachmentDialog();
+    private renderAttachmentDialog();
     private getCellMarkup(row, field);
     private isTitleField(field);
     private getCellPlainText(row, field);
     private getAttachmentCountForRow(row, rawAttachmentsValue);
     private getItemLinkUrl(row);
     private getFieldKey(field);
-    private getFilterOperatorOptions();
+    private getFilterOperatorOptions(field?);
+    private getStaticFilterOptions(field);
+    private isLookupFilterField(field);
+    private loadFilterOptions(field);
     private toggleSort(field);
     private openFilter(field, anchorElement);
     private getFilterPopoverStyle(anchorElement);

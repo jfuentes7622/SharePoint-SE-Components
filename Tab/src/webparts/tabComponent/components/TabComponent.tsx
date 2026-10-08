@@ -22,6 +22,10 @@ export default class TabControl extends React.Component<ITabComponentProps, ITab
     console.log('[TabComponent] ' + message);
   }
 
+  public componentDidMount(): void {
+      this.notifySelection();
+  }
+
 
   
   /*  shouldComponentUpdate(nextProps:ITabControlProps, nextState:ITabControlState) {
@@ -34,9 +38,18 @@ export default class TabControl extends React.Component<ITabComponentProps, ITab
       //if properties have changes bind it
       if (this.state.SelectedTab !== prevState.SelectedTab) {
         this.logDiagnostic('Selected tab changed from ' + String(prevState.SelectedTab) + ' to ' + String(this.state.SelectedTab) + '.');
-                this.RefreshLists();
+        this.notifySelection();
+        this.RefreshLists();
+      } else if (this.props.ControlZones !== prevProps.ControlZones) {
+        this.notifySelection();
       }
-    } 
+  }
+
+  private notifySelection(): void {
+      if (this.props.OnSelectedTabChanged) {
+          this.props.OnSelectedTabChanged(this.state.SelectedTab);
+      }
+  }
 
     public componentWillUnmount(): void {
             this.clearContentBorders();
@@ -76,6 +89,7 @@ export default class TabControl extends React.Component<ITabComponentProps, ITab
                                       d.classList.add('sectionHidden');
                                   } else {
                                       d.classList.remove('sectionHidden');
+                                      d.removeAttribute('part-Loading');
                                   }
                                   return (
                                       <Tab

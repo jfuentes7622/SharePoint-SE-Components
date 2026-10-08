@@ -12,6 +12,8 @@
     "title": { "default": "SPS Full Width Control" },
     "description": { "default": "Makes the containing fixed-width SharePoint section span the available page width." },
     "officeFabricIconFontName": "FullWidth",
-    "properties": {}
+    "properties": {
+      "excludeFromTabs": false
+    }
   }]
 }

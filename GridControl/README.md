@@ -59,7 +59,7 @@ Grid Designer exposes one **Read only** setting because read-only and disabled c
 
 Grid Designer restricts the Cell control list according to the underlying SharePoint storage type. Text and Note columns can use text, multiline, or number controls; URL columns can use URL or text controls. Number, Currency, Integer, Boolean, Choice, MultiChoice, DateTime, Lookup, Person, Taxonomy, Image, and Attachment columns remain limited to their storage-compatible control family. Existing schemas containing an incompatible selection are normalized when opened, and runtime applies the same guard to older or manually edited schemas.
 
-Read-only, hidden, computed, and unsupported complex fields do not receive an editor. Lookup, person, taxonomy, image, and attachment editing controls remain reserved for a later implementation phase.
+Read-only, hidden, computed, and unsupported complex fields do not receive an editor. Lookup and person fields use their dedicated selectors. Taxonomy, image, and attachment fields do not use inline cell editors; saved rows can add list attachments through the row-level paperclip action.
 
 SharePoint Note columns configured for rich text use a visual editor with bold, italic, underline, lists, alignment, and clear-formatting controls. Existing HTML is rendered visually and preserved when saved instead of being exposed as tags. Rich and plain multiline editing surfaces can be resized horizontally and vertically.
 
@@ -91,7 +91,9 @@ GridControl also executes DForm-compatible field rule types `required`, `minLeng
 - The view selector, Refresh, Add, Delete, and Link to Item controls can be shown or hidden independently.
 - The row action column containing Edit, History, or Save/Cancel can be placed at the beginning or end of the data columns. Delete-selection checkboxes remain first when enabled.
 - Runtime command buttons can display text, a standard SharePoint Fabric icon with text, or an icon only. Icon-only controls retain accessible labels and hover tooltips.
+- Inline date-time and time editors use the web part's global clock setting and minute increment. The defaults are a 24-hour clock and 5-minute increments; supported increments are 1, 5, 10, and 15 minutes.
 - When versioning is enabled for the selected SharePoint list, the optional row-level **History** button opens the default version-history page in a padded in-page dialog. The button is hidden when list versioning is off, and its property-pane option is disabled with an explanatory note. It remains available in read-only grids because viewing history does not mutate the item; SharePoint permissions still govern access to version details.
+- Attachment columns display a clickable paperclip count. The attachment dialog lists files, previews supported browser formats, and provides an Open link. Users with mutation access can add one or more files to a saved row from its paperclip action; upload results refresh the count and dialog.
 - Link to Item can navigate to the list's default display form or an `.aspx` page discovered from the current site's Site Pages and publishing Pages libraries. It passes the selected ID through a configurable query parameter and can optionally include a return URL. Previously saved custom target URLs remain available in the dropdown.
 - Body, header, selected-row, alternating-row, table, button, and web-part-container styles are configurable in the property pane.
 - Preset filters and conditional formatting rules can be built in their property-pane designers and stored as JSON. Conditional overrides include background, foreground, font, alignment, border color/type/thickness, and square or rounded corners with a configurable radius.
@@ -145,3 +147,6 @@ The current user needs SharePoint permissions for each enabled action. Unsupport
 - Bulk selection and deletion for a controlled operational list.
 - Conditional highlighting of overdue, high-priority, invalid, or completed rows.
 - A selector/editor paired with a read-only Report Form on the same page.
+# Search Control integration
+
+Grid Control publishes its instance, list, and typed field metadata as the `searchMetadata` SPFx Dynamic Data property. An SPS Search Control can select this instance and publish an addressed `searchState`; Grid Control applies that state through its existing client-side filter engine. Clearing or retargeting the Search Control removes only the filter owned by that Dynamic Data source.

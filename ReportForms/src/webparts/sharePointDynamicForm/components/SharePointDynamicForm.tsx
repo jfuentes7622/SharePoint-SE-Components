@@ -10,6 +10,7 @@ import { SPPermission } from '@microsoft/sp-page-context';
 import styles from './SharePointDynamicForm.module.scss';
 import { FormDesigner } from './FormDesigner';
 import { RichTextEditor } from './RichTextEditor';
+import { ReadOnlyRichText } from './ReadOnlyRichText';
 import { ListControlHost } from './ListControlHost';
 import { FormField, FormMode, FormSchema, FieldValue, FieldConfig, AdvancedValidationRule, ConditionalFieldRule, ConditionalFieldStyle } from '../../../formEngine/core/types';
 import * as strings from 'SharePointDynamicFormWebPartStrings';
@@ -1436,30 +1437,41 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
   }
 
   private async getWithAcceptFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=verbose'
         }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=minimalmetadata'
         }
       });
+      this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=nometadata'
         }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     return response;
@@ -1472,12 +1484,15 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     }
 
     var body = JSON.stringify(payload || {});
+    this.logDiagnostic('REST request: POST ' + url + ' payloadKeys=' + Object.keys(payload || {}).join(','));
     var response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
       headers: headers,
       body: body,
     });
+    this.logDiagnostic('REST response: POST ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (verbose): POST ' + url);
       var verboseHeaders = this.cloneHeaders(baseHeaders);
       verboseHeaders.Accept = 'application/json;odata=verbose';
       verboseHeaders['Content-Type'] = 'application/json;odata=verbose';
@@ -1485,9 +1500,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         headers: verboseHeaders,
         body: body,
       });
+      this.logDiagnostic('REST response (verbose): POST ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (minimalmetadata): POST ' + url);
       var minimalHeaders = this.cloneHeaders(baseHeaders);
       minimalHeaders.Accept = 'application/json;odata=minimalmetadata';
       minimalHeaders['Content-Type'] = 'application/json;odata=minimalmetadata';
@@ -1495,9 +1513,12 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         headers: minimalHeaders,
         body: body,
       });
+      this.logDiagnostic('REST response (minimalmetadata): POST ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (nometadata): POST ' + url);
       var noMetadataHeaders = this.cloneHeaders(baseHeaders);
       noMetadataHeaders.Accept = 'application/json;odata=nometadata';
       noMetadataHeaders['Content-Type'] = 'application/json;odata=nometadata';
@@ -1505,6 +1526,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
         headers: noMetadataHeaders,
         body: body,
       });
+      this.logDiagnostic('REST response (nometadata): POST ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     return response;
@@ -1523,10 +1546,14 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
     for (var i = 0; i < acceptCandidates.length; i += 1) {
       var headers = this.cloneHeaders(baseHeaders);
       headers.Accept = acceptCandidates[i];
+      this.logDiagnostic('REST request: POST ' + url + ' Accept=' + acceptCandidates[i] + ' bodyBytes='
+        + String(body && body.size !== undefined ? body.size : String(body || '').length));
       response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
         headers: headers,
         body: body,
       });
+      this.logDiagnostic('REST response: POST ' + url + ' Accept=' + acceptCandidates[i] + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
 
       if (response.ok) {
         return response;
@@ -1542,6 +1569,8 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       headers: noAcceptHeaders,
       body: body,
     });
+    this.logDiagnostic('REST final response without Accept: POST ' + url + ' -> HTTP '
+      + String(response.status) + ' ' + response.statusText);
 
     return response;
   }
@@ -3830,20 +3859,20 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
             ) : (
               isMultilineRichText ? (
                 disabled ? (
-                  <div
-                    dir="ltr"
+                  <ReadOnlyRichText
+                    html={richTextValue}
+                    ariaLabel={field.label}
                     style={Object.assign({}, inputStyle, {
                       minHeight: '120px',
+                      maxHeight: '600px',
                       padding: '12px',
                       border: '1px solid #d1d1d1',
                       backgroundColor: '#f3f2f1',
                       lineHeight: '1.6',
-                      overflowY: 'auto',
                       direction: 'ltr',
                       unicodeBidi: 'normal',
                       textAlign: 'left',
                     })}
-                    dangerouslySetInnerHTML={{ __html: richTextValue } as any}
                   />
                 ) : (
                   <div dir="ltr" style={{ direction: 'ltr', textAlign: 'left' }}>
@@ -4323,6 +4352,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
               schema={this.state.schema}
               context={this.props.context}
               listName={this.state.schema.listName || this.props.listName}
+              enableDiagnostics={this.props.enableDynamicDiagnostics !== false}
               onChange={this.handleDesignerChange}
             />
           )}

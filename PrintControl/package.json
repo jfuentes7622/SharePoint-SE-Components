@@ -1,6 +1,6 @@
 {
   "name": "sps-print-control",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "engines": {

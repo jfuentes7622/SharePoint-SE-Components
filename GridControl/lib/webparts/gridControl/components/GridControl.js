@@ -58,6 +58,7 @@ var sp_http_1 = require("@microsoft/sp-http");
 var strings = require("GridControlWebPartStrings");
 var GridValidation_1 = require("./GridValidation");
 var GridRichTextEditor_1 = require("./GridRichTextEditor");
+var DateTime24HourInput_1 = require("./DateTime24HourInput");
 require("./GridControl.css");
 function isCompatibleGridControlType(sharePointType, controlType) {
     var compatibleTypes = {
@@ -330,6 +331,8 @@ var GridControl = (function (_super) {
         _this._pagingRequestBody = undefined;
         _this._pagingSchemaFieldNames = [];
         _this._pagingRuntimeFilterFieldNames = [];
+        _this._lastReportedFilteredCount = -1;
+        _this._attachmentPickerItemId = 0;
         _this._setTableWrapRef = function (el) {
             _this._tableWrapEl = el;
             _this.refreshTableViewport();
@@ -373,6 +376,9 @@ var GridControl = (function (_super) {
                 _this._filterAnchorEl = target;
                 window.setTimeout(function () { return _this.updateActiveFilterPosition(); }, 0);
             }
+        };
+        _this.setAttachmentInputRef = function (element) {
+            _this._attachmentInputEl = element;
         };
         _this.state = {
             selectedViewId: props.defaultViewId || _this.getInitialViewId(props.views),
@@ -424,6 +430,15 @@ var GridControl = (function (_super) {
             historyDialogUrl: '',
             historyDialogLoading: false,
             historyDialogError: '',
+            attachmentDialogOpen: false,
+            attachmentDialogFiles: [],
+            attachmentDialogLoading: false,
+            attachmentDialogError: '',
+            attachmentPreviewUrl: '',
+            attachmentPreviewName: '',
+            attachmentUploadingItemId: 0,
+            attachmentUploadError: '',
+            pendingNewAttachments: [],
         };
         _this._refreshEventHandler = _this.handleExternalRefresh.bind(_this);
         _this._runtimeConfigEventHandler = _this.handleRuntimeConfig.bind(_this);
@@ -454,6 +469,7 @@ var GridControl = (function (_super) {
             window.addEventListener('resize', this._scrollArrowResizeHandler);
             window.addEventListener('scroll', this._scrollArrowScrollHandler, true);
         }
+        this.reportFilteredCount();
     };
     GridControl.prototype.componentWillUnmount = function () {
         this._loadRowsRequestId += 1;
@@ -532,6 +548,7 @@ var GridControl = (function (_super) {
             || prevState.sortDirection !== this.state.sortDirection
             || prevState.columnFilters !== this.state.columnFilters
             || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
+            || prevProps.externalFilterJson !== this.props.externalFilterJson
             || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode) {
             this.loadAllRemainingRows();
         }
@@ -539,6 +556,15 @@ var GridControl = (function (_super) {
             this._stickyHeaderSourceHtml = '';
             window.setTimeout(function () { return _this.refreshTableViewport(); }, 0);
         }
+        this.reportFilteredCount();
+    };
+    GridControl.prototype.reportFilteredCount = function () {
+        var count = this.getProcessedRows().length;
+        if (count === this._lastReportedFilteredCount) {
+            return;
+        }
+        this._lastReportedFilteredCount = count;
+        this.props.onFilteredCountChange(count);
     };
     GridControl.prototype.getStickyHeaderControls = function (root) {
         var controls = root.querySelectorAll('button,input');
@@ -902,10 +928,14 @@ var GridControl = (function (_super) {
             var response;
             return __generator(this, function (_a) {
                 switch (_a.label) {
-                    case 0: return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1)];
+                    case 0:
+                        this.logDiagnostic('REST request: GET ' + url);
+                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1)];
                     case 1:
                         response = _a.sent();
+                        this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
                         if (!!response.ok) return [3 /*break*/, 3];
+                        this.logDiagnostic('REST retry (verbose): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=verbose'
@@ -913,9 +943,12 @@ var GridControl = (function (_super) {
                             })];
                     case 2:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 3;
                     case 3:
                         if (!!response.ok) return [3 /*break*/, 5];
+                        this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=minimalmetadata'
@@ -923,9 +956,12 @@ var GridControl = (function (_super) {
                             })];
                     case 4:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 5;
                     case 5:
                         if (!!response.ok) return [3 /*break*/, 7];
+                        this.logDiagnostic('REST retry (nometadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=nometadata'
@@ -933,6 +969,8 @@ var GridControl = (function (_super) {
                             })];
                     case 6:
                         response = _a.sent();
+                        this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+                            + String(response.status) + ' ' + response.statusText);
                         _a.label = 7;
                     case 7: return [2 /*return*/, response];
                 }
@@ -941,29 +979,33 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.logPostAttempt = function (label, url, response, payload) {
         return __awaiter(this, void 0, void 0, function () {
-            var responseText, _responseReadError_1;
+            var responseSummary, responseData, responseResults, _responseReadError_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
                         if (this.props.enableDiagnostics === false) {
                             return [2 /*return*/];
                         }
-                        responseText = '';
+                        responseSummary = '';
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 3, , 4]);
-                        return [4 /*yield*/, response.clone().text()];
+                        return [4 /*yield*/, response.clone().json()];
                     case 2:
-                        responseText = _a.sent();
+                        responseData = _a.sent();
+                        responseResults = responseData && responseData.value ? responseData.value
+                            : (responseData && responseData.d && responseData.d.results ? responseData.d.results : undefined);
+                        responseSummary = Array.isArray(responseResults)
+                            ? 'items=' + String(responseResults.length)
+                            : 'keys=' + Object.keys(responseData && responseData.d ? responseData.d : responseData || {}).slice(0, 20).join(',');
                         return [3 /*break*/, 4];
                     case 3:
                         _responseReadError_1 = _a.sent();
-                        responseText = '';
+                        responseSummary = 'non-JSON response';
                         return [3 /*break*/, 4];
                     case 4:
                         this.logDiagnostic('POST ' + label + ' status=' + String(response.status) + ' ' + String(response.statusText || '')
-                            + ', url=' + url + ', payload=' + payload.substring(0, 2000)
-                            + (responseText ? ', response=' + responseText.substring(0, 2000) : ''));
+                            + ', url=' + url + ', payloadBytes=' + String(payload.length) + ', response=' + responseSummary);
                         return [2 /*return*/];
                 }
             });
@@ -1320,7 +1362,7 @@ var GridControl = (function (_super) {
         }
         var schemaFields = this.getGridSchemaFields();
         if (schemaFields.length === 0) {
-            return baseFields;
+            return this.ensureAttachmentDisplayField(baseFields);
         }
         var byName = {};
         for (var baseIndex = 0; baseIndex < baseFields.length; baseIndex += 1) {
@@ -1354,7 +1396,22 @@ var GridControl = (function (_super) {
                 }));
             }
         }
-        return schemaDisplayFields;
+        return this.ensureAttachmentDisplayField(schemaDisplayFields);
+    };
+    GridControl.prototype.ensureAttachmentDisplayField = function (fields) {
+        var attachmentMetadata = this.state.fieldMetadataByName['attachments'];
+        if (!attachmentMetadata || attachmentMetadata.typeAsString !== 'Attachments') {
+            return fields;
+        }
+        var hasAttachmentField = fields.some(function (field) {
+            return String(field.RealFieldName || field.Name || '').toLowerCase() === 'attachments';
+        });
+        return hasAttachmentField ? fields : fields.concat([{
+                Name: 'Attachments',
+                RealFieldName: 'Attachments',
+                DisplayName: attachmentMetadata.title || strings.RuntimeAttachmentsTitle,
+                TypeAsString: 'Attachments'
+            }]);
     };
     GridControl.prototype.getGridSchemaFields = function () {
         var schema = this.getGridSchema();
@@ -2308,9 +2365,8 @@ var GridControl = (function (_super) {
                         selectedItemIds = this.state.selectedItemIds.filter(function (itemId) {
                             return renderableItemIds.indexOf(itemId) >= 0;
                         });
-                        hasAttachmentsField = visibleFields.some(function (field) {
-                            return String(field.TypeAsString || '') === 'Attachments';
-                        });
+                        hasAttachmentsField = !!fieldMetadataByName['attachments']
+                            && fieldMetadataByName['attachments'].typeAsString === 'Attachments';
                         if (!hasAttachmentsField) return [3 /*break*/, 28];
                         return [4 /*yield*/, this.loadAttachmentCounts(renderableItemIds)];
                     case 27:
@@ -2704,6 +2760,7 @@ var GridControl = (function (_super) {
             editingItemId: itemId,
             editingValues: values,
             editingErrors: {},
+            pendingNewAttachments: [],
             error: null
         });
         this.props.onSelectionChange(itemId, 'edit');
@@ -2733,6 +2790,7 @@ var GridControl = (function (_super) {
             editingItemId: 0,
             editingValues: values,
             editingErrors: {},
+            pendingNewAttachments: [],
             error: null
         });
         this.props.onSelectionChange(0, 'new');
@@ -2742,6 +2800,7 @@ var GridControl = (function (_super) {
             editingItemId: -1,
             editingValues: {},
             editingErrors: {},
+            pendingNewAttachments: [],
             saving: false,
             selectedMode: 'view'
         });
@@ -2947,9 +3006,9 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.saveEditingRow = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var validationErrors, listUrl, payload, entityTypeName, verbosePayload, response, responseText, error_8, saveError;
-            return __generator(this, function (_a) {
-                switch (_a.label) {
+            var validationErrors, listUrl, payload, entityTypeName, verbosePayload, response, createdItemId, pendingAttachments, responseText, failedAttachmentNames, _a, error_8, saveError;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
                     case 0:
                         if (this.isReadOnly()) {
                             this.cancelRuntimeEdit();
@@ -2961,17 +3020,19 @@ var GridControl = (function (_super) {
                             return [2 /*return*/];
                         }
                         this.setState({ saving: true, error: null });
-                        _a.label = 1;
+                        _b.label = 1;
                     case 1:
-                        _a.trys.push([1, 10, , 11]);
+                        _b.trys.push([1, 16, , 17]);
                         listUrl = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items";
                         payload = this.buildEditingPayload();
                         return [4 /*yield*/, this.loadListItemEntityTypeName()];
                     case 2:
-                        entityTypeName = _a.sent();
+                        entityTypeName = _b.sent();
                         verbosePayload = this.buildVerboseEditingPayload(payload, entityTypeName);
                         this.logDiagnostic('Saving row. mode=' + (this.state.editingItemId > 0 ? 'edit' : 'new')
                             + ', itemId=' + String(this.state.editingItemId) + ', fields=' + Object.keys(payload).join(','));
+                        createdItemId = 0;
+                        pendingAttachments = this.state.editingItemId === 0 ? this.state.pendingNewAttachments.slice() : [];
                         if (!(this.state.editingItemId > 0)) return [3 /*break*/, 4];
                         return [4 /*yield*/, this.postJsonWithFallback(listUrl + '(' + this.state.editingItemId + ')', payload, {
                                 'IF-MATCH': '*',
@@ -2979,42 +3040,112 @@ var GridControl = (function (_super) {
                                 'Prefer': 'return-no-content'
                             }, verbosePayload, false)];
                     case 3:
-                        response = _a.sent();
+                        response = _b.sent();
                         return [3 /*break*/, 6];
-                    case 4: return [4 /*yield*/, this.postJsonWithFallback(listUrl, payload, { 'Prefer': 'return-no-content' }, verbosePayload, false)];
+                    case 4: return [4 /*yield*/, this.postJsonWithFallback(listUrl, payload, {}, verbosePayload, false)];
                     case 5:
-                        response = _a.sent();
-                        _a.label = 6;
+                        response = _b.sent();
+                        _b.label = 6;
                     case 6:
                         if (!!response.ok) return [3 /*break*/, 8];
                         return [4 /*yield*/, response.text()];
                     case 7:
-                        responseText = _a.sent();
+                        responseText = _b.sent();
                         throw new Error(responseText || strings.RuntimeSaveFailed);
                     case 8:
+                        if (!(this.state.editingItemId === 0)) return [3 /*break*/, 10];
+                        return [4 /*yield*/, this.getCreatedItemId(response)];
+                    case 9:
+                        createdItemId = _b.sent();
+                        _b.label = 10;
+                    case 10:
+                        failedAttachmentNames = [];
+                        if (!(pendingAttachments.length > 0)) return [3 /*break*/, 14];
+                        if (!(createdItemId > 0)) return [3 /*break*/, 12];
+                        return [4 /*yield*/, this.uploadAttachmentFiles(createdItemId, pendingAttachments)];
+                    case 11:
+                        _a = _b.sent();
+                        return [3 /*break*/, 13];
+                    case 12:
+                        _a = pendingAttachments.map(function (file) { return file.name; });
+                        _b.label = 13;
+                    case 13:
+                        failedAttachmentNames = _a;
+                        _b.label = 14;
+                    case 14:
                         this.setState({
                             editingItemId: -1,
                             editingValues: {},
                             editingErrors: {},
+                            pendingNewAttachments: [],
                             saving: false,
-                            selectedMode: 'view'
+                            selectedMode: 'view',
+                            attachmentUploadError: failedAttachmentNames.length > 0
+                                ? formatString(strings.RuntimeAttachmentsCreatedUploadFailed, failedAttachmentNames.join(', '))
+                                : ''
                         });
                         return [4 /*yield*/, this.loadRows()];
-                    case 9:
-                        _a.sent();
-                        return [3 /*break*/, 11];
-                    case 10:
-                        error_8 = _a.sent();
+                    case 15:
+                        _b.sent();
+                        return [3 /*break*/, 17];
+                    case 16:
+                        error_8 = _b.sent();
                         saveError = error_8;
                         this.setState({
                             saving: false,
                             error: saveError && saveError.message ? saveError.message : strings.RuntimeSaveFailed
                         });
-                        return [3 /*break*/, 11];
-                    case 11: return [2 /*return*/];
+                        return [3 /*break*/, 17];
+                    case 17: return [2 /*return*/];
                 }
             });
         });
+    };
+    GridControl.prototype.getCreatedItemId = function (response) {
+        return __awaiter(this, void 0, void 0, function () {
+            var responseData, item, bodyId, _responseError_1, entityUrl, idMatch;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, response.clone().json()];
+                    case 1:
+                        responseData = _a.sent();
+                        item = responseData && responseData.d ? responseData.d : responseData;
+                        bodyId = toPositiveInt(item && (item.ID || item.Id || item.id));
+                        if (bodyId > 0) {
+                            return [2 /*return*/, bodyId];
+                        }
+                        return [3 /*break*/, 3];
+                    case 2:
+                        _responseError_1 = _a.sent();
+                        return [3 /*break*/, 3];
+                    case 3:
+                        entityUrl = response && response.headers
+                            ? String(response.headers.get('OData-EntityId') || response.headers.get('Location') || '')
+                            : '';
+                        idMatch = /\/items\((\d+)\)/i.exec(entityUrl);
+                        return [2 /*return*/, idMatch ? toPositiveInt(idMatch[1]) : 0];
+                }
+            });
+        });
+    };
+    GridControl.prototype.renderNewAttachmentEditor = function () {
+        var _this = this;
+        return (React.createElement("div", { className: "gc-new-attachments" },
+            React.createElement("label", { className: "gc-new-attachments-picker" },
+                React.createElement("span", null, strings.RuntimeAttachmentsAdd),
+                React.createElement("input", { type: "file", multiple: true, disabled: this.state.saving, onChange: function (event) {
+                        var files = [];
+                        var selectedFiles = event.currentTarget.files;
+                        for (var index = 0; selectedFiles && index < selectedFiles.length; index += 1) {
+                            files.push(selectedFiles[index]);
+                        }
+                        _this.setState({ pendingNewAttachments: files, attachmentUploadError: '' });
+                    } })),
+            this.state.pendingNewAttachments.map(function (file, index) {
+                return React.createElement("div", { className: "gc-new-attachment-name", key: file.name + '-' + String(index) }, file.name);
+            })));
     };
     GridControl.prototype.renderEditingControl = function (field) {
         var _this = this;
@@ -3088,7 +3219,14 @@ var GridControl = (function (_super) {
                     : metadata.typeAsString === 'URL' ? 'url' : 'text';
             var numberStep = config.decimals !== undefined && Number(config.decimals) > 0
                 ? String(1 / Math.pow(10, Number(config.decimals))) : metadata.typeAsString === 'Integer' ? '1' : 'any';
-            control = React.createElement("input", { type: inputType, value: String(value || ''), title: metadata.description, placeholder: String(config.placeholder || ''), maxLength: config.maxLength, min: config.min, max: config.max, step: inputType === 'number' ? numberStep : undefined, onChange: function (ev) { return _this.updateEditingValue(metadata.internalName, ev.currentTarget.value); } });
+            var inputStep = inputType === 'number' ? numberStep
+                : inputType === 'time' || inputType === 'datetime-local' ? String(this.props.timeMinuteIncrement * 60) : undefined;
+            if ((inputType === 'time' || inputType === 'datetime-local') && this.props.timeDisplayFormat !== '12hour') {
+                control = React.createElement(DateTime24HourInput_1.DateTime24HourInput, { value: String(value || ''), timeOnly: inputType === 'time', minuteIncrement: this.props.timeMinuteIncrement, ariaLabel: metadata.title || metadata.internalName, onChange: function (nextValue) { return _this.updateEditingValue(metadata.internalName, nextValue); } });
+            }
+            else {
+                control = React.createElement("input", { type: inputType, value: String(value || ''), title: metadata.description, placeholder: String(config.placeholder || ''), maxLength: config.maxLength, min: config.min, max: config.max, step: inputStep, lang: inputType === 'time' || inputType === 'datetime-local' ? 'en-US' : undefined, onChange: function (ev) { return _this.updateEditingValue(metadata.internalName, ev.currentTarget.value); } });
+            }
         }
         return (React.createElement("div", { className: joinClassNames(['gc-cell-editor', error ? 'gc-cell-editor-error' : '']) },
             control,
@@ -3122,11 +3260,13 @@ var GridControl = (function (_super) {
             this.props.showDelete && !this.isReadOnly() && React.createElement("td", { className: "gc-selection-cell" }),
             this.props.actionButtonsPosition === 'beginning' && actions,
             displayFields.map(function (field) {
-                var editor = _this.renderEditingControl(field);
+                var isAttachmentField = String(field.RealFieldName || field.Name || '').toLowerCase() === 'attachments';
+                var editor = isNew && isAttachmentField ? _this.renderNewAttachmentEditor() : _this.renderEditingControl(field);
+                var readOnlyMarkup = _this.getCellMarkup(editingRow, field);
                 var fieldKey = _this.getFieldKey(field);
                 var columnStyle = conditionalStyle.columnStylesByFieldKey[fieldKey] || {};
                 var cellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
-                return React.createElement("td", { key: field.Name, style: cellStyle }, editor || (isNew ? null : strings.RuntimeReadOnlyCell));
+                return (React.createElement("td", { key: field.Name, style: cellStyle }, editor || (isNew || !readOnlyMarkup ? null : (React.createElement("span", { className: "gc-read-only-value", title: strings.RuntimeReadOnlyCell, dangerouslySetInnerHTML: readOnlyMarkup })))));
             }),
             this.props.actionButtonsPosition !== 'beginning' && actions));
     };
@@ -3194,6 +3334,250 @@ var GridControl = (function (_super) {
             historyDialogError: ''
         });
     };
+    GridControl.prototype.hasAttachmentsField = function () {
+        var attachmentMetadata = this.state.fieldMetadataByName['attachments'];
+        if (attachmentMetadata && attachmentMetadata.typeAsString === 'Attachments') {
+            return true;
+        }
+        return this.state.fields.some(function (field) {
+            return String(field.TypeAsString || '') === 'Attachments';
+        });
+    };
+    GridControl.prototype.resolveAttachmentUrl = function (serverRelativeUrl) {
+        var url = String(serverRelativeUrl || '');
+        if (/^https?:\/\//i.test(url)) {
+            return url;
+        }
+        if (url.charAt(0) === '/' && typeof window !== 'undefined') {
+            return window.location.protocol + '//' + window.location.host + url;
+        }
+        return url;
+    };
+    GridControl.prototype.canPreviewAttachment = function (fileName) {
+        return /\.(bmp|gif|jpe?g|pdf|png|txt|webp)$/i.test(String(fileName || ''));
+    };
+    GridControl.prototype.loadAttachments = function (itemId) {
+        return __awaiter(this, void 0, void 0, function () {
+            var endpoint, response, data, item, files;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+                            + "')/items(" + String(itemId) + ")?$select=AttachmentFiles&$expand=AttachmentFiles";
+                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                    case 1:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            throw new Error(strings.RuntimeAttachmentsLoadFailed);
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 2:
+                        data = _a.sent();
+                        item = data && data.d ? data.d : data;
+                        files = toArray(item && item.AttachmentFiles);
+                        return [2 /*return*/, files.map(function (file) {
+                                var path = file && file.ServerRelativePath && file.ServerRelativePath.DecodedUrl;
+                                return {
+                                    fileName: String(file && (file.FileName || file.Name) || ''),
+                                    serverRelativeUrl: String(file && (file.ServerRelativeUrl || path) || '')
+                                };
+                            }).filter(function (file) { return !!file.fileName && !!file.serverRelativeUrl; })];
+                }
+            });
+        });
+    };
+    GridControl.prototype.openAttachmentDialog = function (row) {
+        return __awaiter(this, void 0, void 0, function () {
+            var itemId, files, error_10, attachmentError;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        itemId = this.getRowItemId(row);
+                        if (itemId <= 0) {
+                            return [2 /*return*/];
+                        }
+                        this.setState({
+                            attachmentDialogOpen: true,
+                            attachmentDialogFiles: [],
+                            attachmentDialogLoading: true,
+                            attachmentDialogError: '',
+                            attachmentPreviewUrl: '',
+                            attachmentPreviewName: ''
+                        });
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, this.loadAttachments(itemId)];
+                    case 2:
+                        files = _a.sent();
+                        this.setState({ attachmentDialogFiles: files, attachmentDialogLoading: false });
+                        return [3 /*break*/, 4];
+                    case 3:
+                        error_10 = _a.sent();
+                        attachmentError = error_10;
+                        this.setState({
+                            attachmentDialogLoading: false,
+                            attachmentDialogError: attachmentError && attachmentError.message ? attachmentError.message : strings.RuntimeAttachmentsLoadFailed
+                        });
+                        return [3 /*break*/, 4];
+                    case 4: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    GridControl.prototype.closeAttachmentDialog = function () {
+        this.setState({
+            attachmentDialogOpen: false,
+            attachmentDialogFiles: [],
+            attachmentDialogLoading: false,
+            attachmentDialogError: '',
+            attachmentPreviewUrl: '',
+            attachmentPreviewName: ''
+        });
+    };
+    GridControl.prototype.renderAttachmentDialog = function () {
+        var _this = this;
+        if (!this.state.attachmentDialogOpen) {
+            return null;
+        }
+        return (React.createElement("div", { className: "gc-attachment-overlay", role: "presentation", onClick: function () { return _this.closeAttachmentDialog(); }, onKeyDown: function (ev) {
+                if (ev.key === 'Escape') {
+                    _this.closeAttachmentDialog();
+                }
+            } },
+            React.createElement("div", { className: "gc-attachment-dialog", role: "dialog", "aria-modal": "true", "aria-label": strings.RuntimeAttachmentsTitle, onClick: function (ev) { return ev.stopPropagation(); } },
+                React.createElement("div", { className: "gc-attachment-header" },
+                    React.createElement("div", { className: "gc-attachment-title" }, strings.RuntimeAttachmentsTitle),
+                    React.createElement("button", { type: "button", className: "gc-attachment-close", title: strings.RuntimeAttachmentsClose, "aria-label": strings.RuntimeAttachmentsClose, onClick: function () { return _this.closeAttachmentDialog(); } },
+                        React.createElement("i", { className: "ms-Icon ms-Icon--Cancel", "aria-hidden": "true" }))),
+                React.createElement("div", { className: "gc-attachment-content" },
+                    React.createElement("div", { className: "gc-attachment-list" },
+                        this.state.attachmentDialogLoading && React.createElement("div", { className: "gc-attachment-status" }, strings.RuntimeLoading),
+                        !!this.state.attachmentDialogError && React.createElement("div", { className: "gc-attachment-status gc-attachment-error" }, this.state.attachmentDialogError),
+                        !this.state.attachmentDialogLoading && !this.state.attachmentDialogError && this.state.attachmentDialogFiles.length === 0 && React.createElement("div", { className: "gc-attachment-status" }, strings.RuntimeAttachmentsEmpty),
+                        this.state.attachmentDialogFiles.map(function (file, index) {
+                            var fileUrl = _this.resolveAttachmentUrl(file.serverRelativeUrl);
+                            return (React.createElement("div", { className: "gc-attachment-item", key: file.fileName + '-' + String(index) },
+                                React.createElement("span", { className: "gc-attachment-name" },
+                                    React.createElement("i", { className: "ms-Icon ms-Icon--Attach", "aria-hidden": "true" }),
+                                    React.createElement("span", null, file.fileName)),
+                                React.createElement("button", { type: "button", className: "gc-attachment-preview-button", title: strings.RuntimeAttachmentsPreview, onClick: function () { return _this.setState({ attachmentPreviewUrl: _this.canPreviewAttachment(file.fileName) ? fileUrl : '', attachmentPreviewName: file.fileName }); } }, strings.RuntimeAttachmentsPreviewAction),
+                                React.createElement("a", { href: fileUrl, target: "_blank", rel: "noopener noreferrer" }, strings.RuntimeAttachmentsOpen)));
+                        })),
+                    React.createElement("div", { className: "gc-attachment-preview" }, this.state.attachmentPreviewUrl
+                        ? React.createElement("iframe", { sandbox: "", src: this.state.attachmentPreviewUrl, title: this.state.attachmentPreviewName })
+                        : React.createElement("div", { className: "gc-attachment-status" }, this.state.attachmentPreviewName ? strings.RuntimeAttachmentsPreviewUnavailable : strings.RuntimeAttachmentsSelect))))));
+    };
+    GridControl.prototype.openAttachmentPicker = function (row) {
+        var _this = this;
+        var itemId = this.getRowItemId(row);
+        if (itemId <= 0 || this.isReadOnly() || !this._attachmentInputEl) {
+            return;
+        }
+        this._attachmentPickerItemId = itemId;
+        this._attachmentInputEl.value = '';
+        this.setState({ attachmentUploadError: '' }, function () { return _this._attachmentInputEl.click(); });
+    };
+    GridControl.prototype.handleAttachmentInputChange = function (event) {
+        return __awaiter(this, void 0, void 0, function () {
+            var files, selectedFiles, index, itemId, failedNames, error_11, uploadError;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        files = [];
+                        selectedFiles = event.currentTarget.files;
+                        for (index = 0; selectedFiles && index < selectedFiles.length; index += 1) {
+                            files.push(selectedFiles[index]);
+                        }
+                        itemId = this._attachmentPickerItemId;
+                        this._attachmentPickerItemId = 0;
+                        if (itemId <= 0 || files.length === 0) {
+                            return [2 /*return*/];
+                        }
+                        this.setState({ attachmentUploadingItemId: itemId });
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 5, , 6]);
+                        return [4 /*yield*/, this.uploadAttachmentFiles(itemId, files)];
+                    case 2:
+                        failedNames = _a.sent();
+                        return [4 /*yield*/, this.loadRows()];
+                    case 3:
+                        _a.sent();
+                        this.setState({
+                            attachmentUploadingItemId: 0,
+                            attachmentUploadError: failedNames.length > 0
+                                ? formatString(strings.RuntimeAttachmentsUploadFailed, failedNames.join(', ')) : ''
+                        });
+                        return [4 /*yield*/, this.openAttachmentDialog({ ID: itemId })];
+                    case 4:
+                        _a.sent();
+                        return [3 /*break*/, 6];
+                    case 5:
+                        error_11 = _a.sent();
+                        uploadError = error_11;
+                        this.setState({
+                            attachmentUploadingItemId: 0,
+                            attachmentUploadError: uploadError && uploadError.message ? uploadError.message : strings.RuntimeAttachmentsUploadFailed
+                        });
+                        return [3 /*break*/, 6];
+                    case 6: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    GridControl.prototype.uploadAttachmentFiles = function (itemId, files) {
+        return __awaiter(this, void 0, void 0, function () {
+            var failedNames, fileIndex, file, endpoint, response, persistedFiles, persisted, _uploadError_1;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        failedNames = [];
+                        fileIndex = 0;
+                        _a.label = 1;
+                    case 1:
+                        if (!(fileIndex < files.length)) return [3 /*break*/, 8];
+                        file = files[fileIndex];
+                        _a.label = 2;
+                    case 2:
+                        _a.trys.push([2, 6, , 7]);
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+                            + "')/items(" + String(itemId) + ")/AttachmentFiles/add(FileName='"
+                            + encodeURIComponent(file.name).replace(/'/g, '%27') + "')";
+                        return [4 /*yield*/, this.props.context.spHttpClient.post(endpoint, sp_http_1.SPHttpClient.configurations.v1, {
+                                headers: {
+                                    'OData-Version': '3.0',
+                                    Accept: 'application/json;odata=verbose',
+                                    'Content-Type': 'application/octet-stream'
+                                },
+                                body: file
+                            })];
+                    case 3:
+                        response = _a.sent();
+                        if (!!response.ok) return [3 /*break*/, 5];
+                        return [4 /*yield*/, this.loadAttachments(itemId)];
+                    case 4:
+                        persistedFiles = _a.sent();
+                        persisted = persistedFiles.some(function (existingFile) {
+                            return existingFile.fileName.toLowerCase() === file.name.toLowerCase();
+                        });
+                        if (!persisted) {
+                            failedNames.push(file.name);
+                        }
+                        _a.label = 5;
+                    case 5: return [3 /*break*/, 7];
+                    case 6:
+                        _uploadError_1 = _a.sent();
+                        failedNames.push(file.name);
+                        return [3 /*break*/, 7];
+                    case 7:
+                        fileIndex += 1;
+                        return [3 /*break*/, 1];
+                    case 8: return [2 /*return*/, failedNames];
+                }
+            });
+        });
+    };
     GridControl.prototype.renderRowActionCell = function (row, isEditingRow, isReadOnly) {
         var _this = this;
         return (React.createElement("td", { className: "gc-row-actions" },
@@ -3201,6 +3585,10 @@ var GridControl = (function (_super) {
                     ev.stopPropagation();
                     _this.beginRowEdit(row);
                 } }, this.renderCommandContent('Edit', strings.RuntimeEdit))),
+            !isReadOnly && this.hasAttachmentsField() && (React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: isEditingRow || this.state.deleting || this.state.attachmentUploadingItemId > 0, title: this.state.attachmentUploadingItemId === this.getRowItemId(row) ? strings.RuntimeAttachmentsUploading : strings.RuntimeAttachmentsAdd, "aria-label": this.state.attachmentUploadingItemId === this.getRowItemId(row) ? strings.RuntimeAttachmentsUploading : strings.RuntimeAttachmentsAdd, onClick: function (ev) {
+                    ev.stopPropagation();
+                    _this.openAttachmentPicker(row);
+                } }, this.renderCommandContent('Attach', this.state.attachmentUploadingItemId === this.getRowItemId(row) ? strings.RuntimeAttachmentsUploading : strings.RuntimeAttachmentsAdd))),
             this.props.showHistory !== false && this.props.historyAvailable && (React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: isEditingRow || this.state.deleting, title: strings.RuntimeHistory, "aria-label": strings.RuntimeHistory, onClick: function (ev) {
                     ev.stopPropagation();
                     _this.openVersionHistory(row);
@@ -3208,7 +3596,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.deleteSelected = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var itemIds, failedItemIds, itemIndex, itemId, endpoint, response, _itemDeleteError_1, remainingSelectedItemId, error_10, deleteError;
+            var itemIds, failedItemIds, itemIndex, itemId, endpoint, response, _itemDeleteError_1, remainingSelectedItemId, error_12, deleteError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3274,8 +3662,8 @@ var GridControl = (function (_super) {
                         }
                         return [3 /*break*/, 10];
                     case 9:
-                        error_10 = _a.sent();
-                        deleteError = error_10;
+                        error_12 = _a.sent();
+                        deleteError = error_12;
                         this.setState({
                             deleting: false,
                             deleteMessage: deleteError && deleteError.message ? deleteError.message : strings.RuntimeDeleteFailed,
@@ -3775,7 +4163,11 @@ var GridControl = (function (_super) {
         return lookupIds.length > 0 ? lookupIds.join('; ') : this.getCellPlainText(row, field);
     };
     GridControl.prototype.parsePresetFilterConditions = function () {
-        var sources = [String(this.props.filterJson || '').trim(), String(this.state.runtimeFilterJson || '').trim()];
+        var sources = [
+            String(this.props.filterJson || '').trim(),
+            String(this.state.runtimeFilterJson || '').trim(),
+            String(this.props.externalFilterJson || '').trim()
+        ];
         var conditions = [];
         for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
             var source = sources[sourceIndex];
@@ -3811,8 +4203,13 @@ var GridControl = (function (_super) {
     GridControl.prototype.getRuntimeFilterFieldNames = function () {
         var conditions = [];
         try {
-            var parsed = JSON.parse(String(this.state.runtimeFilterJson || ''));
-            conditions = Array.isArray(parsed) ? parsed : [];
+            var runtimeSources = [String(this.state.runtimeFilterJson || ''), String(this.props.externalFilterJson || '')];
+            for (var sourceIndex = 0; sourceIndex < runtimeSources.length; sourceIndex += 1) {
+                var parsed = JSON.parse(runtimeSources[sourceIndex] || '[]');
+                if (Array.isArray(parsed)) {
+                    conditions = conditions.concat(parsed);
+                }
+            }
         }
         catch (_parseError) {
             conditions = [];
@@ -4275,6 +4672,8 @@ var GridControl = (function (_super) {
             showRowActions && this.props.actionButtonsPosition === 'beginning' && this.renderRowActionCell(row, isEditingRow, isReadOnly),
             displayFields.map(function (field) {
                 var markup = _this.getCellMarkup(row, field);
+                var isAttachmentField = String(field.TypeAsString || '') === 'Attachments';
+                var attachmentCount = isAttachmentField ? _this.getAttachmentCountForRow(row, _this.getRowFieldValue(row, field)) : 0;
                 var urlCell = _this.getUrlCellValue(row, field);
                 var showItemLink = _this.props.showLinkToItem && _this.isTitleField(field);
                 var itemLinkUrl = showItemLink ? _this.getItemLinkUrl(row) : '';
@@ -4282,7 +4681,12 @@ var GridControl = (function (_super) {
                 var cellFieldKey = _this.getFieldKey(field);
                 var columnStyle = conditionalStyle.columnStylesByFieldKey[cellFieldKey] || {};
                 var mergedCellStyle = mergeStyleObjects(mergeStyleObjects(conditionalStyle.rowStyle, columnStyle), _this.getConfiguredColumnStyle(field));
-                return (React.createElement("td", { key: field.Name, style: mergedCellStyle, title: (_this.getGridFieldMetadata(field) || {}).description || '' }, urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) { return ev.stopPropagation(); } }, itemLinkText || strings.RuntimeView)) : (markup ? React.createElement("span", { dangerouslySetInnerHTML: markup }) : null)));
+                return (React.createElement("td", { key: field.Name, style: mergedCellStyle, title: (_this.getGridFieldMetadata(field) || {}).description || '' }, isAttachmentField ? (React.createElement("button", { type: "button", className: "gc-attachment-count", disabled: attachmentCount <= 0, title: strings.RuntimeAttachmentsView, "aria-label": strings.RuntimeAttachmentsView, onClick: function (ev) {
+                        ev.stopPropagation();
+                        _this.openAttachmentDialog(row);
+                    } },
+                    React.createElement("i", { className: "ms-Icon ms-Icon--Attach", "aria-hidden": "true" }),
+                    React.createElement("span", null, attachmentCount))) : urlCell ? (React.createElement("a", { className: "lc-item-link", href: urlCell.href, target: "_blank", rel: "noopener noreferrer", onClick: function (ev) { return ev.stopPropagation(); } }, urlCell.text)) : showItemLink && itemLinkUrl ? (React.createElement("a", { className: "lc-item-link", href: itemLinkUrl, onClick: function (ev) { return ev.stopPropagation(); } }, itemLinkText || strings.RuntimeView)) : (markup ? React.createElement("span", { dangerouslySetInnerHTML: markup }) : null)));
             }),
             showRowActions && this.props.actionButtonsPosition !== 'beginning' && this.renderRowActionCell(row, isEditingRow, isReadOnly)));
     };
@@ -4434,9 +4838,10 @@ var GridControl = (function (_super) {
                 React.createElement("div", null, formatString(strings.RuntimeDeleteSelectionCount, this.state.selectedItemIds.length)))),
             this.state.loading && React.createElement("div", null, strings.RuntimeLoading),
             !!this.state.deleteMessage && React.createElement("div", { className: "gc-delete-message" }, this.state.deleteMessage),
+            !!this.state.attachmentUploadError && React.createElement("div", { className: "gc-delete-message" }, this.state.attachmentUploadError),
             !!this.state.error && React.createElement("div", null, this.state.error),
             !this.state.loading && !this.state.error && processedRows.length === 0 && !isEditingRow && (React.createElement("div", null, hasActiveFilters ? strings.RuntimeNoItemsAfterFilter : strings.RuntimeNoItems)),
-            !this.state.loading && !this.state.error && (processedRows.length > 0 || isEditingRow) && (React.createElement("div", { className: "lc-table-container" },
+            !this.state.loading && !this.state.error && (processedRows.length > 0 || hasActiveFilters || isEditingRow) && (React.createElement("div", { className: "lc-table-container" },
                 React.createElement("div", { className: "lc-sticky-header-viewport", ref: this._setStickyHeaderViewportRef }),
                 React.createElement("div", { className: "lc-table-wrap", ref: this._setTableWrapRef },
                     this.state.showScrollArrows && (React.createElement("button", { type: "button", className: "lc-scroll-arrow lc-scroll-arrow-left", style: { top: this.state.scrollArrowTop + 'px', left: (this.state.scrollArrowLeft + 6) + 'px' }, title: strings.RuntimeScrollLeft, "aria-label": strings.RuntimeScrollLeft, onClick: function () { return _this.scrollTableHorizontally(-1); } }, "\u2039")),
@@ -4536,7 +4941,9 @@ var GridControl = (function (_super) {
                     React.createElement("div", { className: "gc-history-content" },
                         this.state.historyDialogLoading && React.createElement("div", { className: "gc-history-status" }, strings.RuntimeLoading),
                         !!this.state.historyDialogError && React.createElement("div", { className: "gc-history-status gc-history-error" }, this.state.historyDialogError),
-                        !!this.state.historyDialogUrl && React.createElement("iframe", { className: "gc-history-frame", src: this.state.historyDialogUrl, title: strings.RuntimeHistoryTitle })))))));
+                        !!this.state.historyDialogUrl && React.createElement("iframe", { className: "gc-history-frame", src: this.state.historyDialogUrl, title: strings.RuntimeHistoryTitle }))))),
+            React.createElement("input", { ref: this.setAttachmentInputRef, className: "gc-visually-hidden", type: "file", multiple: true, tabIndex: -1, "aria-hidden": "true", onChange: function (ev) { return _this.handleAttachmentInputChange(ev); } }),
+            this.renderAttachmentDialog()));
     };
     return GridControl;
 }(React.Component));

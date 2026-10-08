@@ -5,17 +5,21 @@ import { SPComponentLoader } from '@microsoft/sp-loader';
 import { BaseClientSideWebPart } from "@microsoft/sp-webpart-base";
 import {
   IPropertyPaneConfiguration,
+  PropertyPaneCheckbox,
   PropertyPaneTextField,
   PropertyPaneToggle
 } from "@microsoft/sp-webpart-base";
 import { IScriptEditorProps } from './components/IScriptEditorProps';
 import { IScriptEditorWebPartProps } from './components/IScriptEditorWebpartProps';
 import PropertyPaneContentFilePicker from './PropertyPaneContentFilePicker';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 export default class ScriptEditorWebPart extends BaseClientSideWebPart<IScriptEditorWebPartProps> {
   private _unqiueId: string;
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this._unqiueId = this.context.instanceId;
 
     if (this.displayMode === DisplayMode.Read) {
@@ -76,6 +80,16 @@ private async renderEditor(): Promise<void> {
                   label: "Enable Classic _spPageContextInfo",
                   onText: "Enabled",
                   offText: "Disabled"
+                }),
+                PropertyPaneCheckbox("excludeFromTabs", {
+                  text: "Exclude this web part from SPS Tabs",
+                  checked: this.properties.excludeFromTabs === true
+                }),
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                  const oldValue = this.properties.overrideCssUrl || '';
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
                 }),
                 new PropertyPaneContentFilePicker({
                   label: "Load HTML Code from File",

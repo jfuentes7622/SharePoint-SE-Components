@@ -1,0 +1,17 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "SPS Search Control",
+    "id": "0a77b6df-5553-49dc-8a16-0d20b3b0f2fa",
+    "version": "1.0.0.12",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true,
+    "features": [{
+      "title": "SPS Search Control Feature",
+      "description": "Activates the SPS Search Control solution.",
+      "id": "817bd1ab-02b9-41c5-9dd9-365351258b0f",
+      "version": "1.0.0.11"
+    }]
+  },
+  "paths": { "zippedPackage": "solution/sps-search-control.sppkg" }
+}

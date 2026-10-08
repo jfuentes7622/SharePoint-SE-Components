@@ -64,6 +64,7 @@ li.slide {
 .slideFooter {
   box-sizing: border-box;
   width: 100%;
+  flex-shrink: 0;
 }
 
 .slideTitle,

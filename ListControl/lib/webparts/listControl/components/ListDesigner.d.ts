@@ -18,6 +18,7 @@ export interface IListDesignerProps {
     viewId: string;
     viewColumns: IListDesignerColumn[];
     groupingJson: string;
+    enableDiagnostics?: boolean;
     onSave: (columns: IListDesignerColumn[], groupingJson: string) => void;
     onCancel: () => void;
 }
@@ -46,6 +47,7 @@ export declare class ListDesigner extends React.Component<IListDesignerProps, IL
     componentDidMount(): void;
     private getWebUrl();
     private getFieldsResponse(url);
+    private logDiagnostic(message);
     private loadFields();
     private loadFromView();
     private getAvailableFields();

@@ -17,6 +17,7 @@ import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/sp
 import { PropertyFieldPicturePicker } from 'sp-client-custom-fields/lib/PropertyFieldPicturePicker';
 import styles from './SpoLinkbuttonWebPart.module.scss';
 import * as strings from 'SpoLinkbuttonWebPartStrings';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -46,6 +47,7 @@ export interface ILinkButtonWebPartProps {
   iconPosition: string;
   buttonHeight: number | string;
   buttonWidth: number | string;
+  excludeFromTabs: boolean;
   enableDiagnostics: boolean;
 }
 
@@ -53,15 +55,12 @@ require ('./button.css');
 
 export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButtonWebPartProps> {
 
-  private _overrideStylesheetId: string;
-
   public constructor() {
     super();
     this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
   }
 
   protected onInit(): Promise<void> {
-    this._overrideStylesheetId = 'linkbutton-override-css-' + this.instanceId;
     this.logDiagnostic('onInit started. instanceId=' + String(this.instanceId));
     return super.onInit().then(() => {
       this.logDiagnostic('onInit completed.');
@@ -132,20 +131,6 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
     return "";
   }
 
-  private _validateCssUrl(value: string): string {
-    if (!value) { return ""; }
-    const sanitized = value.trim();
-    if (/["'<>]/.test(sanitized)) {
-      this.logDiagnostic('Validation failed: override CSS URL is invalid.');
-      return 'Invalid CSS URL';
-    }
-    if (!/^https?:\/\//i.test(sanitized) && sanitized.indexOf('/') !== 0) {
-      this.logDiagnostic('Validation failed: override CSS URL is not absolute or site-relative.');
-      return 'Use an absolute URL (http/https) or site-relative path (/...)';
-    }
-    return '';
-  }
-
   private toCssPixels(value: number | string, fallback: number): string {
     if (typeof value === 'number' && isFinite(value)) {
       return String(value) + 'px';
@@ -182,45 +167,6 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
     return this.properties.imageAsBackground === true ? 'background-text' : 'side';
   }
 
-  private _applyOverrideStylesheet(): void {
-    const cssUrl = (this.properties.overrideCssUrl || '').trim();
-    const existing = document.getElementById(this._overrideStylesheetId) as HTMLLinkElement;
-
-    if (!cssUrl) {
-      if (existing) {
-        this.logDiagnostic('Removing override stylesheet (overrideCssUrl cleared).');
-        existing.parentNode.removeChild(existing);
-      }
-      return;
-    }
-
-    let resolvedCssUrl = cssUrl;
-    try {
-      resolvedCssUrl = new URL(cssUrl, window.location.href).href;
-    } catch (urlError) {
-      this.logDiagnostic('Could not normalize override CSS URL, using as-is: ' + String(urlError));
-    }
-
-    if (existing) {
-      const currentRawUrl = existing.getAttribute('data-source-href') || '';
-      if (currentRawUrl !== cssUrl) {
-        this.logDiagnostic('Updating override stylesheet href to: ' + cssUrl);
-        existing.setAttribute('data-source-href', cssUrl);
-        existing.href = resolvedCssUrl;
-      }
-      return;
-    }
-
-    this.logDiagnostic('Injecting override stylesheet: ' + cssUrl);
-    const link = document.createElement('link');
-    link.id = this._overrideStylesheetId;
-    link.rel = 'stylesheet';
-    link.type = 'text/css';
-    link.setAttribute('data-source-href', cssUrl);
-    link.href = resolvedCssUrl;
-    document.head.appendChild(link);
-  }
-
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
@@ -230,8 +176,9 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     let element: React.ReactElement<{}>;
-    this._applyOverrideStylesheet();
 
     // Show placeholder only when required content is missing.
     // This keeps live visual updates visible while editing properties.
@@ -362,11 +309,7 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
   }
 
   protected onDispose(): void {
-    this.logDiagnostic('onDispose called; cleaning up React tree and override stylesheet.');
-    const existing = document.getElementById(this._overrideStylesheetId);
-    if (existing) {
-      existing.parentNode.removeChild(existing);
-    }
+    this.logDiagnostic('onDispose called; cleaning up React tree.');
     ReactDOM.unmountComponentAtNode(this.domElement);
   }
 
@@ -457,11 +400,11 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                   properties: this.properties,
                   key: 'buttonFontColorField'
                 }),
-                PropertyPaneTextField('overrideCssUrl', {
-                  label: 'Override CSS URL',
-                  placeholder: 'https://contoso.com/styles/linkbutton-overrides.css or /sites/siteassets/linkbutton-overrides.css',
-                  onGetErrorMessage: this._validateCssUrl.bind(this),
-                  description: 'Optional stylesheet loaded after component CSS to standardize styles across web parts.'
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                  const oldValue = this.properties.overrideCssUrl || '';
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
                 }),
                 PropertyPaneDropdown('fontFamily', {
                   label: 'Font Family',
@@ -602,6 +545,10 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
             {
               groupName: 'Diagnostics',
               groupFields: [
+                PropertyPaneCheckbox('excludeFromTabs', {
+                  text: 'Exclude this web part from SPS Tabs',
+                  checked: this.properties.excludeFromTabs === true
+                }),
                 PropertyPaneCheckbox('enableDiagnostics', {
                   text: strings.PropEnableDiagnosticsLabel,
                   checked: this.properties.enableDiagnostics !== false

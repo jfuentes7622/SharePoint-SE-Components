@@ -5,6 +5,8 @@ SPFx 1.5.1 image carousel backed by a SharePoint document or picture library.
 ## Features
 
 - Automatically play library images with pause-on-hover behavior.
+- Render direct SharePoint image URLs without blocking on client-side canvas conversion.
+- Apply the selected SharePoint library view's filters, sorting, scope, and row limit.
 - Show each image's library title, description, and link in a configurable caption.
 - Use optional display-order, visibility, and expiration metadata when available.
 - Configure carousel dimensions and animation timings.
@@ -16,6 +18,7 @@ SPFx 1.5.1 image carousel backed by a SharePoint document or picture library.
 | Property | Description | Default |
 |---|---|---|
 | `carouselSlideLibrary` | Document or picture library containing slide images. | Required |
+| `carouselViewId` | SharePoint library view used to filter and order slides; choose all items to bypass a view. | Library default view |
 | `slideTitleField` | Selected library column used for each slide title. | `Title` when available |
 | `slideDescriptionField` | Selected library column used for each slide description. | `Description` when available |
 | `slideLinkField` | Selected library column used for each slide link. | `LinkTarget` or `ClickLink` when available |
@@ -49,7 +52,7 @@ The deployable package is generated under `sharepoint/solution/`.
 ## Usage
 
 1. Create or choose a SharePoint picture/document library and upload the slide images.
-2. Add **SPS Carousel** to a page and select the library.
+2. Add **SPS Carousel** to a page and select the library and SharePoint view.
 3. Map optional title, description, and link columns when those captions or actions are required.
 4. Set dimensions and timing, preview the result at common page widths, and publish.
 

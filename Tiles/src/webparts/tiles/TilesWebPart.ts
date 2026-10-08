@@ -22,6 +22,7 @@ import * as strings from 'TilesWebPartStrings';
 import { ITilesProps } from './components/ITilesProps';
 import { ITileInfo } from './ITileInfo';
 import { Tiles } from './components/Tiles';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 const picturePickerModule: any = require('sp-client-custom-fields/lib/PropertyFieldPicturePickerHost');
@@ -78,6 +79,8 @@ export interface ITilesWebPartProps {
   // legacy
   tileEffect: string;
 
+  excludeFromTabs?: boolean;
+  overrideCssUrl?: string;
   enableDiagnostics: boolean;
 }
 
@@ -89,6 +92,8 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this.logDiagnostic('render() called. tile count=' + String(this.properties.collectionData ? this.properties.collectionData.length : 0));
     const element: React.ReactElement<ITilesProps> = React.createElement(
       Tiles,
@@ -670,6 +675,16 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
             {
               groupName: strings.diagnosticsGroup,
               groupFields: [
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                  const oldValue = this.properties.overrideCssUrl || '';
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
+                }),
+                PropertyPaneCheckbox('excludeFromTabs', {
+                  text: 'Exclude this web part from SPS Tabs',
+                  checked: this.properties.excludeFromTabs === true
+                }),
                 PropertyPaneCheckbox('enableDiagnostics', {
                   text: strings.enableDiagnosticsLabel,
                   checked: this.properties.enableDiagnostics !== false
@@ -682,4 +697,3 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
     };
   }
 }
-

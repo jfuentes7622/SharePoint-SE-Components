@@ -20,6 +20,7 @@ import * as strings from 'ListControlWebPartStrings';
 import { ListControl, IListControlColumnConfiguration, IListControlViewOption } from './components/ListControl';
 import { ListDesigner } from './components/ListDesigner';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -59,6 +60,8 @@ export interface IListControlWebPartProps {
   linkTargetPageUrl: string;
   linkTargetIdParam: string;
   includeReturnUrlParam: boolean;
+  excludeFromTabs?: boolean;
+  overrideCssUrl?: string;
   enableDiagnostics: boolean;
   bodyTextColor: string;
   bodyFontFamily: string;
@@ -70,6 +73,7 @@ export interface IListControlWebPartProps {
   dateCustomFormat?: string;
   dateCustomFormatCase?: string;
   timeDisplayFormat: string;
+  timeMinuteIncrement?: number | string;
   timeCustomFormat?: string;
   timeCustomFormatCase?: string;
   selectedTextColor: string;
@@ -189,6 +193,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
   private _isListDesignerOpen: boolean = false;
   private _selectedItemId: number = 0;
   private _selectedMode: string = 'view';
+  private _searchResultCount: number = 0;
   private _dynamicDataSourceManager: any;
   private _filterJsonValidationMessage: string = '';
   private _filterDesignerMessage: string = '';
@@ -199,12 +204,17 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
   private _isEditingConditionalStyle: boolean = false;
   private _conditionalStyleDesignerRevision: number = 0;
   private _fieldTypeByInternalName: { [internalName: string]: string } = {};
+  private _fieldDisplayFormatByInternalName: { [internalName: string]: number } = {};
   private _fieldChoicesByInternalName: { [internalName: string]: string[] } = {};
   private _fieldLookupListByInternalName: { [internalName: string]: string } = {};
   private _filterLookupItemOptions: IDropdownOption[] = [];
   private _conditionalStyleLookupItemOptions: IDropdownOption[] = [];
   private _filterLookupMessage: string = '';
   private _conditionalStyleLookupMessage: string = '';
+  private _externalSearchFilterJson: string = '';
+  private _searchSourceHandlers: { [sourceId: string]: () => void } = {};
+  private _searchSourceDiscoveryTimer: number = 0;
+  private _searchSourceDiscoveryAttempts: number = 0;
 
   public constructor() {
     super();
@@ -247,6 +257,16 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
         id: 'selectedMode',
         title: strings.DynamicPropertySelectedModeTitle,
         description: strings.DynamicPropertySelectedModeDescription,
+      },
+      {
+        id: 'searchMetadata',
+        title: 'Search metadata',
+        description: 'List and field metadata for connected Search Control web parts.',
+      },
+      {
+        id: 'searchResultCount',
+        title: 'Search result count',
+        description: 'Number of items remaining after the current filters are applied.',
       }
     ];
   }
@@ -267,11 +287,19 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     if (propertyId === 'selectedMode') {
       return this._selectedMode;
     }
+    if (propertyId === 'searchMetadata') {
+      return this.getSearchMetadata();
+    }
+    if (propertyId === 'searchResultCount') {
+      return this._searchResultCount;
+    }
 
     throw new Error('Bad property id');
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
     if (this._isListDesignerOpen) {
       const designerElement: React.ReactElement<any> = React.createElement(ListDesigner, {
@@ -280,6 +308,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
         viewId: this.properties.viewId || '',
         viewColumns: this.properties.viewColumns || [],
         groupingJson: this.properties.groupingJson || '',
+        enableDiagnostics: this.properties.enableDiagnostics !== false,
         onSave: (columns: IListControlColumnConfiguration[], groupingJson: string) => this.saveListDesign(columns, groupingJson),
         onCancel: () => this.closeListDesigner()
       });
@@ -321,6 +350,8 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       dateCustomFormat: this.properties.dateCustomFormat || '',
       dateCustomFormatCase: this.properties.dateCustomFormatCase || 'default',
       timeDisplayFormat: this.properties.timeDisplayFormat || '24hour',
+      timeMinuteIncrement: [1, 5, 10, 15].indexOf(parseInt(String(this.properties.timeMinuteIncrement || '5'), 10)) >= 0
+        ? parseInt(String(this.properties.timeMinuteIncrement || '5'), 10) : 5,
       timeCustomFormat: this.properties.timeCustomFormat || '',
       timeCustomFormatCase: this.properties.timeCustomFormatCase || 'default',
       selectedTextColor: this.properties.selectedTextColor || '',
@@ -358,8 +389,10 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       webpartBorderColor: this.properties.webpartBorderColor || '#ccc',
       webpartBorderWidth: this.properties.webpartBorderWidth || 0,
       filterJson: this.properties.filterJson || '',
+      externalFilterJson: this._externalSearchFilterJson,
       conditionalStyleJson: this.properties.conditionalStyleJson || '',
-      onSelectionChange: (itemId: number, mode: string) => this.handleSelectionChange(itemId, mode)
+      onSelectionChange: (itemId: number, mode: string) => this.handleSelectionChange(itemId, mode),
+      onFilteredCountChange: (count: number) => this.handleFilteredCountChange(count)
     });
 
     ReactDom.render(element, this.domElement);
@@ -369,6 +402,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
     this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
     this.initializeDynamicDataSource();
+    this.discoverSearchSources();
 
     return Promise.all([this.loadLists(), this.loadSitePages()]).then(() => {
       this.logDiagnostic('List metadata loaded. Count=' + String(this._lists.length));
@@ -506,6 +540,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     if (!listName) {
       this._listFields = [];
       this._fieldTypeByInternalName = {};
+      this._fieldDisplayFormatByInternalName = {};
       this._fieldChoicesByInternalName = {};
       this._fieldLookupListByInternalName = {};
       this.context.propertyPane.refresh();
@@ -514,7 +549,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
 
     try {
       var endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-        + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+        + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
       var data = await this.getJsonWithAcceptFallback(endpoint);
       var fields = data && data.value ? data.value : [];
       if (!fields || fields.length === 0) {
@@ -522,12 +557,16 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       }
 
       this._fieldTypeByInternalName = {};
+      this._fieldDisplayFormatByInternalName = {};
       this._fieldChoicesByInternalName = {};
       this._fieldLookupListByInternalName = {};
       fields.forEach((field: any) => {
         var fieldInternalName = String(field.InternalName || '');
         if (!fieldInternalName) { return; }
         this._fieldTypeByInternalName[fieldInternalName] = String(field.TypeAsString || '').toLowerCase();
+        if (field.DisplayFormat !== undefined && field.DisplayFormat !== null) {
+          this._fieldDisplayFormatByInternalName[fieldInternalName] = Number(field.DisplayFormat);
+        }
         var rawChoices = field.Choices;
         this._fieldChoicesByInternalName[fieldInternalName] = Array.isArray(rawChoices)
           ? rawChoices.map(function(choice: any) { return String(choice); })
@@ -789,8 +828,86 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
   }
 
   protected onDispose(): void {
+    this.unregisterSearchSources();
     releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
     ReactDom.unmountComponentAtNode(this.domElement);
+  }
+
+  private getSearchMetadata(): any {
+    return {
+      instanceId: this.context.instanceId,
+      instanceName: String(this.properties.instanceName || '').trim() || strings.DynamicSourceTitle,
+      controlType: 'list',
+      listName: String(this.properties.listName || ''),
+      fields: this._listFields.map((option: IDropdownOption) => {
+        var internalName = String(option.key || '');
+        return {
+          internalName: internalName,
+          title: String(option.text || internalName),
+          typeAsString: this._fieldTypeByInternalName[internalName] || this._fieldTypeByInternalName[internalName.toLowerCase()] || 'Text',
+          dateOnly: this._fieldDisplayFormatByInternalName[internalName] === 0
+            || this._fieldDisplayFormatByInternalName[internalName.toLowerCase()] === 0,
+          choices: this._fieldChoicesByInternalName[internalName] || this._fieldChoicesByInternalName[internalName.toLowerCase()] || [],
+          lookupList: this._fieldLookupListByInternalName[internalName] || this._fieldLookupListByInternalName[internalName.toLowerCase()] || ''
+        };
+      })
+    };
+  }
+
+  private discoverSearchSources(): void {
+    var provider = (this.context as any).dynamicDataProvider || (this.context as any)._dynamicDataProvider;
+    if (!provider || !provider.getAvailableSources) { return; }
+    var sources = provider.getAvailableSources() || [];
+    for (var index = 0; index < sources.length; index += 1) {
+      var source = sources[index];
+      var alias = String(source && source.metadata && source.metadata.alias || '').toLowerCase();
+      var sourceId = String(source && source.id || '');
+      if (alias !== 'searchcontrolwebpart' || !sourceId || this._searchSourceHandlers[sourceId]) { continue; }
+      var handler = this.createSearchSourceHandler(source);
+      this._searchSourceHandlers[sourceId] = handler;
+      if (provider.registerSourceChanged) {
+        provider.registerSourceChanged(sourceId, handler);
+      }
+      this.applySearchSource(source);
+    }
+    this._searchSourceDiscoveryAttempts += 1;
+    this._searchSourceDiscoveryTimer = window.setTimeout(() => this.discoverSearchSources(), 1000);
+  }
+
+  private createSearchSourceHandler(source: any): () => void {
+    return () => this.applySearchSource(source);
+  }
+
+  private applySearchSource(source: any): void {
+    try {
+      var state = source && source.getPropertyValue ? source.getPropertyValue('searchState') : undefined;
+      if (!state || String(state.targetInstanceId || '').toLowerCase() !== String(this.context.instanceId || '').toLowerCase()) {
+        return;
+      }
+      var nextFilter = String(state.filterJson || '');
+      if (nextFilter === this._externalSearchFilterJson) { return; }
+      this._externalSearchFilterJson = nextFilter;
+      this.logDiagnostic('Applied Search Control filter from source ' + String(source.id || '') + '.');
+      this.render();
+    } catch (error) {
+      console.error('[ListControlWebPart] Failed to apply Search Control Dynamic Data.', error);
+    }
+  }
+
+  private unregisterSearchSources(): void {
+    if (this._searchSourceDiscoveryTimer) {
+      window.clearTimeout(this._searchSourceDiscoveryTimer);
+      this._searchSourceDiscoveryTimer = 0;
+    }
+    var provider = (this.context as any).dynamicDataProvider || (this.context as any)._dynamicDataProvider;
+    var sourceId: string;
+    for (sourceId in this._searchSourceHandlers) {
+      if (Object.prototype.hasOwnProperty.call(this._searchSourceHandlers, sourceId)
+        && provider && provider.unregisterSourceChanged) {
+        provider.unregisterSourceChanged(sourceId, this._searchSourceHandlers[sourceId]);
+      }
+    }
+    this._searchSourceHandlers = {};
   }
 
   protected get dataVersion(): Version {
@@ -1138,7 +1255,18 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
                     ],
                     selectedKey: this.properties.timeCustomFormatCase || 'default'
                   })
-                ] : [])
+                ] : []),
+                PropertyPaneDropdown('timeMinuteIncrement', {
+                  label: strings.PropTimeMinuteIncrementLabel,
+                  options: [
+                    { key: 1, text: 'Every 1 minute' },
+                    { key: 5, text: 'Every 5 minutes' },
+                    { key: 10, text: 'Every 10 minutes' },
+                    { key: 15, text: 'Every 15 minutes' }
+                  ],
+                  selectedKey: [1, 5, 10, 15].indexOf(parseInt(String(this.properties.timeMinuteIncrement || '5'), 10)) >= 0
+                    ? parseInt(String(this.properties.timeMinuteIncrement || '5'), 10) : 5
+                })
               ]
             },
             {
@@ -1400,6 +1528,16 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
             {
               groupName: 'Diagnostics',
               groupFields: [
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                  var oldValue = this.properties.overrideCssUrl || '';
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
+                }),
+                PropertyPaneCheckbox('excludeFromTabs', {
+                  text: 'Exclude this web part from SPS Tabs',
+                  checked: this.properties.excludeFromTabs === true
+                }),
                 PropertyPaneCheckbox('enableDiagnostics', {
                   text: strings.PropEnableDiagnosticsLabel,
                   checked: this.properties.enableDiagnostics !== false
@@ -2481,6 +2619,14 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     this.notifyDynamicData('selectedItemId');
     this.notifyDynamicData('selectedMode');
     this.render();
+  }
+
+  private handleFilteredCountChange(count: number): void {
+    if (count === this._searchResultCount) {
+      return;
+    }
+    this._searchResultCount = count;
+    this.notifyDynamicData('searchResultCount');
   }
 
   private async getJsonWithAcceptFallback(url: string): Promise<any> {

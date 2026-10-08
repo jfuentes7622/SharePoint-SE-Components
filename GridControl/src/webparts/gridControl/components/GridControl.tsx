@@ -3,6 +3,7 @@ import { SPHttpClient } from '@microsoft/sp-http';
 import * as strings from 'GridControlWebPartStrings';
 import { evaluateGridValidationExpression, IGridAdvancedValidationRule, IGridValidationField } from './GridValidation';
 import { GridRichTextEditor } from './GridRichTextEditor';
+import { DateTime24HourInput } from './DateTime24HourInput';
 import './GridControl.css';
 
 export interface IGridControlViewOption {
@@ -55,6 +56,7 @@ export interface IGridControlProps {
   dateCustomFormat?: string;
   dateCustomFormatCase?: string;
   timeDisplayFormat: string;
+  timeMinuteIncrement: number;
   timeCustomFormat?: string;
   timeCustomFormatCase?: string;
   selectedTextColor: string;
@@ -90,8 +92,10 @@ export interface IGridControlProps {
   webpartBorderColor: string;
   webpartBorderWidth: number;
   filterJson?: string;
+  externalFilterJson?: string;
   conditionalStyleJson?: string;
   onSelectionChange: (itemId: number, mode: string) => void;
+  onFilteredCountChange: (count: number) => void;
 }
 
 export interface IListFieldDefinition {
@@ -236,6 +240,20 @@ export interface IGridControlState {
   historyDialogUrl: string;
   historyDialogLoading: boolean;
   historyDialogError: string;
+  attachmentDialogOpen: boolean;
+  attachmentDialogFiles: IAttachmentInfo[];
+  attachmentDialogLoading: boolean;
+  attachmentDialogError: string;
+  attachmentPreviewUrl: string;
+  attachmentPreviewName: string;
+  attachmentUploadingItemId: number;
+  attachmentUploadError: string;
+  pendingNewAttachments: File[];
+}
+
+export interface IAttachmentInfo {
+  fileName: string;
+  serverRelativeUrl: string;
 }
 
 export type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
@@ -595,6 +613,9 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   private _pagingRuntimeFilterFieldNames: string[] = [];
   private _scrollArrowResizeHandler: any;
   private _scrollArrowScrollHandler: any;
+  private _lastReportedFilteredCount: number = -1;
+  private _attachmentInputEl: HTMLInputElement;
+  private _attachmentPickerItemId: number = 0;
 
   public constructor(props: IGridControlProps) {
     super(props);
@@ -649,6 +670,15 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       historyDialogUrl: '',
       historyDialogLoading: false,
       historyDialogError: '',
+      attachmentDialogOpen: false,
+      attachmentDialogFiles: [],
+      attachmentDialogLoading: false,
+      attachmentDialogError: '',
+      attachmentPreviewUrl: '',
+      attachmentPreviewName: '',
+      attachmentUploadingItemId: 0,
+      attachmentUploadError: '',
+      pendingNewAttachments: [],
     };
 
     this._refreshEventHandler = this.handleExternalRefresh.bind(this);
@@ -679,6 +709,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       window.addEventListener('resize', this._scrollArrowResizeHandler);
       window.addEventListener('scroll', this._scrollArrowScrollHandler, true);
     }
+    this.reportFilteredCount();
   }
 
   public componentWillUnmount(): void {
@@ -762,6 +793,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       || prevState.sortDirection !== this.state.sortDirection
       || prevState.columnFilters !== this.state.columnFilters
       || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
+      || prevProps.externalFilterJson !== this.props.externalFilterJson
       || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode) {
       this.loadAllRemainingRows();
     }
@@ -770,6 +802,16 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this._stickyHeaderSourceHtml = '';
       window.setTimeout(() => this.refreshTableViewport(), 0);
     }
+    this.reportFilteredCount();
+  }
+
+  private reportFilteredCount(): void {
+    var count = this.getProcessedRows().length;
+    if (count === this._lastReportedFilteredCount) {
+      return;
+    }
+    this._lastReportedFilteredCount = count;
+    this.props.onFilteredCountChange(count);
   }
 
   private _setTableWrapRef = (el: HTMLDivElement): void => {
@@ -1176,30 +1218,41 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private async getJsonWithFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=verbose'
         }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=minimalmetadata'
         }
       });
+      this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=nometadata'
         }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     return response;
@@ -1207,15 +1260,19 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
   private async logPostAttempt(label: string, url: string, response: any, payload: string): Promise<void> {
     if (this.props.enableDiagnostics === false) { return; }
-    var responseText = '';
+    var responseSummary = '';
     try {
-      responseText = await response.clone().text();
+      var responseData = await response.clone().json();
+      var responseResults = responseData && responseData.value ? responseData.value
+        : (responseData && responseData.d && responseData.d.results ? responseData.d.results : undefined);
+      responseSummary = Array.isArray(responseResults)
+        ? 'items=' + String(responseResults.length)
+        : 'keys=' + Object.keys(responseData && responseData.d ? responseData.d : responseData || {}).slice(0, 20).join(',');
     } catch (_responseReadError) {
-      responseText = '';
+      responseSummary = 'non-JSON response';
     }
     this.logDiagnostic('POST ' + label + ' status=' + String(response.status) + ' ' + String(response.statusText || '')
-      + ', url=' + url + ', payload=' + payload.substring(0, 2000)
-      + (responseText ? ', response=' + responseText.substring(0, 2000) : ''));
+      + ', url=' + url + ', payloadBytes=' + String(payload.length) + ', response=' + responseSummary);
   }
 
   private async postJsonWithFallback(url: string, body: any, baseHeaders?: { [key: string]: string }, verboseBody?: any, allowFallback?: boolean): Promise<any> {
@@ -1516,7 +1573,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
     var schemaFields = this.getGridSchemaFields();
     if (schemaFields.length === 0) {
-      return baseFields;
+      return this.ensureAttachmentDisplayField(baseFields);
     }
 
     var byName: { [fieldName: string]: IListFieldDefinition } = {};
@@ -1549,7 +1606,23 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         }));
       }
     }
-    return schemaDisplayFields;
+    return this.ensureAttachmentDisplayField(schemaDisplayFields);
+  }
+
+  private ensureAttachmentDisplayField(fields: IListFieldDefinition[]): IListFieldDefinition[] {
+    var attachmentMetadata = this.state.fieldMetadataByName['attachments'];
+    if (!attachmentMetadata || attachmentMetadata.typeAsString !== 'Attachments') {
+      return fields;
+    }
+    var hasAttachmentField = fields.some(function(field: IListFieldDefinition): boolean {
+      return String(field.RealFieldName || field.Name || '').toLowerCase() === 'attachments';
+    });
+    return hasAttachmentField ? fields : fields.concat([{
+      Name: 'Attachments',
+      RealFieldName: 'Attachments',
+      DisplayName: attachmentMetadata.title || strings.RuntimeAttachmentsTitle,
+      TypeAsString: 'Attachments'
+    }]);
   }
 
   private getGridSchemaFields(): IGridSchemaField[] {
@@ -2418,9 +2491,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         return renderableItemIds.indexOf(itemId) >= 0;
       });
 
-      var hasAttachmentsField = visibleFields.some(function(field: IListFieldDefinition) {
-        return String(field.TypeAsString || '') === 'Attachments';
-      });
+      var hasAttachmentsField = !!fieldMetadataByName['attachments']
+        && fieldMetadataByName['attachments'].typeAsString === 'Attachments';
       var attachmentCountsByItemId = hasAttachmentsField
         ? await this.loadAttachmentCounts(renderableItemIds)
         : {};
@@ -2769,6 +2841,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       editingItemId: itemId,
       editingValues: values,
       editingErrors: {},
+      pendingNewAttachments: [],
       error: null
     });
     this.props.onSelectionChange(itemId, 'edit');
@@ -2799,6 +2872,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       editingItemId: 0,
       editingValues: values,
       editingErrors: {},
+      pendingNewAttachments: [],
       error: null
     });
     this.props.onSelectionChange(0, 'new');
@@ -2809,6 +2883,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       editingItemId: -1,
       editingValues: {},
       editingErrors: {},
+      pendingNewAttachments: [],
       saving: false,
       selectedMode: 'view'
     });
@@ -3017,6 +3092,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this.logDiagnostic('Saving row. mode=' + (this.state.editingItemId > 0 ? 'edit' : 'new')
         + ', itemId=' + String(this.state.editingItemId) + ', fields=' + Object.keys(payload).join(','));
       var response: any;
+      var createdItemId = 0;
+      var pendingAttachments = this.state.editingItemId === 0 ? this.state.pendingNewAttachments.slice() : [];
       if (this.state.editingItemId > 0) {
         response = await this.postJsonWithFallback(
           listUrl + '(' + this.state.editingItemId + ')',
@@ -3033,7 +3110,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         response = await this.postJsonWithFallback(
           listUrl,
           payload,
-          { 'Prefer': 'return-no-content' },
+          {},
           verbosePayload,
           false
         );
@@ -3042,12 +3119,25 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         var responseText = await response.text();
         throw new Error(responseText || strings.RuntimeSaveFailed);
       }
+      if (this.state.editingItemId === 0) {
+        createdItemId = await this.getCreatedItemId(response);
+      }
+      var failedAttachmentNames: string[] = [];
+      if (pendingAttachments.length > 0) {
+        failedAttachmentNames = createdItemId > 0
+          ? await this.uploadAttachmentFiles(createdItemId, pendingAttachments)
+          : pendingAttachments.map(function(file: File): string { return file.name; });
+      }
       this.setState({
         editingItemId: -1,
         editingValues: {},
         editingErrors: {},
+        pendingNewAttachments: [],
         saving: false,
-        selectedMode: 'view'
+        selectedMode: 'view',
+        attachmentUploadError: failedAttachmentNames.length > 0
+          ? formatString(strings.RuntimeAttachmentsCreatedUploadFailed, failedAttachmentNames.join(', '))
+          : ''
       });
       await this.loadRows();
     } catch (error) {
@@ -3057,6 +3147,43 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         error: saveError && saveError.message ? saveError.message : strings.RuntimeSaveFailed
       });
     }
+  }
+
+  private async getCreatedItemId(response: any): Promise<number> {
+      try {
+        var responseData = await response.clone().json();
+        var item = responseData && responseData.d ? responseData.d : responseData;
+        var bodyId = toPositiveInt(item && (item.ID || item.Id || item.id));
+        if (bodyId > 0) { return bodyId; }
+      } catch (_responseError) {
+        // Some SharePoint versions return an empty body and expose the item URL in a response header.
+      }
+      var entityUrl = response && response.headers
+        ? String(response.headers.get('OData-EntityId') || response.headers.get('Location') || '')
+        : '';
+      var idMatch = /\/items\((\d+)\)/i.exec(entityUrl);
+      return idMatch ? toPositiveInt(idMatch[1]) : 0;
+    }
+
+  private renderNewAttachmentEditor(): JSX.Element {
+      return (
+        <div className="gc-new-attachments">
+          <label className="gc-new-attachments-picker">
+            <span>{strings.RuntimeAttachmentsAdd}</span>
+            <input type="file" multiple={true} disabled={this.state.saving} onChange={(event) => {
+              var files: File[] = [];
+              var selectedFiles = event.currentTarget.files;
+              for (var index = 0; selectedFiles && index < selectedFiles.length; index += 1) {
+                files.push(selectedFiles[index]);
+              }
+              this.setState({ pendingNewAttachments: files, attachmentUploadError: '' });
+            }} />
+          </label>
+          {this.state.pendingNewAttachments.map(function(file: File, index: number) {
+            return <div className="gc-new-attachment-name" key={file.name + '-' + String(index)}>{file.name}</div>;
+          })}
+        </div>
+      );
   }
 
   private renderEditingControl(field: IListFieldDefinition): JSX.Element | null {
@@ -3141,7 +3268,13 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           : metadata.typeAsString === 'URL' ? 'url' : 'text';
       var numberStep = config.decimals !== undefined && Number(config.decimals) > 0
         ? String(1 / Math.pow(10, Number(config.decimals))) : metadata.typeAsString === 'Integer' ? '1' : 'any';
-      control = <input type={inputType} value={String(value || '')} title={metadata.description} placeholder={String(config.placeholder || '')} maxLength={config.maxLength} min={config.min} max={config.max} step={inputType === 'number' ? numberStep : undefined} onChange={(ev) => this.updateEditingValue(metadata.internalName, ev.currentTarget.value)} />;
+      var inputStep = inputType === 'number' ? numberStep
+        : inputType === 'time' || inputType === 'datetime-local' ? String(this.props.timeMinuteIncrement * 60) : undefined;
+      if ((inputType === 'time' || inputType === 'datetime-local') && this.props.timeDisplayFormat !== '12hour') {
+        control = <DateTime24HourInput value={String(value || '')} timeOnly={inputType === 'time'} minuteIncrement={this.props.timeMinuteIncrement} ariaLabel={metadata.title || metadata.internalName} onChange={(nextValue) => this.updateEditingValue(metadata.internalName, nextValue)} />;
+      } else {
+        control = <input type={inputType} value={String(value || '')} title={metadata.description} placeholder={String(config.placeholder || '')} maxLength={config.maxLength} min={config.min} max={config.max} step={inputStep} lang={inputType === 'time' || inputType === 'datetime-local' ? 'en-US' : undefined} onChange={(ev) => this.updateEditingValue(metadata.internalName, ev.currentTarget.value)} />;
+      }
     }
     return (
       <div className={joinClassNames(['gc-cell-editor', error ? 'gc-cell-editor-error' : ''])}>
@@ -3183,14 +3316,22 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         {this.props.showDelete && !this.isReadOnly() && <td className="gc-selection-cell"></td>}
         {this.props.actionButtonsPosition === 'beginning' && actions}
         {displayFields.map((field) => {
-          var editor = this.renderEditingControl(field);
+          var isAttachmentField = String(field.RealFieldName || field.Name || '').toLowerCase() === 'attachments';
+          var editor = isNew && isAttachmentField ? this.renderNewAttachmentEditor() : this.renderEditingControl(field);
+          var readOnlyMarkup = this.getCellMarkup(editingRow, field);
           var fieldKey = this.getFieldKey(field);
           var columnStyle = conditionalStyle.columnStylesByFieldKey[fieldKey] || {};
           var cellStyle = mergeStyleObjects(
             mergeStyleObjects(conditionalStyle.rowStyle, columnStyle),
             this.getConfiguredColumnStyle(field)
           );
-          return <td key={field.Name} style={cellStyle}>{editor || (isNew ? null : strings.RuntimeReadOnlyCell)}</td>;
+          return (
+            <td key={field.Name} style={cellStyle}>
+              {editor || (isNew || !readOnlyMarkup ? null : (
+                <span className="gc-read-only-value" title={strings.RuntimeReadOnlyCell} dangerouslySetInnerHTML={readOnlyMarkup} />
+              ))}
+            </td>
+          );
         })}
         {this.props.actionButtonsPosition !== 'beginning' && actions}
       </tr>
@@ -3246,6 +3387,197 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     });
   }
 
+  private hasAttachmentsField(): boolean {
+    var attachmentMetadata = this.state.fieldMetadataByName['attachments'];
+    if (attachmentMetadata && attachmentMetadata.typeAsString === 'Attachments') {
+      return true;
+    }
+    return this.state.fields.some(function(field: IListFieldDefinition) {
+      return String(field.TypeAsString || '') === 'Attachments';
+    });
+  }
+
+  private resolveAttachmentUrl(serverRelativeUrl: string): string {
+    var url = String(serverRelativeUrl || '');
+    if (/^https?:\/\//i.test(url)) { return url; }
+    if (url.charAt(0) === '/' && typeof window !== 'undefined') {
+      return window.location.protocol + '//' + window.location.host + url;
+    }
+    return url;
+  }
+
+  private canPreviewAttachment(fileName: string): boolean {
+    return /\.(bmp|gif|jpe?g|pdf|png|txt|webp)$/i.test(String(fileName || ''));
+  }
+
+  private async loadAttachments(itemId: number): Promise<IAttachmentInfo[]> {
+    var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+      + "')/items(" + String(itemId) + ")?$select=AttachmentFiles&$expand=AttachmentFiles";
+    var response = await this.getJsonWithFallback(endpoint);
+    if (!response.ok) { throw new Error(strings.RuntimeAttachmentsLoadFailed); }
+    var data = await response.json();
+    var item = data && data.d ? data.d : data;
+    var files = toArray(item && item.AttachmentFiles);
+    return files.map(function(file: any): IAttachmentInfo {
+      var path = file && file.ServerRelativePath && file.ServerRelativePath.DecodedUrl;
+      return {
+        fileName: String(file && (file.FileName || file.Name) || ''),
+        serverRelativeUrl: String(file && (file.ServerRelativeUrl || path) || '')
+      };
+    }).filter(function(file: IAttachmentInfo) { return !!file.fileName && !!file.serverRelativeUrl; });
+  }
+
+  private async openAttachmentDialog(row: any): Promise<void> {
+    var itemId = this.getRowItemId(row);
+    if (itemId <= 0) { return; }
+    this.setState({
+      attachmentDialogOpen: true,
+      attachmentDialogFiles: [],
+      attachmentDialogLoading: true,
+      attachmentDialogError: '',
+      attachmentPreviewUrl: '',
+      attachmentPreviewName: ''
+    });
+    try {
+      var files = await this.loadAttachments(itemId);
+      this.setState({ attachmentDialogFiles: files, attachmentDialogLoading: false });
+    } catch (error) {
+      var attachmentError: any = error as any;
+      this.setState({
+        attachmentDialogLoading: false,
+        attachmentDialogError: attachmentError && attachmentError.message ? attachmentError.message : strings.RuntimeAttachmentsLoadFailed
+      });
+    }
+  }
+
+  private closeAttachmentDialog(): void {
+    this.setState({
+      attachmentDialogOpen: false,
+      attachmentDialogFiles: [],
+      attachmentDialogLoading: false,
+      attachmentDialogError: '',
+      attachmentPreviewUrl: '',
+      attachmentPreviewName: ''
+    });
+  }
+
+  private renderAttachmentDialog(): React.ReactNode {
+    if (!this.state.attachmentDialogOpen) { return null; }
+    return (
+      <div className="gc-attachment-overlay" role="presentation" onClick={() => this.closeAttachmentDialog()} onKeyDown={(ev) => {
+        if (ev.key === 'Escape') { this.closeAttachmentDialog(); }
+      }}>
+        <div className="gc-attachment-dialog" role="dialog" aria-modal="true" aria-label={strings.RuntimeAttachmentsTitle} onClick={(ev) => ev.stopPropagation()}>
+          <div className="gc-attachment-header">
+            <div className="gc-attachment-title">{strings.RuntimeAttachmentsTitle}</div>
+            <button type="button" className="gc-attachment-close" title={strings.RuntimeAttachmentsClose} aria-label={strings.RuntimeAttachmentsClose} onClick={() => this.closeAttachmentDialog()}>
+              <i className="ms-Icon ms-Icon--Cancel" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div className="gc-attachment-content">
+            <div className="gc-attachment-list">
+              {this.state.attachmentDialogLoading && <div className="gc-attachment-status">{strings.RuntimeLoading}</div>}
+              {!!this.state.attachmentDialogError && <div className="gc-attachment-status gc-attachment-error">{this.state.attachmentDialogError}</div>}
+              {!this.state.attachmentDialogLoading && !this.state.attachmentDialogError && this.state.attachmentDialogFiles.length === 0 && <div className="gc-attachment-status">{strings.RuntimeAttachmentsEmpty}</div>}
+              {this.state.attachmentDialogFiles.map((file, index) => {
+                var fileUrl = this.resolveAttachmentUrl(file.serverRelativeUrl);
+                return (
+                  <div className="gc-attachment-item" key={file.fileName + '-' + String(index)}>
+                    <span className="gc-attachment-name">
+                      <i className="ms-Icon ms-Icon--Attach" aria-hidden="true"></i><span>{file.fileName}</span>
+                    </span>
+                    <button type="button" className="gc-attachment-preview-button" title={strings.RuntimeAttachmentsPreview} onClick={() => this.setState({ attachmentPreviewUrl: this.canPreviewAttachment(file.fileName) ? fileUrl : '', attachmentPreviewName: file.fileName })}>
+                      {strings.RuntimeAttachmentsPreviewAction}
+                    </button>
+                    <a href={fileUrl} target="_blank" rel="noopener noreferrer">{strings.RuntimeAttachmentsOpen}</a>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="gc-attachment-preview">
+              {this.state.attachmentPreviewUrl
+                ? <iframe sandbox="" src={this.state.attachmentPreviewUrl} title={this.state.attachmentPreviewName}></iframe>
+                : <div className="gc-attachment-status">{this.state.attachmentPreviewName ? strings.RuntimeAttachmentsPreviewUnavailable : strings.RuntimeAttachmentsSelect}</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  private setAttachmentInputRef = (element: HTMLInputElement): void => {
+    this._attachmentInputEl = element;
+  }
+
+  private openAttachmentPicker(row: any): void {
+    var itemId = this.getRowItemId(row);
+    if (itemId <= 0 || this.isReadOnly() || !this._attachmentInputEl) { return; }
+    this._attachmentPickerItemId = itemId;
+    this._attachmentInputEl.value = '';
+    this.setState({ attachmentUploadError: '' }, () => this._attachmentInputEl.click());
+  }
+
+  private async handleAttachmentInputChange(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    var files: File[] = [];
+    var selectedFiles = event.currentTarget.files;
+    for (var index = 0; selectedFiles && index < selectedFiles.length; index += 1) {
+      files.push(selectedFiles[index]);
+    }
+    var itemId = this._attachmentPickerItemId;
+    this._attachmentPickerItemId = 0;
+    if (itemId <= 0 || files.length === 0) {
+      return;
+    }
+
+    this.setState({ attachmentUploadingItemId: itemId });
+    try {
+      var failedNames = await this.uploadAttachmentFiles(itemId, files);
+      await this.loadRows();
+      this.setState({
+        attachmentUploadingItemId: 0,
+        attachmentUploadError: failedNames.length > 0
+          ? formatString(strings.RuntimeAttachmentsUploadFailed, failedNames.join(', ')) : ''
+      });
+      await this.openAttachmentDialog({ ID: itemId });
+    } catch (error) {
+      var uploadError: any = error as any;
+      this.setState({
+        attachmentUploadingItemId: 0,
+        attachmentUploadError: uploadError && uploadError.message ? uploadError.message : strings.RuntimeAttachmentsUploadFailed
+      });
+    }
+  }
+
+  private async uploadAttachmentFiles(itemId: number, files: File[]): Promise<string[]> {
+    var failedNames: string[] = [];
+    for (var fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+      var file = files[fileIndex];
+      try {
+        var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+          + "')/items(" + String(itemId) + ")/AttachmentFiles/add(FileName='"
+          + encodeURIComponent(file.name).replace(/'/g, '%27') + "')";
+        var response = await this.props.context.spHttpClient.post(endpoint, SPHttpClient.configurations.v1, {
+          headers: {
+            'OData-Version': '3.0',
+            Accept: 'application/json;odata=verbose',
+            'Content-Type': 'application/octet-stream'
+          },
+          body: file
+        });
+        if (!response.ok) {
+          var persistedFiles = await this.loadAttachments(itemId);
+          var persisted = persistedFiles.some(function(existingFile: IAttachmentInfo) {
+            return existingFile.fileName.toLowerCase() === file.name.toLowerCase();
+          });
+          if (!persisted) { failedNames.push(file.name); }
+        }
+      } catch (_uploadError) {
+        failedNames.push(file.name);
+      }
+    }
+    return failedNames;
+  }
+
   private renderRowActionCell(row: any, isEditingRow: boolean, isReadOnly: boolean): JSX.Element {
     return (
       <td className="gc-row-actions">
@@ -3262,6 +3594,21 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
             }}
           >
             {this.renderCommandContent('Edit', strings.RuntimeEdit)}
+          </button>
+        )}
+        {!isReadOnly && this.hasAttachmentsField() && (
+          <button
+            type="button"
+            className={this.getCommandButtonClass()}
+            disabled={isEditingRow || this.state.deleting || this.state.attachmentUploadingItemId > 0}
+            title={this.state.attachmentUploadingItemId === this.getRowItemId(row) ? strings.RuntimeAttachmentsUploading : strings.RuntimeAttachmentsAdd}
+            aria-label={this.state.attachmentUploadingItemId === this.getRowItemId(row) ? strings.RuntimeAttachmentsUploading : strings.RuntimeAttachmentsAdd}
+            onClick={(ev) => {
+              ev.stopPropagation();
+              this.openAttachmentPicker(row);
+            }}
+          >
+            {this.renderCommandContent('Attach', this.state.attachmentUploadingItemId === this.getRowItemId(row) ? strings.RuntimeAttachmentsUploading : strings.RuntimeAttachmentsAdd)}
           </button>
         )}
         {this.props.showHistory !== false && this.props.historyAvailable && (
@@ -3862,7 +4209,11 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private parsePresetFilterConditions(): IPresetFilterCondition[] {
-    var sources = [String(this.props.filterJson || '').trim(), String(this.state.runtimeFilterJson || '').trim()];
+    var sources = [
+      String(this.props.filterJson || '').trim(),
+      String(this.state.runtimeFilterJson || '').trim(),
+      String(this.props.externalFilterJson || '').trim()
+    ];
     var conditions: IPresetFilterCondition[] = [];
     for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
       var source = sources[sourceIndex];
@@ -3895,8 +4246,13 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   private getRuntimeFilterFieldNames(): string[] {
     var conditions: any[] = [];
     try {
-      var parsed = JSON.parse(String(this.state.runtimeFilterJson || ''));
-      conditions = Array.isArray(parsed) ? parsed : [];
+      var runtimeSources = [String(this.state.runtimeFilterJson || ''), String(this.props.externalFilterJson || '')];
+      for (var sourceIndex = 0; sourceIndex < runtimeSources.length; sourceIndex += 1) {
+        var parsed = JSON.parse(runtimeSources[sourceIndex] || '[]');
+        if (Array.isArray(parsed)) {
+          conditions = conditions.concat(parsed);
+        }
+      }
     } catch (_parseError) {
       conditions = [];
     }
@@ -4435,6 +4791,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         {showRowActions && this.props.actionButtonsPosition === 'beginning' && this.renderRowActionCell(row, isEditingRow, isReadOnly)}
         {displayFields.map((field) => {
           var markup = this.getCellMarkup(row, field);
+          var isAttachmentField = String(field.TypeAsString || '') === 'Attachments';
+          var attachmentCount = isAttachmentField ? this.getAttachmentCountForRow(row, this.getRowFieldValue(row, field)) : 0;
           var urlCell = this.getUrlCellValue(row, field);
           var showItemLink = this.props.showLinkToItem && this.isTitleField(field);
           var itemLinkUrl = showItemLink ? this.getItemLinkUrl(row) : '';
@@ -4447,7 +4805,14 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           );
           return (
             <td key={field.Name} style={mergedCellStyle} title={(this.getGridFieldMetadata(field) || {} as IGridFieldMetadata).description || ''}>
-              {urlCell ? (
+              {isAttachmentField ? (
+                <button type="button" className="gc-attachment-count" disabled={attachmentCount <= 0} title={strings.RuntimeAttachmentsView} aria-label={strings.RuntimeAttachmentsView} onClick={(ev) => {
+                  ev.stopPropagation();
+                  this.openAttachmentDialog(row);
+                }}>
+                  <i className="ms-Icon ms-Icon--Attach" aria-hidden="true"></i><span>{attachmentCount}</span>
+                </button>
+              ) : urlCell ? (
                 <a
                   className="lc-item-link"
                   href={urlCell.href}
@@ -4695,12 +5060,13 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
         {this.state.loading && <div>{strings.RuntimeLoading}</div>}
         {!!this.state.deleteMessage && <div className="gc-delete-message">{this.state.deleteMessage}</div>}
+        {!!this.state.attachmentUploadError && <div className="gc-delete-message">{this.state.attachmentUploadError}</div>}
         {!!this.state.error && <div>{this.state.error}</div>}
         {!this.state.loading && !this.state.error && processedRows.length === 0 && !isEditingRow && (
           <div>{hasActiveFilters ? strings.RuntimeNoItemsAfterFilter : strings.RuntimeNoItems}</div>
         )}
 
-        {!this.state.loading && !this.state.error && (processedRows.length > 0 || isEditingRow) && (
+        {!this.state.loading && !this.state.error && (processedRows.length > 0 || hasActiveFilters || isEditingRow) && (
           <div className="lc-table-container">
             <div className="lc-sticky-header-viewport" ref={this._setStickyHeaderViewportRef}></div>
             <div className="lc-table-wrap" ref={this._setTableWrapRef}>
@@ -4906,6 +5272,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
             </div>
           </div>
         )}
+        <input ref={this.setAttachmentInputRef} className="gc-visually-hidden" type="file" multiple={true} tabIndex={-1} aria-hidden="true" onChange={(ev) => this.handleAttachmentInputChange(ev)} />
+        {this.renderAttachmentDialog()}
       </div>
     );
   }

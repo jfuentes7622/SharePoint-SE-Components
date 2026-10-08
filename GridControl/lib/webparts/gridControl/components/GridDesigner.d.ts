@@ -7,6 +7,7 @@ export interface IGridDesignerProps {
     listName: string;
     viewId: string;
     schemaJson: string;
+    enableDiagnostics?: boolean;
     onSave: (schemaJson: string) => void;
     onCancel: () => void;
 }
@@ -68,6 +69,7 @@ export declare class GridDesigner extends React.Component<IGridDesignerProps, IG
     componentDidMount(): void;
     private getWebUrl();
     private getFieldsResponse(url);
+    private logDiagnostic(message);
     private loadFields();
     private loadFromView();
     private getAvailableFields();

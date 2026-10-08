@@ -39,6 +39,8 @@ export interface IGridControlWebPartProps {
     linkTargetPageUrl: string;
     linkTargetIdParam: string;
     includeReturnUrlParam: boolean;
+    excludeFromTabs?: boolean;
+    overrideCssUrl?: string;
     enableDiagnostics: boolean;
     bodyTextColor: string;
     bodyFontFamily: string;
@@ -50,6 +52,7 @@ export interface IGridControlWebPartProps {
     dateCustomFormat?: string;
     dateCustomFormatCase?: string;
     timeDisplayFormat: string;
+    timeMinuteIncrement?: number | string;
     timeCustomFormat?: string;
     timeCustomFormatCase?: string;
     selectedTextColor: string;
@@ -131,6 +134,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private _siteGroups;
     private _selectedItemId;
     private _selectedMode;
+    private _searchResultCount;
     private _dynamicDataSourceManager;
     private _filterJsonValidationMessage;
     private _filterDesignerMessage;
@@ -141,6 +145,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private _isEditingConditionalStyle;
     private _conditionalStyleDesignerRevision;
     private _fieldTypeByInternalName;
+    private _fieldDisplayFormatByInternalName;
     private _fieldChoicesByInternalName;
     private _fieldLookupListByInternalName;
     private _filterLookupItemOptions;
@@ -148,6 +153,10 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private _filterLookupMessage;
     private _conditionalStyleLookupMessage;
     private _isGridDesignerOpen;
+    private _externalSearchFilterJson;
+    private _searchSourceHandlers;
+    private _searchSourceDiscoveryTimer;
+    private _searchSourceDiscoveryAttempts;
     constructor();
     readonly id: string;
     readonly metadata: IDynamicDataSourceMetadataCompat;
@@ -173,6 +182,11 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private createConditionalStyleExpressionHelpField();
     private handleColorPropertyChange(propertyPath, oldValue, newValue);
     protected onDispose(): void;
+    private getSearchMetadata();
+    private discoverSearchSources();
+    private createSearchSourceHandler(source);
+    private applySearchSource(source);
+    private unregisterSearchSources();
     protected readonly dataVersion: Version;
     protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration;
     private getWebPartVersion();
@@ -209,6 +223,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private notifyDynamicSourceChanged();
     private notifyDynamicData(propertyId);
     private handleSelectionChange(itemId, mode);
+    private handleFilteredCountChange(count);
     private getJsonWithAcceptFallback(url);
     private loadLists();
     private isSelectedListVersioningEnabled();

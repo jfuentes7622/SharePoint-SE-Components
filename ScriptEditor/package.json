@@ -1,6 +1,6 @@
 {
   "name": "script-editor-web-part",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "engines": {

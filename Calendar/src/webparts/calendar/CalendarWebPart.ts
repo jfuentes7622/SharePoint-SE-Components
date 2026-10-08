@@ -22,6 +22,7 @@ import * as strings from 'CalendarWebPartStrings';
 import Calendar from './components/Calendar';
 import { ICalendarDataSource, ICalendarProps } from './components/ICalendarProps';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -184,6 +185,8 @@ export interface ICalendarWebPartProps {
   detailsCloseButtonBackgroundColor: string;
   detailsCloseButtonHoverBackgroundColor: string;
   detailsCloseButtonCornerRadius: number;
+  excludeFromTabs: boolean;
+  overrideCssUrl?: string;
   enableDiagnostics: boolean;
 }
 
@@ -265,6 +268,8 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
     var primaryListName = this.getPrimaryListName();
     this.logDiagnostic('render() called. primaryListName=' + String(primaryListName || '(none)'));
@@ -1024,25 +1029,40 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   }
 
   private async getJsonWithAcceptFallback(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     let response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry with Accept=application/json;odata=verbose: GET ' + url);
       response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: 'application/json;odata=verbose' }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
+      this.logDiagnostic('REST retry with Accept=application/json;odata=nometadata: GET ' + url);
       response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: 'application/json;odata=nometadata' }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
 
     if (!response.ok) {
       throw new Error('Request failed. HTTP ' + String(response.status) + ' ' + response.statusText);
     }
 
-    return response.json();
+    const data = await response.json();
+    const results = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : undefined);
+    const root = data && data.d && !data.value ? data.d : data;
+    this.logDiagnostic('REST payload summary: GET ' + url + ' -> '
+      + (Array.isArray(results)
+        ? 'items=' + String(results.length)
+        : 'keys=' + Object.keys(root || {}).slice(0, 20).join(',')));
+    return data;
   }
 
   private getCalendarDateFields(viewQuery: string): { startFieldName: string; endFieldName: string } | undefined {
@@ -1713,6 +1733,16 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
             {
               groupName: strings.DiagnosticsGroupName,
               groupFields: [
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
+                  var oldValue = this.properties.overrideCssUrl || '';
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
+                }),
+                PropertyPaneCheckbox('excludeFromTabs', {
+                  text: 'Exclude this web part from SPS Tabs',
+                  checked: this.properties.excludeFromTabs === true
+                }),
                 PropertyPaneCheckbox('enableDiagnostics', {
                   text: strings.PropEnableDiagnosticsLabel,
                   checked: this.properties.enableDiagnostics !== false

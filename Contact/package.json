@@ -1,6 +1,6 @@
 {
   "name": "sps-contacts",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "engines": {

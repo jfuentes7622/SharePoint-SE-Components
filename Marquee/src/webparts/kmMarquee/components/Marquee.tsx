@@ -141,11 +141,14 @@ function getItemId(item: any): string {
 
 export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqueeState> {
   private _cycleTimer: number;
+  private _isPointerOver: boolean = false;
+  private _waitingForNextPass: boolean = false;
 
   constructor(props: IKmMarqueeProps) {
     super(props);
     this.state = { loading: false, messages: [], currentIndex: 0 };
     this.handleLoad = this.handleLoad.bind(this);
+    this.handleWindowResize = this.handleWindowResize.bind(this);
    }
 
  componentWillMount() {
@@ -156,6 +159,7 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
  componentDidMount() {
   this.logDiagnostic('componentDidMount');
   setTimeout(() => {window.addEventListener('load', this.handleLoad);},0);
+  window.addEventListener('resize', this.handleWindowResize);
   this.loadMessages();
 }
 
@@ -167,7 +171,9 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
       return;
     }
     if (prevProps.messageDuration !== this.props.messageDuration) {
-      this.scheduleNextPass();
+      if (this._waitingForNextPass) {
+        this.scheduleNextPass();
+      }
     }
     if (
       prevProps.description !== this.props.description
@@ -185,7 +191,6 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
     ) {
       this.handleLoad();
       this.restartAnimation();
-      this.scheduleNextPass();
     }
   }
 
@@ -193,6 +198,7 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
   componentWillUnmount() { 
     this.logDiagnostic('componentWillUnmount');
     window.removeEventListener('load', this.handleLoad);
+    window.removeEventListener('resize', this.handleWindowResize);
     this.clearCycle();
     //this.removeDiv();
   }
@@ -213,10 +219,15 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
 
   private scheduleNextPass(): void {
     this.clearCycle();
+    this._waitingForNextPass = true;
+    if (this._isPointerOver) {
+      return;
+    }
     const messageSeconds = typeof this.props.messageDuration === 'number' && this.props.messageDuration >= 2
       ? this.props.messageDuration : 8;
     const durationMs = messageSeconds * 1000;
     this._cycleTimer = window.setTimeout(() => {
+      this._waitingForNextPass = false;
       if (this.state.messages.length > 1) {
         this.setState((prevState: IKmMarqueeState) => {
           const nextIndex = (prevState.currentIndex + 1) % prevState.messages.length;
@@ -226,11 +237,9 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
             + ' of ' + String(this.state.messages.length) + '.');
           this.handleLoad();
           this.restartAnimation();
-          this.scheduleNextPass();
         });
       } else {
         this.restartAnimation();
-        this.scheduleNextPass();
       }
     }, durationMs);
   }
@@ -240,10 +249,41 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
     if (!marqueeSpan) {
       return;
     }
+    this._waitingForNextPass = false;
+    this.clearCycle();
+    const marqueeDiv = document.getElementById('marqueeDiv') as HTMLElement;
+    const containerWidth = marqueeDiv ? marqueeDiv.clientWidth : 0;
+    const messageWidth = marqueeSpan.scrollWidth;
+    if (containerWidth <= 0 || messageWidth <= 0) {
+      return;
+    }
+    const isRightward = this.props.scrollDirection === 'right';
+    marqueeSpan.style.setProperty('--marquee-start-x', (isRightward ? -messageWidth : containerWidth) + 'px');
+    marqueeSpan.style.setProperty('--marquee-end-x', (isRightward ? containerWidth : -messageWidth) + 'px');
     marqueeSpan.style.animationName = 'none';
     window.setTimeout(() => {
       marqueeSpan.style.animationName = this.props.scrollDirection === 'right' ? 'moveRight' : 'moveLeft';
+      marqueeSpan.style.animationPlayState = this._isPointerOver ? 'paused' : 'running';
     }, 0);
+  }
+
+  private handleWindowResize(): void {
+    this.restartAnimation();
+  }
+
+  private handlePointerEnter(marqueeSpan: HTMLElement): void {
+    this._isPointerOver = true;
+    this.clearCycle();
+    marqueeSpan.style.animationPlayState = 'paused';
+  }
+
+  private handlePointerLeave(marqueeSpan: HTMLElement): void {
+    this._isPointerOver = false;
+    if (this._waitingForNextPass) {
+      this.scheduleNextPass();
+    } else {
+      marqueeSpan.style.animationPlayState = 'running';
+    }
   }
 
   private async loadMessages(): Promise<void> {
@@ -252,7 +292,6 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
       this.setState({ messages: [], currentIndex: 0 }, () => {
         this.handleLoad();
         this.restartAnimation();
-        this.scheduleNextPass();
       });
       return;
     }
@@ -287,7 +326,6 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
       this.setState({ messages: messages, currentIndex: 0 }, () => {
         this.handleLoad();
         this.restartAnimation();
-        this.scheduleNextPass();
       });
     } catch (error) {
       console.error('[KmMarquee] Failed to load messages from list "' + this.props.listName + '": ' + (error && error.message ? error.message : String(error)));
@@ -393,16 +431,24 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
   }
 
   private async getJsonResponse(url: string): Promise<any> {
+    this.logDiagnostic('REST request: GET ' + url);
     let response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
     if (!response.ok) {
+      this.logDiagnostic('REST retry with Accept=application/json;odata=verbose: GET ' + url);
       response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: 'application/json;odata=verbose' }
       });
+      this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
     if (!response.ok) {
+      this.logDiagnostic('REST retry with Accept=application/json;odata=nometadata: GET ' + url);
       response = await this.props.spfxContext.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: { Accept: 'application/json;odata=nometadata' }
       });
+      this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
+        + String(response.status) + ' ' + response.statusText);
     }
     return response;
   }
@@ -617,6 +663,12 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
     this.placeMarquee(marqueeDiv);
     this.applyStyles(marqueeDiv, marqueeSpan);
     marqueeSpan.textContent = displayText;
+    marqueeDiv.onmouseenter = () => { this.handlePointerEnter(marqueeSpan); };
+    marqueeDiv.onmouseleave = () => { this.handlePointerLeave(marqueeSpan); };
+    (marqueeSpan as any).onanimationend = () => {
+      marqueeSpan.style.animationName = 'none';
+      this.scheduleNextPass();
+    };
   }
 
   private applyStyles(marqueeDiv: HTMLElement, marqueeSpan: HTMLElement): void {
@@ -638,7 +690,7 @@ export default class KmMarquee extends React.Component<IKmMarqueeProps, IKmMarqu
     marqueeSpan.style.animationTimingFunction = 'linear';
     marqueeSpan.style.animationIterationCount = '1';
     marqueeSpan.style.animationName = isRightward ? 'moveRight' : 'moveLeft';
-    marqueeSpan.style.transform = isRightward ? 'translateX(-100%)' : 'translateX(100%)';
+    marqueeSpan.style.animationPlayState = this._isPointerOver ? 'paused' : 'running';
   }
 
   public openPane(): void {

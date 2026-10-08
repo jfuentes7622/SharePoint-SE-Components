@@ -1,0 +1,25 @@
+.sc-root { box-sizing: border-box; padding: 12px; }
+.sc-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
+.sc-title { margin: 0 0 10px; font-size: 1.25em; }
+.sc-mode-group { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 12px; margin: 0 0 10px auto; padding: 0; border: 0; }
+.sc-mode-group > legend { float: left; padding: 0; font-size: 12px; font-weight: 600; }
+.sc-mode-option { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; }
+.sc-mode-option input { margin: 0; }
+.sc-toolbar, .sc-condition { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
+.sc-field { display: flex; flex: 1 1 150px; flex-direction: column; gap: 3px; min-width: 120px; }
+.sc-field-connector { flex: 0 1 110px; min-width: 90px; }
+.sc-field-operator { flex: 0 1 150px; min-width: 120px; }
+.sc-field > label { font-size: 12px; font-weight: 600; }
+.sc-field input, .sc-field select { box-sizing: border-box; min-height: 32px; width: 100%; }
+.sc-24hour-input { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.sc-field .sc-24hour-input input[type="date"] { flex: 1 1 140px; width: auto; }
+.sc-field .sc-24hour-input select { flex: 0 0 64px; width: auto; }
+.sc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sc-button { min-height: 32px; padding: 4px 14px; cursor: pointer; }
+.sc-button-primary { color: #fff; }
+.sc-command-content { display: inline-flex; align-items: center; justify-content: center; gap: 6px; line-height: 1; }
+.sc-command-content .ms-Icon { font-size: 16px; }
+.sc-button-icon-only { box-sizing: border-box; width: 36px; min-width: 36px; height: 36px; padding: 0; }
+.sc-message { padding: 10px; border: 1px solid #d2d0ce; background: #faf9f8; }
+.sc-error { color: #a80000; border-color: #a80000; background: #fde7e9; }
+.sc-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

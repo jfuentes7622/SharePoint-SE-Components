@@ -49,6 +49,7 @@ export interface IGridControlProps {
     dateCustomFormat?: string;
     dateCustomFormatCase?: string;
     timeDisplayFormat: string;
+    timeMinuteIncrement: number;
     timeCustomFormat?: string;
     timeCustomFormatCase?: string;
     selectedTextColor: string;
@@ -84,8 +85,10 @@ export interface IGridControlProps {
     webpartBorderColor: string;
     webpartBorderWidth: number;
     filterJson?: string;
+    externalFilterJson?: string;
     conditionalStyleJson?: string;
     onSelectionChange: (itemId: number, mode: string) => void;
+    onFilteredCountChange: (count: number) => void;
 }
 export interface IListFieldDefinition {
     Name: string;
@@ -180,6 +183,19 @@ export interface IGridControlState {
     historyDialogUrl: string;
     historyDialogLoading: boolean;
     historyDialogError: string;
+    attachmentDialogOpen: boolean;
+    attachmentDialogFiles: IAttachmentInfo[];
+    attachmentDialogLoading: boolean;
+    attachmentDialogError: string;
+    attachmentPreviewUrl: string;
+    attachmentPreviewName: string;
+    attachmentUploadingItemId: number;
+    attachmentUploadError: string;
+    pendingNewAttachments: File[];
+}
+export interface IAttachmentInfo {
+    fileName: string;
+    serverRelativeUrl: string;
 }
 export declare type FilterOperator = 'eq' | 'ne' | 'contains' | 'notcontains' | 'startswith' | 'endswith' | 'gt' | 'ge' | 'lt' | 'le';
 export interface IColumnFilter {
@@ -208,10 +224,14 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private _pagingRuntimeFilterFieldNames;
     private _scrollArrowResizeHandler;
     private _scrollArrowScrollHandler;
+    private _lastReportedFilteredCount;
+    private _attachmentInputEl;
+    private _attachmentPickerItemId;
     constructor(props: IGridControlProps);
     componentDidMount(): void;
     componentWillUnmount(): void;
     componentDidUpdate(prevProps: IGridControlProps, prevState: IGridControlState): void;
+    private reportFilteredCount();
     private _setTableWrapRef;
     private _setTableHeadRef;
     private _setStickyHeaderViewportRef;
@@ -244,6 +264,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private addFieldsToViewXml(viewXml, fieldNames);
     private loadSelectedViewFieldNames(selectedViewId);
     private getDisplayFields();
+    private ensureAttachmentDisplayField(fields);
     private getGridSchemaFields();
     private getGridSchema();
     private getAdvancedValidationRules();
@@ -289,10 +310,23 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private buildEditingPayload();
     private buildVerboseEditingPayload(payload, entityTypeName);
     private saveEditingRow();
+    private getCreatedItemId(response);
+    private renderNewAttachmentEditor();
     private renderEditingControl(field);
     private renderEditingRow(displayFields, sourceRow, fieldsByKey, conditionalRules);
     private openVersionHistory(row);
     private closeVersionHistory();
+    private hasAttachmentsField();
+    private resolveAttachmentUrl(serverRelativeUrl);
+    private canPreviewAttachment(fileName);
+    private loadAttachments(itemId);
+    private openAttachmentDialog(row);
+    private closeAttachmentDialog();
+    private renderAttachmentDialog();
+    private setAttachmentInputRef;
+    private openAttachmentPicker(row);
+    private handleAttachmentInputChange(event);
+    private uploadAttachmentFiles(itemId, files);
     private renderRowActionCell(row, isEditingRow, isReadOnly);
     private deleteSelected();
     private logDiagnostic(message);

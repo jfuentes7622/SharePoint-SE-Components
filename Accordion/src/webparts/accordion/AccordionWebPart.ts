@@ -27,6 +27,7 @@ require('./Accordion.css');
 import * as strings from 'AccordionWebPartStrings';
 import Accordion from './components/Accordion';
 import { IAccordionProps } from './components/IAccordionProps';
+import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -56,6 +57,7 @@ export interface IAccordionWebPartProps {
   fontFamily: string;
   fontStyle: string;
   overrideCssUrl: string;
+  excludeFromTabs: boolean;
   enableDiagnostics: boolean;
 }
 
@@ -77,10 +79,10 @@ private optionsDropDownDisabled: boolean=true;
   }
 
   public render(): void { 
+    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    applyOverrideCss(this.properties.overrideCssUrl, this.context.instanceId);
 
     this.logDiagnostic('render() called. optionChoice=' + String(this.properties.optionChoice) + ', listName=' + String(this.properties.listName || '(none)'));
-
-    this._applyOverrideStylesheet();
 
     const element: React.ReactElement<IAccordionProps > = React.createElement(
       Accordion,
@@ -115,21 +117,6 @@ private optionsDropDownDisabled: boolean=true;
     );
 
     ReactDom.render(element, this.domElement);
-  }
-
-  private _applyOverrideStylesheet(): void {
-    if (this.properties.overrideCssUrl) {
-      this.logDiagnostic('Applying override stylesheet: ' + this.properties.overrideCssUrl);
-      const existingLink: HTMLElement = document.getElementById('accordion-override-css');
-      if (existingLink) {
-        existingLink.remove();
-      }
-      const link: HTMLLinkElement = document.createElement('link');
-      link.id = 'accordion-override-css';
-      link.rel = 'stylesheet';
-      link.href = this.properties.overrideCssUrl;
-      document.head.appendChild(link);
-    }
   }
 
   protected onPropertyPaneConfigurationStart():void {
@@ -232,11 +219,19 @@ private optionsDropDownDisabled: boolean=true;
     }
   }
    private async fetchLists(url:string): Promise<any> {
-       this.logDiagnostic('fetchLists() requesting url: ' + url);
+       this.logDiagnostic('REST request: GET ' + url);
        return this.context.spHttpClient.get(url, SPHttpClient.configurations.v1)
        .then ((response:SPHttpClientResponse) => {
+         this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
+           + String(response.status) + ' ' + response.statusText);
          if (response.ok) {
-           return response.json();
+           return response.json().then((data: any) => {
+             const results = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : undefined);
+             this.logDiagnostic('REST payload summary: GET ' + url + ' -> '
+               + (Array.isArray(results) ? 'items=' + String(results.length)
+                 : 'keys=' + Object.keys(data || {}).slice(0, 20).join(',')));
+             return data;
+           });
          }
          else {
            console.error(LOG_SOURCE + "Failed to get url:" + url + ". Error=" + response.statusText );
@@ -609,18 +604,21 @@ public serialize(): any {
             {
               groupName: "Advanced:",
               groupFields: [
-                PropertyFieldTextWithCallout('overrideCssUrl', {
-                  key: 'overrideCssUrl',
-                  label: 'Override CSS URL',
-                  value: this.properties.overrideCssUrl,
-                  placeholder: 'https://contoso.com/styles/accordion-overrides.css',
-                  calloutContent: 'Optional stylesheet URL loaded after web part CSS to override component styles.'
+                PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl, this.context, (newValue: string): void => {
+                  const oldValue = this.properties.overrideCssUrl;
+                  this.properties.overrideCssUrl = newValue;
+                  this.onPropertyPaneFieldChanged('overrideCssUrl', oldValue, newValue);
+                  this.render();
                 })
               ]
             },
             {
               groupName: 'Diagnostics',
               groupFields: [
+                PropertyPaneCheckbox('excludeFromTabs', {
+                  text: 'Exclude this web part from SPS Tabs',
+                  checked: this.properties.excludeFromTabs === true
+                }),
                 PropertyPaneCheckbox('enableDiagnostics', {
                   text: strings.PropEnableDiagnosticsLabel,
                   checked: this.properties.enableDiagnostics !== false

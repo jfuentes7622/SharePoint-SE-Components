@@ -1,0 +1,18 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/config.2.0.schema.json",
+  "version": "2.0",
+  "bundles": {
+    "search-control-web-part": {
+      "components": [
+        {
+          "entrypoint": "./lib/webparts/searchControl/SearchControlWebPart.js",
+          "manifest": "./src/webparts/searchControl/SearchControlWebPart.manifest.json"
+        }
+      ]
+    }
+  },
+  "localizedResources": {
+    "SearchControlWebPartStrings": "lib/webparts/searchControl/loc/{locale}.js",
+    "PropertyControlStrings": "node_modules/@pnp/spfx-property-controls/lib/loc/{locale}.js"
+  }
+}

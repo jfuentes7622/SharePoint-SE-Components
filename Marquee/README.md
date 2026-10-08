@@ -7,6 +7,8 @@ SPFx 1.5.1 scrolling-announcement web part for SharePoint Server Subscription Ed
 - Display a static announcement or cycle through messages from a SharePoint list.
 - Select the list column that contains message text.
 - Configure how long each list message remains active.
+- Pause scrolling on mouseover and resume from the same position on mouseout.
+- Recalculate the full travel distance when the page width changes.
 - Customize colors, typography, height, speed, and scroll direction.
 - Enable or disable the marquee without removing the web part.
 - Render list-sourced content as plain text so stored HTML is not interpreted.
@@ -19,9 +21,9 @@ SPFx 1.5.1 scrolling-announcement web part for SharePoint Server Subscription Ed
 | Property | Description | Default |
 |---|---|---|
 | `description` | Static scrolling text. The value is limited to 250 characters and HTML tags are rejected. It is also used as the fallback when a list source is not fully configured. | Empty |
-| `listName` | Optional SharePoint list containing dynamic messages. | Empty |
+| `listName` | Optional SharePoint list containing dynamic messages. Choose **Use Scrolling Text** to disconnect a list. | Empty |
 | `messageField` | Column whose values are displayed. Available columns are loaded after selecting a list. | Empty |
-| `messageDuration` | Seconds each list message is displayed before advancing to the next message. | `8` |
+| `messageDuration` | Seconds to wait after a complete pass before advancing to the next message. | `8` |
 
 When both `listName` and `messageField` are selected, the web part loads up to 100 list items in item-ID order and cycles through their non-empty message values. Clear either setting to return to the static announcement.
 
@@ -39,6 +41,7 @@ When both `listName` and `messageField` are selected, the web part loads up to 1
 | `marqueeHeight` | CSS height/minimum height for the marquee bar. | `32px` |
 | `scrollSpeed` | Seconds required for one complete pass; lower values move faster. | `50` |
 | `scrollDirection` | Scrolls left or right. | `left` |
+| `excludeFromTabs` | Prevents SPS Tabs from collecting the Marquee web part or containing section as a tab. | Disabled |
 | `enableDiagnostics` | Writes lifecycle and data-loading details to the browser console. | Enabled |
 
 ## Requirements

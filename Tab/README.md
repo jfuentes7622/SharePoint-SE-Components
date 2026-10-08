@@ -13,6 +13,7 @@ SPFx 1.5.1 web part for grouping modern SharePoint page sections or individual w
 - Automatically size tab widths or use a fixed width.
 - Load an optional custom stylesheet.
 - Keep all target content visible while the page is in edit mode.
+- Ignore web parts or sections whose participating control enables **Exclude this web part from SPS Tabs**.
 - Enable diagnostic console logging for zone discovery and configuration troubleshooting.
 
 ## Configuration
@@ -57,6 +58,8 @@ The `collectionData` editor defines tabs in display order. Use its Move up and M
 | `webPartCornerStyle` | Uses square or rounded outer wrapper corners. | `square` |
 | `webPartCornerRadius` | Outer wrapper radius from 0 to 40 pixels when rounded corners are selected. | `8` |
 | `enableDiagnostics` | Writes tab discovery and configuration details to the browser console. | Enabled |
+
+All tab-eligible SPS web parts expose `excludeFromTabs`, defaulted to disabled. In Web Parts mode, the marked web part is omitted. In Sections mode, a section containing a marked web part is omitted. Tabs observes late-rendering controls and refreshes discovery when the setting changes.
 
 ### Custom CSS
 

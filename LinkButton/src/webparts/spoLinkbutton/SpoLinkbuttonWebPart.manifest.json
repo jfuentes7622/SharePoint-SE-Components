@@ -35,7 +35,8 @@
       "imageOpacity": 100,
       "iconPosition": "left",
       "iconSize": 24,
-      "enableDiagnostics": true
+      "enableDiagnostics": true,
+      "excludeFromTabs": false
     }
   }]
 }

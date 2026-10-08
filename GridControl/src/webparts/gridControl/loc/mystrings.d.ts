@@ -296,6 +296,11 @@ declare interface IGridControlWebPartStrings {
   RuntimeSelectVisibleRows: string;
   RuntimeSelectRowForDelete: string;
   RuntimeAddRow: string;
+  RuntimeAddDocument: string;
+  RuntimeDocumentChange: string;
+  RuntimeDocumentRequired: string;
+  RuntimeDocumentUploadFailed: string;
+  RuntimeDocumentItemResolveFailed: string;
   RuntimeActions: string;
   RuntimeSave: string;
   RuntimeSaving: string;

@@ -194,6 +194,7 @@ export interface IGridControlState {
   selectedViewId: string;
   fields: IListFieldDefinition[];
   fieldMetadataByName: { [fieldName: string]: IGridFieldMetadata };
+  isDocumentLibrary: boolean;
   lookupOptionsByField: { [fieldName: string]: IGridLookupOption[] };
   rows: any[];
   loading: boolean;
@@ -249,6 +250,7 @@ export interface IGridControlState {
   attachmentUploadingItemId: number;
   attachmentUploadError: string;
   pendingNewAttachments: File[];
+  pendingDocumentFile?: File;
 }
 
 export interface IAttachmentInfo {
@@ -616,6 +618,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   private _lastReportedFilteredCount: number = -1;
   private _attachmentInputEl: HTMLInputElement;
   private _attachmentPickerItemId: number = 0;
+  private _documentInputEl: HTMLInputElement;
 
   public constructor(props: IGridControlProps) {
     super(props);
@@ -624,6 +627,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       selectedViewId: props.defaultViewId || this.getInitialViewId(props.views),
       fields: [],
       fieldMetadataByName: {},
+      isDocumentLibrary: false,
       lookupOptionsByField: {},
       rows: [],
       loading: true,
@@ -679,6 +683,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       attachmentUploadingItemId: 0,
       attachmentUploadError: '',
       pendingNewAttachments: [],
+      pendingDocumentFile: undefined,
     };
 
     this._refreshEventHandler = this.handleExternalRefresh.bind(this);
@@ -756,6 +761,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         editingValues: {},
         editingErrors: {},
         saving: false,
+        pendingDocumentFile: undefined,
+        isDocumentLibrary: false,
         historyDialogOpen: false,
         historyDialogUrl: '',
         historyDialogLoading: false,
@@ -2476,6 +2483,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       });
       var fieldTitleMap = await this.loadListFieldTitleMap();
       var fieldMetadataByName = await this.loadGridFieldMetadata();
+      var isDocumentLibrary = await this.loadIsDocumentLibrary();
       var lookupOptionsByField = await this.loadLookupOptionsByField(fieldMetadataByName, visibleFields);
       visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
       visibleFields = this.applyFieldTypes(visibleFields, fieldMetadataByName);
@@ -2505,6 +2513,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this.setState({
         fields: visibleFields,
         fieldMetadataByName: fieldMetadataByName,
+        isDocumentLibrary: isDocumentLibrary,
         lookupOptionsByField: lookupOptionsByField,
         rows: renderableRows,
         loadingMore: false,
@@ -2532,6 +2541,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
         fields: [],
         fieldMetadataByName: {},
+        isDocumentLibrary: false,
         lookupOptionsByField: {},
         rows: []
       });
@@ -2842,12 +2852,13 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       editingValues: values,
       editingErrors: {},
       pendingNewAttachments: [],
+      pendingDocumentFile: undefined,
       error: null
     });
     this.props.onSelectionChange(itemId, 'edit');
   }
 
-  private beginNewRow(): void {
+  private beginNewRow(documentFile?: File): void {
     if (this.state.saving || this.isReadOnly()) {
       return;
     }
@@ -2873,6 +2884,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       editingValues: values,
       editingErrors: {},
       pendingNewAttachments: [],
+      pendingDocumentFile: documentFile,
       error: null
     });
     this.props.onSelectionChange(0, 'new');
@@ -2884,6 +2896,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       editingValues: {},
       editingErrors: {},
       pendingNewAttachments: [],
+      pendingDocumentFile: undefined,
       saving: false,
       selectedMode: 'view'
     });
@@ -3078,6 +3091,9 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       return;
     }
     var validationErrors = this.validateEditingValues();
+    if (this.state.editingItemId === 0 && this.isDocumentLibrary() && !this.state.pendingDocumentFile) {
+      validationErrors['__form'] = strings.RuntimeDocumentRequired;
+    }
     if (Object.keys(validationErrors).length > 0) {
       this.setState({ editingErrors: validationErrors });
       return;
@@ -3106,6 +3122,29 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           verbosePayload,
           false
         );
+      } else if (this.isDocumentLibrary()) {
+        var uploadedDocument = await this.uploadDocumentFile(this.state.pendingDocumentFile as File);
+        createdItemId = uploadedDocument.itemId;
+        try {
+          response = await this.postJsonWithFallback(
+            listUrl + '(' + String(createdItemId) + ')',
+            payload,
+            {
+              'IF-MATCH': '*',
+              'X-HTTP-Method': 'MERGE',
+              'Prefer': 'return-no-content'
+            },
+            verbosePayload,
+            false
+          );
+          if (!response.ok) {
+            var metadataResponseText = await response.text();
+            throw new Error(metadataResponseText || strings.RuntimeSaveFailed);
+          }
+        } catch (metadataError) {
+          await this.deleteUploadedDocument(uploadedDocument.serverRelativeUrl);
+          throw metadataError;
+        }
       } else {
         response = await this.postJsonWithFallback(
           listUrl,
@@ -3119,7 +3158,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         var responseText = await response.text();
         throw new Error(responseText || strings.RuntimeSaveFailed);
       }
-      if (this.state.editingItemId === 0) {
+      if (this.state.editingItemId === 0 && !this.isDocumentLibrary()) {
         createdItemId = await this.getCreatedItemId(response);
       }
       var failedAttachmentNames: string[] = [];
@@ -3133,6 +3172,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         editingValues: {},
         editingErrors: {},
         pendingNewAttachments: [],
+        pendingDocumentFile: undefined,
         saving: false,
         selectedMode: 'view',
         attachmentUploadError: failedAttachmentNames.length > 0
@@ -3146,6 +3186,110 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         saving: false,
         error: saveError && saveError.message ? saveError.message : strings.RuntimeSaveFailed
       });
+    }
+  }
+
+  private isDocumentLibrary(): boolean {
+    return this.state.isDocumentLibrary;
+  }
+
+  private async loadIsDocumentLibrary(): Promise<boolean> {
+    try {
+      var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+        + "')?$select=BaseType";
+      var response = await this.getJsonWithFallback(endpoint);
+      if (!response.ok) {
+        throw new Error('HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+      }
+      var data = await response.json();
+      var source = data && data.d ? data.d : data;
+      var baseType = source && source.BaseType;
+      return Number(baseType) === 1 || String(baseType || '').toLowerCase() === 'documentlibrary';
+    } catch (error) {
+      this.logDiagnostic('Unable to determine whether the selected list is a document library: '
+        + (error && error.message ? error.message : String(error)));
+      return false;
+    }
+  }
+
+  private async loadDocumentLibraryRootFolder(): Promise<string> {
+    var endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+      + "')?$select=RootFolder/ServerRelativeUrl&$expand=RootFolder";
+    var response = await this.getJsonWithFallback(endpoint);
+    if (!response.ok) {
+      throw new Error(strings.RuntimeDocumentUploadFailed + ' HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+    }
+    var data = await response.json();
+    var source = data && data.d ? data.d : data;
+    var rootFolder = source && source.RootFolder;
+    var serverRelativeUrl = String(rootFolder && (rootFolder.ServerRelativeUrl
+      || (rootFolder.ServerRelativePath && rootFolder.ServerRelativePath.DecodedUrl)) || '');
+    if (!serverRelativeUrl) {
+      throw new Error(strings.RuntimeDocumentUploadFailed);
+    }
+    return serverRelativeUrl.replace(/\/$/, '');
+  }
+
+  private async uploadDocumentFile(file: File): Promise<{ itemId: number; serverRelativeUrl: string }> {
+    var rootFolderUrl = await this.loadDocumentLibraryRootFolder();
+    var serverRelativeUrl = rootFolderUrl + '/' + file.name;
+    var endpoint = this.getWebUrl() + "/_api/web/GetFolderByServerRelativeUrl('" + escapeODataText(rootFolderUrl)
+      + "')/Files/Add(url='" + escapeODataText(file.name) + "',overwrite=false)"
+      + '?$select=ServerRelativeUrl,ListItemAllFields/Id&$expand=ListItemAllFields';
+    this.logDiagnostic('Uploading document to library root. file=' + file.name);
+    var response = await this.props.context.spHttpClient.post(endpoint, SPHttpClient.configurations.v1, {
+      headers: {
+        'OData-Version': '3.0',
+        Accept: 'application/json;odata=verbose',
+        'Content-Type': 'application/octet-stream'
+      },
+      body: file
+    });
+    if (!response.ok) {
+      var responseText = await response.text();
+      throw new Error(responseText || strings.RuntimeDocumentUploadFailed);
+    }
+
+    var responseData = await response.json();
+    var uploadedFile = responseData && responseData.d ? responseData.d : responseData;
+    serverRelativeUrl = String(uploadedFile && (uploadedFile.ServerRelativeUrl
+      || (uploadedFile.ServerRelativePath && uploadedFile.ServerRelativePath.DecodedUrl)) || serverRelativeUrl);
+    var itemId = toPositiveInt(uploadedFile && uploadedFile.ListItemAllFields
+      && (uploadedFile.ListItemAllFields.Id || uploadedFile.ListItemAllFields.ID));
+    if (itemId <= 0) {
+      var itemEndpoint = this.getWebUrl() + "/_api/web/GetFileByServerRelativeUrl('"
+        + escapeODataText(serverRelativeUrl) + "')/ListItemAllFields?$select=Id";
+      var itemResponse = await this.getJsonWithFallback(itemEndpoint);
+      if (itemResponse.ok) {
+        var itemData = await itemResponse.json();
+        var item = itemData && itemData.d ? itemData.d : itemData;
+        itemId = toPositiveInt(item && (item.Id || item.ID));
+      }
+    }
+    if (itemId <= 0) {
+      await this.deleteUploadedDocument(serverRelativeUrl);
+      throw new Error(strings.RuntimeDocumentItemResolveFailed);
+    }
+    return { itemId: itemId, serverRelativeUrl: serverRelativeUrl };
+  }
+
+  private async deleteUploadedDocument(serverRelativeUrl: string): Promise<void> {
+    var endpoint = this.getWebUrl() + "/_api/web/GetFileByServerRelativeUrl('"
+      + escapeODataText(serverRelativeUrl) + "')";
+    try {
+      var response = await this.props.context.spHttpClient.post(endpoint, SPHttpClient.configurations.v1, {
+        headers: {
+          'IF-MATCH': '*',
+          'X-HTTP-Method': 'DELETE'
+        }
+      });
+      if (!response.ok) {
+        console.error('[GridControl] Unable to remove document after its metadata save failed. HTTP '
+          + String(response.status) + ' ' + String(response.statusText || ''));
+      }
+    } catch (error) {
+      console.error('[GridControl] Unable to remove document after its metadata save failed: '
+        + (error && error.message ? error.message : String(error)));
     }
   }
 
@@ -3308,6 +3452,16 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       <td className="gc-row-actions">
         <button type="button" className={this.getCommandButtonClass()} disabled={this.state.saving} title={this.state.saving ? strings.RuntimeSaving : strings.RuntimeSave} aria-label={this.state.saving ? strings.RuntimeSaving : strings.RuntimeSave} onClick={() => this.saveEditingRow()}>{this.renderCommandContent('Save', this.state.saving ? strings.RuntimeSaving : strings.RuntimeSave)}</button>
         <button type="button" className={this.getCommandButtonClass()} disabled={this.state.saving} title={strings.RuntimeCancel} aria-label={strings.RuntimeCancel} onClick={() => this.cancelRowEdit()}>{this.renderCommandContent('Cancel', strings.RuntimeCancel)}</button>
+        {isNew && this.isDocumentLibrary() && (
+          <div className="gc-new-document">
+            <span className="gc-new-document-name" title={this.state.pendingDocumentFile ? this.state.pendingDocumentFile.name : ''}>
+              {this.state.pendingDocumentFile ? this.state.pendingDocumentFile.name : strings.RuntimeDocumentRequired}
+            </span>
+            <button type="button" className={this.getCommandButtonClass()} disabled={this.state.saving} title={strings.RuntimeDocumentChange} aria-label={strings.RuntimeDocumentChange} onClick={() => this.openDocumentPicker()}>
+              {this.renderCommandContent('OpenFile', strings.RuntimeDocumentChange)}
+            </button>
+          </div>
+        )}
         {this.state.editingErrors['__form'] && <div className="gc-field-error">{this.state.editingErrors['__form']}</div>}
       </td>
     );
@@ -3507,6 +3661,29 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
 
   private setAttachmentInputRef = (element: HTMLInputElement): void => {
     this._attachmentInputEl = element;
+  }
+
+  private setDocumentInputRef = (element: HTMLInputElement): void => {
+    this._documentInputEl = element;
+  }
+
+  private openDocumentPicker(): void {
+    if (this.isReadOnly() || !this._documentInputEl) { return; }
+    this._documentInputEl.value = '';
+    this._documentInputEl.click();
+  }
+
+  private handleDocumentInputChange(event: React.ChangeEvent<HTMLInputElement>): void {
+    var file = event.currentTarget.files && event.currentTarget.files.length > 0
+      ? event.currentTarget.files[0] : undefined;
+    if (!file) { return; }
+    if (this.state.editingItemId === 0) {
+      var editingErrors = Object.assign({}, this.state.editingErrors);
+      delete editingErrors['__form'];
+      this.setState({ pendingDocumentFile: file, editingErrors: editingErrors });
+    } else {
+      this.beginNewRow(file);
+    }
   }
 
   private openAttachmentPicker(row: any): void {
@@ -5024,11 +5201,12 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
               type="button"
               className={this.getCommandButtonClass('gc-add-row')}
               disabled={isEditingRow}
-              title={strings.RuntimeAddRow}
-              aria-label={strings.RuntimeAddRow}
-              onClick={() => this.beginNewRow()}
+              title={this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow}
+              aria-label={this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow}
+              onClick={() => this.isDocumentLibrary() ? this.openDocumentPicker() : this.beginNewRow()}
             >
-              {this.renderCommandContent('Add', strings.RuntimeAddRow)}
+              {this.renderCommandContent(this.isDocumentLibrary() ? 'Upload' : 'Add',
+                this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow)}
             </button>
           )}
           {this.props.showDelete && !isReadOnly && (
@@ -5273,6 +5451,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           </div>
         )}
         <input ref={this.setAttachmentInputRef} className="gc-visually-hidden" type="file" multiple={true} tabIndex={-1} aria-hidden="true" onChange={(ev) => this.handleAttachmentInputChange(ev)} />
+        <input ref={this.setDocumentInputRef} className="gc-visually-hidden" type="file" tabIndex={-1} aria-hidden="true" onChange={(ev) => this.handleDocumentInputChange(ev)} />
         {this.renderAttachmentDialog()}
       </div>
     );

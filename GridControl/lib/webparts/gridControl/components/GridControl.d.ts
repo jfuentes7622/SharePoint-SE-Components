@@ -125,6 +125,7 @@ export interface IGridControlState {
     fieldMetadataByName: {
         [fieldName: string]: IGridFieldMetadata;
     };
+    isDocumentLibrary: boolean;
     lookupOptionsByField: {
         [fieldName: string]: IGridLookupOption[];
     };
@@ -192,6 +193,7 @@ export interface IGridControlState {
     attachmentUploadingItemId: number;
     attachmentUploadError: string;
     pendingNewAttachments: File[];
+    pendingDocumentFile?: File;
 }
 export interface IAttachmentInfo {
     fileName: string;
@@ -227,6 +229,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private _lastReportedFilteredCount;
     private _attachmentInputEl;
     private _attachmentPickerItemId;
+    private _documentInputEl;
     constructor(props: IGridControlProps);
     componentDidMount(): void;
     componentWillUnmount(): void;
@@ -303,13 +306,18 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private getLookupIds(value);
     private normalizeEditingValue(value, metadata);
     private beginRowEdit(row);
-    private beginNewRow();
+    private beginNewRow(documentFile?);
     private cancelRowEdit();
     private updateEditingValue(fieldName, value);
     private validateEditingValues();
     private buildEditingPayload();
     private buildVerboseEditingPayload(payload, entityTypeName);
     private saveEditingRow();
+    private isDocumentLibrary();
+    private loadIsDocumentLibrary();
+    private loadDocumentLibraryRootFolder();
+    private uploadDocumentFile(file);
+    private deleteUploadedDocument(serverRelativeUrl);
     private getCreatedItemId(response);
     private renderNewAttachmentEditor();
     private renderEditingControl(field);
@@ -324,6 +332,9 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private closeAttachmentDialog();
     private renderAttachmentDialog();
     private setAttachmentInputRef;
+    private setDocumentInputRef;
+    private openDocumentPicker();
+    private handleDocumentInputChange(event);
     private openAttachmentPicker(row);
     private handleAttachmentInputChange(event);
     private uploadAttachmentFiles(itemId, files);

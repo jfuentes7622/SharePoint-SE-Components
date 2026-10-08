@@ -380,10 +380,14 @@ var GridControl = (function (_super) {
         _this.setAttachmentInputRef = function (element) {
             _this._attachmentInputEl = element;
         };
+        _this.setDocumentInputRef = function (element) {
+            _this._documentInputEl = element;
+        };
         _this.state = {
             selectedViewId: props.defaultViewId || _this.getInitialViewId(props.views),
             fields: [],
             fieldMetadataByName: {},
+            isDocumentLibrary: false,
             lookupOptionsByField: {},
             rows: [],
             loading: true,
@@ -439,6 +443,7 @@ var GridControl = (function (_super) {
             attachmentUploadingItemId: 0,
             attachmentUploadError: '',
             pendingNewAttachments: [],
+            pendingDocumentFile: undefined,
         };
         _this._refreshEventHandler = _this.handleExternalRefresh.bind(_this);
         _this._runtimeConfigEventHandler = _this.handleRuntimeConfig.bind(_this);
@@ -514,6 +519,8 @@ var GridControl = (function (_super) {
                 editingValues: {},
                 editingErrors: {},
                 saving: false,
+                pendingDocumentFile: undefined,
+                isDocumentLibrary: false,
                 historyDialogOpen: false,
                 historyDialogUrl: '',
                 historyDialogLoading: false,
@@ -2175,7 +2182,7 @@ var GridControl = (function (_super) {
     GridControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
+            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, isDocumentLibrary, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -2192,7 +2199,7 @@ var GridControl = (function (_super) {
                         this.setState({ loading: true, loadingMore: false, nextPageHref: '', error: null });
                         _b.label = 1;
                     case 1:
-                        _b.trys.push([1, 30, , 31]);
+                        _b.trys.push([1, 31, , 32]);
                         baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
                         selectedViewId = this.state.selectedViewId;
                         schemaFields = this.getGridSchemaFields();
@@ -2351,8 +2358,11 @@ var GridControl = (function (_super) {
                         return [4 /*yield*/, this.loadGridFieldMetadata()];
                     case 25:
                         fieldMetadataByName = _b.sent();
-                        return [4 /*yield*/, this.loadLookupOptionsByField(fieldMetadataByName, visibleFields)];
+                        return [4 /*yield*/, this.loadIsDocumentLibrary()];
                     case 26:
+                        isDocumentLibrary = _b.sent();
+                        return [4 /*yield*/, this.loadLookupOptionsByField(fieldMetadataByName, visibleFields)];
+                    case 27:
                         lookupOptionsByField = _b.sent();
                         visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
                         visibleFields = this.applyFieldTypes(visibleFields, fieldMetadataByName);
@@ -2367,15 +2377,15 @@ var GridControl = (function (_super) {
                         });
                         hasAttachmentsField = !!fieldMetadataByName['attachments']
                             && fieldMetadataByName['attachments'].typeAsString === 'Attachments';
-                        if (!hasAttachmentsField) return [3 /*break*/, 28];
+                        if (!hasAttachmentsField) return [3 /*break*/, 29];
                         return [4 /*yield*/, this.loadAttachmentCounts(renderableItemIds)];
-                    case 27:
-                        _a = _b.sent();
-                        return [3 /*break*/, 29];
                     case 28:
-                        _a = {};
-                        _b.label = 29;
+                        _a = _b.sent();
+                        return [3 /*break*/, 30];
                     case 29:
+                        _a = {};
+                        _b.label = 30;
+                    case 30:
                         attachmentCountsByItemId = _a;
                         if (requestId !== this._loadRowsRequestId) {
                             this.logDiagnostic('Ignoring stale loadRows result after attachment count fetch. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
@@ -2384,6 +2394,7 @@ var GridControl = (function (_super) {
                         this.setState({
                             fields: visibleFields,
                             fieldMetadataByName: fieldMetadataByName,
+                            isDocumentLibrary: isDocumentLibrary,
                             lookupOptionsByField: lookupOptionsByField,
                             rows: renderableRows,
                             loadingMore: false,
@@ -2398,8 +2409,8 @@ var GridControl = (function (_super) {
                             }
                         });
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
-                        return [3 /*break*/, 31];
-                    case 30:
+                        return [3 /*break*/, 32];
+                    case 31:
                         error_6 = _b.sent();
                         loadError = error_6;
                         if (requestId !== this._loadRowsRequestId) {
@@ -2413,12 +2424,13 @@ var GridControl = (function (_super) {
                             error: loadError && loadError.message ? loadError.message : 'Failed to load data.',
                             fields: [],
                             fieldMetadataByName: {},
+                            isDocumentLibrary: false,
                             lookupOptionsByField: {},
                             rows: []
                         });
                         this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
-                        return [3 /*break*/, 31];
-                    case 31: return [2 /*return*/];
+                        return [3 /*break*/, 32];
+                    case 32: return [2 /*return*/];
                 }
             });
         });
@@ -2761,11 +2773,12 @@ var GridControl = (function (_super) {
             editingValues: values,
             editingErrors: {},
             pendingNewAttachments: [],
+            pendingDocumentFile: undefined,
             error: null
         });
         this.props.onSelectionChange(itemId, 'edit');
     };
-    GridControl.prototype.beginNewRow = function () {
+    GridControl.prototype.beginNewRow = function (documentFile) {
         if (this.state.saving || this.isReadOnly()) {
             return;
         }
@@ -2791,6 +2804,7 @@ var GridControl = (function (_super) {
             editingValues: values,
             editingErrors: {},
             pendingNewAttachments: [],
+            pendingDocumentFile: documentFile,
             error: null
         });
         this.props.onSelectionChange(0, 'new');
@@ -2801,6 +2815,7 @@ var GridControl = (function (_super) {
             editingValues: {},
             editingErrors: {},
             pendingNewAttachments: [],
+            pendingDocumentFile: undefined,
             saving: false,
             selectedMode: 'view'
         });
@@ -3006,7 +3021,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.saveEditingRow = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var validationErrors, listUrl, payload, entityTypeName, verbosePayload, response, createdItemId, pendingAttachments, responseText, failedAttachmentNames, _a, error_8, saveError;
+            var validationErrors, listUrl, payload, entityTypeName, verbosePayload, response, createdItemId, pendingAttachments, uploadedDocument, metadataResponseText, metadataError_1, responseText, failedAttachmentNames, _a, error_8, saveError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -3015,6 +3030,9 @@ var GridControl = (function (_super) {
                             return [2 /*return*/];
                         }
                         validationErrors = this.validateEditingValues();
+                        if (this.state.editingItemId === 0 && this.isDocumentLibrary() && !this.state.pendingDocumentFile) {
+                            validationErrors['__form'] = strings.RuntimeDocumentRequired;
+                        }
                         if (Object.keys(validationErrors).length > 0) {
                             this.setState({ editingErrors: validationErrors });
                             return [2 /*return*/];
@@ -3022,7 +3040,7 @@ var GridControl = (function (_super) {
                         this.setState({ saving: true, error: null });
                         _b.label = 1;
                     case 1:
-                        _b.trys.push([1, 16, , 17]);
+                        _b.trys.push([1, 25, , 26]);
                         listUrl = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/items";
                         payload = this.buildEditingPayload();
                         return [4 /*yield*/, this.loadListItemEntityTypeName()];
@@ -3041,43 +3059,73 @@ var GridControl = (function (_super) {
                             }, verbosePayload, false)];
                     case 3:
                         response = _b.sent();
-                        return [3 /*break*/, 6];
-                    case 4: return [4 /*yield*/, this.postJsonWithFallback(listUrl, payload, {}, verbosePayload, false)];
+                        return [3 /*break*/, 15];
+                    case 4:
+                        if (!this.isDocumentLibrary()) return [3 /*break*/, 13];
+                        return [4 /*yield*/, this.uploadDocumentFile(this.state.pendingDocumentFile)];
                     case 5:
-                        response = _b.sent();
+                        uploadedDocument = _b.sent();
+                        createdItemId = uploadedDocument.itemId;
                         _b.label = 6;
                     case 6:
-                        if (!!response.ok) return [3 /*break*/, 8];
-                        return [4 /*yield*/, response.text()];
+                        _b.trys.push([6, 10, , 12]);
+                        return [4 /*yield*/, this.postJsonWithFallback(listUrl + '(' + String(createdItemId) + ')', payload, {
+                                'IF-MATCH': '*',
+                                'X-HTTP-Method': 'MERGE',
+                                'Prefer': 'return-no-content'
+                            }, verbosePayload, false)];
                     case 7:
+                        response = _b.sent();
+                        if (!!response.ok) return [3 /*break*/, 9];
+                        return [4 /*yield*/, response.text()];
+                    case 8:
+                        metadataResponseText = _b.sent();
+                        throw new Error(metadataResponseText || strings.RuntimeSaveFailed);
+                    case 9: return [3 /*break*/, 12];
+                    case 10:
+                        metadataError_1 = _b.sent();
+                        return [4 /*yield*/, this.deleteUploadedDocument(uploadedDocument.serverRelativeUrl)];
+                    case 11:
+                        _b.sent();
+                        throw metadataError_1;
+                    case 12: return [3 /*break*/, 15];
+                    case 13: return [4 /*yield*/, this.postJsonWithFallback(listUrl, payload, {}, verbosePayload, false)];
+                    case 14:
+                        response = _b.sent();
+                        _b.label = 15;
+                    case 15:
+                        if (!!response.ok) return [3 /*break*/, 17];
+                        return [4 /*yield*/, response.text()];
+                    case 16:
                         responseText = _b.sent();
                         throw new Error(responseText || strings.RuntimeSaveFailed);
-                    case 8:
-                        if (!(this.state.editingItemId === 0)) return [3 /*break*/, 10];
+                    case 17:
+                        if (!(this.state.editingItemId === 0 && !this.isDocumentLibrary())) return [3 /*break*/, 19];
                         return [4 /*yield*/, this.getCreatedItemId(response)];
-                    case 9:
+                    case 18:
                         createdItemId = _b.sent();
-                        _b.label = 10;
-                    case 10:
+                        _b.label = 19;
+                    case 19:
                         failedAttachmentNames = [];
-                        if (!(pendingAttachments.length > 0)) return [3 /*break*/, 14];
-                        if (!(createdItemId > 0)) return [3 /*break*/, 12];
+                        if (!(pendingAttachments.length > 0)) return [3 /*break*/, 23];
+                        if (!(createdItemId > 0)) return [3 /*break*/, 21];
                         return [4 /*yield*/, this.uploadAttachmentFiles(createdItemId, pendingAttachments)];
-                    case 11:
+                    case 20:
                         _a = _b.sent();
-                        return [3 /*break*/, 13];
-                    case 12:
+                        return [3 /*break*/, 22];
+                    case 21:
                         _a = pendingAttachments.map(function (file) { return file.name; });
-                        _b.label = 13;
-                    case 13:
+                        _b.label = 22;
+                    case 22:
                         failedAttachmentNames = _a;
-                        _b.label = 14;
-                    case 14:
+                        _b.label = 23;
+                    case 23:
                         this.setState({
                             editingItemId: -1,
                             editingValues: {},
                             editingErrors: {},
                             pendingNewAttachments: [],
+                            pendingDocumentFile: undefined,
                             saving: false,
                             selectedMode: 'view',
                             attachmentUploadError: failedAttachmentNames.length > 0
@@ -3085,18 +3133,175 @@ var GridControl = (function (_super) {
                                 : ''
                         });
                         return [4 /*yield*/, this.loadRows()];
-                    case 15:
+                    case 24:
                         _b.sent();
-                        return [3 /*break*/, 17];
-                    case 16:
+                        return [3 /*break*/, 26];
+                    case 25:
                         error_8 = _b.sent();
                         saveError = error_8;
                         this.setState({
                             saving: false,
                             error: saveError && saveError.message ? saveError.message : strings.RuntimeSaveFailed
                         });
-                        return [3 /*break*/, 17];
-                    case 17: return [2 /*return*/];
+                        return [3 /*break*/, 26];
+                    case 26: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    GridControl.prototype.isDocumentLibrary = function () {
+        return this.state.isDocumentLibrary;
+    };
+    GridControl.prototype.loadIsDocumentLibrary = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var endpoint, response, data, source, baseType, error_9;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 3, , 4]);
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+                            + "')?$select=BaseType";
+                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                    case 1:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            throw new Error('HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 2:
+                        data = _a.sent();
+                        source = data && data.d ? data.d : data;
+                        baseType = source && source.BaseType;
+                        return [2 /*return*/, Number(baseType) === 1 || String(baseType || '').toLowerCase() === 'documentlibrary'];
+                    case 3:
+                        error_9 = _a.sent();
+                        this.logDiagnostic('Unable to determine whether the selected list is a document library: '
+                            + (error_9 && error_9.message ? error_9.message : String(error_9)));
+                        return [2 /*return*/, false];
+                    case 4: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    GridControl.prototype.loadDocumentLibraryRootFolder = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var endpoint, response, data, source, rootFolder, serverRelativeUrl;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        endpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName)
+                            + "')?$select=RootFolder/ServerRelativeUrl&$expand=RootFolder";
+                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                    case 1:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            throw new Error(strings.RuntimeDocumentUploadFailed + ' HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 2:
+                        data = _a.sent();
+                        source = data && data.d ? data.d : data;
+                        rootFolder = source && source.RootFolder;
+                        serverRelativeUrl = String(rootFolder && (rootFolder.ServerRelativeUrl
+                            || (rootFolder.ServerRelativePath && rootFolder.ServerRelativePath.DecodedUrl)) || '');
+                        if (!serverRelativeUrl) {
+                            throw new Error(strings.RuntimeDocumentUploadFailed);
+                        }
+                        return [2 /*return*/, serverRelativeUrl.replace(/\/$/, '')];
+                }
+            });
+        });
+    };
+    GridControl.prototype.uploadDocumentFile = function (file) {
+        return __awaiter(this, void 0, void 0, function () {
+            var rootFolderUrl, serverRelativeUrl, endpoint, response, responseText, responseData, uploadedFile, itemId, itemEndpoint, itemResponse, itemData, item;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.loadDocumentLibraryRootFolder()];
+                    case 1:
+                        rootFolderUrl = _a.sent();
+                        serverRelativeUrl = rootFolderUrl + '/' + file.name;
+                        endpoint = this.getWebUrl() + "/_api/web/GetFolderByServerRelativeUrl('" + escapeODataText(rootFolderUrl)
+                            + "')/Files/Add(url='" + escapeODataText(file.name) + "',overwrite=false)"
+                            + '?$select=ServerRelativeUrl,ListItemAllFields/Id&$expand=ListItemAllFields';
+                        this.logDiagnostic('Uploading document to library root. file=' + file.name);
+                        return [4 /*yield*/, this.props.context.spHttpClient.post(endpoint, sp_http_1.SPHttpClient.configurations.v1, {
+                                headers: {
+                                    'OData-Version': '3.0',
+                                    Accept: 'application/json;odata=verbose',
+                                    'Content-Type': 'application/octet-stream'
+                                },
+                                body: file
+                            })];
+                    case 2:
+                        response = _a.sent();
+                        if (!!response.ok) return [3 /*break*/, 4];
+                        return [4 /*yield*/, response.text()];
+                    case 3:
+                        responseText = _a.sent();
+                        throw new Error(responseText || strings.RuntimeDocumentUploadFailed);
+                    case 4: return [4 /*yield*/, response.json()];
+                    case 5:
+                        responseData = _a.sent();
+                        uploadedFile = responseData && responseData.d ? responseData.d : responseData;
+                        serverRelativeUrl = String(uploadedFile && (uploadedFile.ServerRelativeUrl
+                            || (uploadedFile.ServerRelativePath && uploadedFile.ServerRelativePath.DecodedUrl)) || serverRelativeUrl);
+                        itemId = toPositiveInt(uploadedFile && uploadedFile.ListItemAllFields
+                            && (uploadedFile.ListItemAllFields.Id || uploadedFile.ListItemAllFields.ID));
+                        if (!(itemId <= 0)) return [3 /*break*/, 8];
+                        itemEndpoint = this.getWebUrl() + "/_api/web/GetFileByServerRelativeUrl('"
+                            + escapeODataText(serverRelativeUrl) + "')/ListItemAllFields?$select=Id";
+                        return [4 /*yield*/, this.getJsonWithFallback(itemEndpoint)];
+                    case 6:
+                        itemResponse = _a.sent();
+                        if (!itemResponse.ok) return [3 /*break*/, 8];
+                        return [4 /*yield*/, itemResponse.json()];
+                    case 7:
+                        itemData = _a.sent();
+                        item = itemData && itemData.d ? itemData.d : itemData;
+                        itemId = toPositiveInt(item && (item.Id || item.ID));
+                        _a.label = 8;
+                    case 8:
+                        if (!(itemId <= 0)) return [3 /*break*/, 10];
+                        return [4 /*yield*/, this.deleteUploadedDocument(serverRelativeUrl)];
+                    case 9:
+                        _a.sent();
+                        throw new Error(strings.RuntimeDocumentItemResolveFailed);
+                    case 10: return [2 /*return*/, { itemId: itemId, serverRelativeUrl: serverRelativeUrl }];
+                }
+            });
+        });
+    };
+    GridControl.prototype.deleteUploadedDocument = function (serverRelativeUrl) {
+        return __awaiter(this, void 0, void 0, function () {
+            var endpoint, response, error_10;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        endpoint = this.getWebUrl() + "/_api/web/GetFileByServerRelativeUrl('"
+                            + escapeODataText(serverRelativeUrl) + "')";
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, this.props.context.spHttpClient.post(endpoint, sp_http_1.SPHttpClient.configurations.v1, {
+                                headers: {
+                                    'IF-MATCH': '*',
+                                    'X-HTTP-Method': 'DELETE'
+                                }
+                            })];
+                    case 2:
+                        response = _a.sent();
+                        if (!response.ok) {
+                            console.error('[GridControl] Unable to remove document after its metadata save failed. HTTP '
+                                + String(response.status) + ' ' + String(response.statusText || ''));
+                        }
+                        return [3 /*break*/, 4];
+                    case 3:
+                        error_10 = _a.sent();
+                        console.error('[GridControl] Unable to remove document after its metadata save failed: '
+                            + (error_10 && error_10.message ? error_10.message : String(error_10)));
+                        return [3 /*break*/, 4];
+                    case 4: return [2 /*return*/];
                 }
             });
         });
@@ -3255,6 +3460,9 @@ var GridControl = (function (_super) {
         var actions = (React.createElement("td", { className: "gc-row-actions" },
             React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: this.state.saving, title: this.state.saving ? strings.RuntimeSaving : strings.RuntimeSave, "aria-label": this.state.saving ? strings.RuntimeSaving : strings.RuntimeSave, onClick: function () { return _this.saveEditingRow(); } }, this.renderCommandContent('Save', this.state.saving ? strings.RuntimeSaving : strings.RuntimeSave)),
             React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: this.state.saving, title: strings.RuntimeCancel, "aria-label": strings.RuntimeCancel, onClick: function () { return _this.cancelRowEdit(); } }, this.renderCommandContent('Cancel', strings.RuntimeCancel)),
+            isNew && this.isDocumentLibrary() && (React.createElement("div", { className: "gc-new-document" },
+                React.createElement("span", { className: "gc-new-document-name", title: this.state.pendingDocumentFile ? this.state.pendingDocumentFile.name : '' }, this.state.pendingDocumentFile ? this.state.pendingDocumentFile.name : strings.RuntimeDocumentRequired),
+                React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: this.state.saving, title: strings.RuntimeDocumentChange, "aria-label": strings.RuntimeDocumentChange, onClick: function () { return _this.openDocumentPicker(); } }, this.renderCommandContent('OpenFile', strings.RuntimeDocumentChange)))),
             this.state.editingErrors['__form'] && React.createElement("div", { className: "gc-field-error" }, this.state.editingErrors['__form'])));
         return (React.createElement("tr", { className: "lc-row gc-row-editing", onClick: function (ev) { return ev.stopPropagation(); } },
             this.props.showDelete && !this.isReadOnly() && React.createElement("td", { className: "gc-selection-cell" }),
@@ -3272,7 +3480,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.openVersionHistory = function (row) {
         return __awaiter(this, void 0, void 0, function () {
-            var itemId, listName, endpoint, response, data, listId, historyUrl, error_9, historyError;
+            var itemId, listName, endpoint, response, data, listId, historyUrl, error_11, historyError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3314,8 +3522,8 @@ var GridControl = (function (_super) {
                         this.setState({ historyDialogUrl: historyUrl, historyDialogLoading: false });
                         return [3 /*break*/, 6];
                     case 5:
-                        error_9 = _a.sent();
-                        historyError = error_9;
+                        error_11 = _a.sent();
+                        historyError = error_11;
                         this.setState({
                             historyDialogLoading: false,
                             historyDialogError: historyError && historyError.message ? historyError.message : strings.RuntimeHistoryLoadFailed
@@ -3388,7 +3596,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.openAttachmentDialog = function (row) {
         return __awaiter(this, void 0, void 0, function () {
-            var itemId, files, error_10, attachmentError;
+            var itemId, files, error_12, attachmentError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3413,8 +3621,8 @@ var GridControl = (function (_super) {
                         this.setState({ attachmentDialogFiles: files, attachmentDialogLoading: false });
                         return [3 /*break*/, 4];
                     case 3:
-                        error_10 = _a.sent();
-                        attachmentError = error_10;
+                        error_12 = _a.sent();
+                        attachmentError = error_12;
                         this.setState({
                             attachmentDialogLoading: false,
                             attachmentDialogError: attachmentError && attachmentError.message ? attachmentError.message : strings.RuntimeAttachmentsLoadFailed
@@ -3468,6 +3676,28 @@ var GridControl = (function (_super) {
                         ? React.createElement("iframe", { sandbox: "", src: this.state.attachmentPreviewUrl, title: this.state.attachmentPreviewName })
                         : React.createElement("div", { className: "gc-attachment-status" }, this.state.attachmentPreviewName ? strings.RuntimeAttachmentsPreviewUnavailable : strings.RuntimeAttachmentsSelect))))));
     };
+    GridControl.prototype.openDocumentPicker = function () {
+        if (this.isReadOnly() || !this._documentInputEl) {
+            return;
+        }
+        this._documentInputEl.value = '';
+        this._documentInputEl.click();
+    };
+    GridControl.prototype.handleDocumentInputChange = function (event) {
+        var file = event.currentTarget.files && event.currentTarget.files.length > 0
+            ? event.currentTarget.files[0] : undefined;
+        if (!file) {
+            return;
+        }
+        if (this.state.editingItemId === 0) {
+            var editingErrors = Object.assign({}, this.state.editingErrors);
+            delete editingErrors['__form'];
+            this.setState({ pendingDocumentFile: file, editingErrors: editingErrors });
+        }
+        else {
+            this.beginNewRow(file);
+        }
+    };
     GridControl.prototype.openAttachmentPicker = function (row) {
         var _this = this;
         var itemId = this.getRowItemId(row);
@@ -3480,7 +3710,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.handleAttachmentInputChange = function (event) {
         return __awaiter(this, void 0, void 0, function () {
-            var files, selectedFiles, index, itemId, failedNames, error_11, uploadError;
+            var files, selectedFiles, index, itemId, failedNames, error_13, uploadError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3514,8 +3744,8 @@ var GridControl = (function (_super) {
                         _a.sent();
                         return [3 /*break*/, 6];
                     case 5:
-                        error_11 = _a.sent();
-                        uploadError = error_11;
+                        error_13 = _a.sent();
+                        uploadError = error_13;
                         this.setState({
                             attachmentUploadingItemId: 0,
                             attachmentUploadError: uploadError && uploadError.message ? uploadError.message : strings.RuntimeAttachmentsUploadFailed
@@ -3596,7 +3826,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.deleteSelected = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var itemIds, failedItemIds, itemIndex, itemId, endpoint, response, _itemDeleteError_1, remainingSelectedItemId, error_12, deleteError;
+            var itemIds, failedItemIds, itemIndex, itemId, endpoint, response, _itemDeleteError_1, remainingSelectedItemId, error_14, deleteError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3662,8 +3892,8 @@ var GridControl = (function (_super) {
                         }
                         return [3 /*break*/, 10];
                     case 9:
-                        error_12 = _a.sent();
-                        deleteError = error_12;
+                        error_14 = _a.sent();
+                        deleteError = error_14;
                         this.setState({
                             deleting: false,
                             deleteMessage: deleteError && deleteError.message ? deleteError.message : strings.RuntimeDeleteFailed,
@@ -4826,7 +5056,7 @@ var GridControl = (function (_super) {
                         return React.createElement("option", { key: view.key, value: view.key }, view.text);
                     }))) : (React.createElement("span", { className: "gc-view-static-label" }, this.getSelectedViewLabel())))),
                 this.props.showRefresh && React.createElement("button", { type: "button", className: this.getCommandButtonClass(), title: strings.RuntimeRefresh, "aria-label": strings.RuntimeRefresh, onClick: function () { return _this.loadRows(); } }, this.renderCommandContent('Refresh', strings.RuntimeRefresh)),
-                this.props.showAdd && !isReadOnly && (React.createElement("button", { type: "button", className: this.getCommandButtonClass('gc-add-row'), disabled: isEditingRow, title: strings.RuntimeAddRow, "aria-label": strings.RuntimeAddRow, onClick: function () { return _this.beginNewRow(); } }, this.renderCommandContent('Add', strings.RuntimeAddRow))),
+                this.props.showAdd && !isReadOnly && (React.createElement("button", { type: "button", className: this.getCommandButtonClass('gc-add-row'), disabled: isEditingRow, title: this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow, "aria-label": this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow, onClick: function () { return _this.isDocumentLibrary() ? _this.openDocumentPicker() : _this.beginNewRow(); } }, this.renderCommandContent(this.isDocumentLibrary() ? 'Upload' : 'Add', this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow))),
                 this.props.showDelete && !isReadOnly && (React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: this.state.selectedItemIds.length === 0 || this.state.deleting || isEditingRow, title: this.state.deleting ? strings.RuntimeDeleting : formatString(strings.RuntimeDeleteSelected, this.state.selectedItemIds.length), "aria-label": this.state.deleting ? strings.RuntimeDeleting : formatString(strings.RuntimeDeleteSelected, this.state.selectedItemIds.length), onClick: function () { return _this.deleteSelected(); } }, this.renderCommandContent('Delete', this.state.deleting
                     ? strings.RuntimeDeleting
                     : formatString(strings.RuntimeDeleteSelected, this.state.selectedItemIds.length))))),
@@ -4943,6 +5173,7 @@ var GridControl = (function (_super) {
                         !!this.state.historyDialogError && React.createElement("div", { className: "gc-history-status gc-history-error" }, this.state.historyDialogError),
                         !!this.state.historyDialogUrl && React.createElement("iframe", { className: "gc-history-frame", src: this.state.historyDialogUrl, title: strings.RuntimeHistoryTitle }))))),
             React.createElement("input", { ref: this.setAttachmentInputRef, className: "gc-visually-hidden", type: "file", multiple: true, tabIndex: -1, "aria-hidden": "true", onChange: function (ev) { return _this.handleAttachmentInputChange(ev); } }),
+            React.createElement("input", { ref: this.setDocumentInputRef, className: "gc-visually-hidden", type: "file", tabIndex: -1, "aria-hidden": "true", onChange: function (ev) { return _this.handleDocumentInputChange(ev); } }),
             this.renderAttachmentDialog()));
     };
     return GridControl;

@@ -900,11 +900,13 @@
         },
         "GridControlWebPartStrings": {
           "defaultPath": "lib/webparts/gridControl/loc/en-us.js",
-          "type": "localizedPath"
+          "type": "localizedPath",
+          "paths": {}
         },
         "PropertyControlStrings": {
           "defaultPath": "node_modules/@pnp/spfx-property-controls/lib/loc/en-us.js",
-          "type": "localizedPath"
+          "type": "localizedPath",
+          "paths": {}
         },
         "react": {
           "type": "component",

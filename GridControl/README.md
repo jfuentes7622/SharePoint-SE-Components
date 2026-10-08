@@ -2,7 +2,7 @@
 
 SPFx 1.5.1 editable SharePoint grid for SharePoint Server Subscription Edition.
 
-GridControl starts with the ListControl display, filtering, styling, and dynamic-data baseline, then adds inline row creation and editing. Select **+ Add row** to insert a draft row, or use the row-level **Edit** button for an existing row. **Save** validates and creates or updates the SharePoint item; **Cancel** discards the draft.
+GridControl starts with the ListControl display, filtering, styling, and dynamic-data baseline, then adds inline row creation and editing. For a standard list, select **+ Add row** to insert a draft row. For a document library, select **Add document** and choose the file before entering its metadata. Use the row-level **Edit** button for an existing row. **Save** validates and creates or updates the SharePoint item; **Cancel** discards the draft.
 
 ## Purpose
 
@@ -13,6 +13,7 @@ GridControl starts with the ListControl display, filtering, styling, and dynamic
 - Apply preset filters and conditional row or column styling
 - Publish selected item ID and selected mode via Dynamic Data
 - Add and edit SharePoint items directly in the grid
+- Upload documents and edit their library metadata without creating fileless library rows
 - Validate required fields and deterministic Dynamic Form field rules before saving
 - Select multiple rows and delete them in one operation
 - Restrict read access and add/edit/delete access by SharePoint group
@@ -45,6 +46,12 @@ GridControl stores the result internally as a SharePoint Dynamic Form-compatible
 Grid Designer exposes one **Read only** setting because read-only and disabled cells have the same result in an inline grid. Legacy schemas with `disabled: true` remain supported and are normalized to read-only when opened in Grid Designer.
 
 ## Editable Controls
+
+### Document libraries
+
+GridControl identifies document libraries using SharePoint's authoritative list `BaseType`. Only a document-library `BaseType` changes the Add command to a file upload; standard lists continue to show **Add row** even when they expose hidden file-related fields. In a document library, the Add command opens a file picker instead of creating an item directly through the list-items endpoint. The selected file is uploaded to the library root folder first, and the inline values are then saved to the uploaded document's list item. If the metadata update fails, GridControl attempts to remove the uploaded file so that a blank or partially-created row is not left behind.
+
+The selected file name is shown in the draft row and can be changed before saving. Existing documents continue to use normal inline metadata editing. Standard SharePoint lists retain the existing **Add row** behavior.
 
 | SharePoint/Dynamic Form type | Grid editor |
 |---|---|

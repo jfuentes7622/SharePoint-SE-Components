@@ -47,6 +47,12 @@ SharePoint Dynamic Form is a SharePoint Framework (SPFx) web part that provides 
 
 ## Features
 
+### Recent Runtime Updates
+
+- Plain multiline SharePoint fields now switch to a focusable, scrollable read-only region in View mode and other disabled states. Line breaks are preserved and the content is rendered as text rather than interpreted as HTML. Edit mode continues to use the standard multiline text area.
+- Rich-text multiline fields continue to use the visual HTML editor in Edit mode and a scrollable rendered-content region in View mode.
+- A fixed **Item ID** configured in the web-part properties is honored on published modern pages. Explicit dynamic, query-string, fixed, and schema item IDs take precedence over the hosting Site Page's own `pageContext.listItem.id`, which is used only as a final fallback.
+
 ### Visual Form Designer
 
 | Feature | Description |

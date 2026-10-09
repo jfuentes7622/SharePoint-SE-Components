@@ -539,6 +539,8 @@ function toPriorityNumber(value: any, fallback: number): number {
   return parsed;
 }
 
+var CONDITIONAL_STYLE_REEVALUATION_INTERVAL_MS = 5 * 60 * 1000;
+
 export class ListControl extends React.Component<IListControlProps, IListControlState> {
   private _refreshEventHandler: any;
   private _runtimeConfigEventHandler: any;
@@ -556,6 +558,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   private _scrollArrowResizeHandler: any;
   private _scrollArrowScrollHandler: any;
   private _lastReportedFilteredCount: number = -1;
+  private _conditionalStyleReevaluationTimer: number = 0;
 
   public constructor(props: IListControlProps) {
     super(props);
@@ -632,17 +635,41 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       window.dispatchEvent(requestEvent);
     }
     this.loadRows();
+    this.updateConditionalStyleReevaluationTimer();
     this.reportFilteredCount();
   }
 
   public componentWillUnmount(): void {
     this._loadRowsRequestId += 1;
+    this.clearConditionalStyleReevaluationTimer();
     if (typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
       window.removeEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
       window.removeEventListener('resize', this._scrollArrowResizeHandler);
       window.removeEventListener('scroll', this._scrollArrowScrollHandler, true);
     }
+  }
+
+  private updateConditionalStyleReevaluationTimer(): void {
+    var hasConditionalStyles = !!String(this.props.conditionalStyleJson || '').trim();
+    if (!hasConditionalStyles || typeof window === 'undefined') {
+      this.clearConditionalStyleReevaluationTimer();
+      return;
+    }
+    if (this._conditionalStyleReevaluationTimer) {
+      return;
+    }
+    this._conditionalStyleReevaluationTimer = window.setInterval(() => {
+      this.forceUpdate();
+    }, CONDITIONAL_STYLE_REEVALUATION_INTERVAL_MS);
+  }
+
+  private clearConditionalStyleReevaluationTimer(): void {
+    if (!this._conditionalStyleReevaluationTimer || typeof window === 'undefined') {
+      return;
+    }
+    window.clearInterval(this._conditionalStyleReevaluationTimer);
+    this._conditionalStyleReevaluationTimer = 0;
   }
 
   private openItemLinkDialog(itemLinkUrl: string): void {
@@ -680,6 +707,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   public componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void {
+    if (prevProps.conditionalStyleJson !== this.props.conditionalStyleJson) {
+      this.updateConditionalStyleReevaluationTimer();
+    }
     if (prevProps.listName !== this.props.listName || prevProps.defaultViewId !== this.props.defaultViewId) {
       this.logDiagnostic('Props changed; resetting selection and reloading rows. listName=' + String(this.props.listName || '(none)') + ', viewId=' + String(this.props.defaultViewId || '(none)'));
       var nextSelectedViewId = this.props.defaultViewId || this.getInitialViewId(this.props.views);

@@ -230,9 +230,12 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private _attachmentInputEl;
     private _attachmentPickerItemId;
     private _documentInputEl;
+    private _conditionalStyleReevaluationTimer;
     constructor(props: IGridControlProps);
     componentDidMount(): void;
     componentWillUnmount(): void;
+    private updateConditionalStyleReevaluationTimer();
+    private clearConditionalStyleReevaluationTimer();
     componentDidUpdate(prevProps: IGridControlProps, prevState: IGridControlState): void;
     private reportFilteredCount();
     private _setTableWrapRef;

@@ -185,9 +185,12 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private _scrollArrowResizeHandler;
     private _scrollArrowScrollHandler;
     private _lastReportedFilteredCount;
+    private _conditionalStyleReevaluationTimer;
     constructor(props: IListControlProps);
     componentDidMount(): void;
     componentWillUnmount(): void;
+    private updateConditionalStyleReevaluationTimer();
+    private clearConditionalStyleReevaluationTimer();
     private openItemLinkDialog(itemLinkUrl);
     private openItemLinkWindow(itemLinkUrl);
     private closeDefaultDisplayForm();

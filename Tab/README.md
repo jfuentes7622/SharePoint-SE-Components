@@ -61,6 +61,8 @@ The `collectionData` editor defines tabs in display order. Use its Move up and M
 
 All tab-eligible SPS web parts expose `excludeFromTabs`, defaulted to disabled. In Web Parts mode, the marked web part is omitted. In Sections mode, a section containing a marked web part is omitted. Tabs observes late-rendering controls and refreshes discovery when the setting changes.
 
+When a web part or section becomes excluded after initial tab discovery, Tabs releases it from tab management. The released zone is made visible, its loading state is removed, and any tab-owned content border or spacing variables are cleared. The same cleanup occurs when the Tabs web part is removed, preventing excluded or previously controlled content from retaining a hidden state.
+
 ### Custom CSS
 
 - Set `overrideCSS` to the URL of a custom stylesheet, or

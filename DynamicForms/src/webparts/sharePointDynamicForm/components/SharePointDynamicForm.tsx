@@ -10,7 +10,7 @@ import { SPPermission } from '@microsoft/sp-page-context';
 import styles from './SharePointDynamicForm.module.scss';
 import { FormDesigner } from './FormDesigner';
 import { RichTextEditor } from './RichTextEditor';
-import { ReadOnlyRichText } from './ReadOnlyRichText';
+import { ReadOnlyMultilineText, ReadOnlyRichText } from './ReadOnlyRichText';
 import { GridControlHost } from './GridControlHost';
 import { DateTime24HourInput } from './DateTime24HourInput';
 import { FormField, FormMode, FormSchema, FieldValue, FieldConfig, AdvancedValidationRule, ConditionalFieldRule, ConditionalFieldStyle } from '../../../formEngine/core/types';
@@ -1391,7 +1391,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       if (hasDynamicBinding) {
         return fromDynamic || fromProps || fromSchema || 0;
       }
-      return fromDynamic || fromUrl || fromContext || fromProps || fromSchema || 0;
+      // The hosting Site Page also has a pageContext list item ID. Only use it
+      // after explicit form IDs so it cannot replace the configured record.
+      return fromDynamic || fromUrl || fromProps || fromSchema || fromContext || 0;
     }
 
     return fromDynamic || fromProps || fromSchema || 0;
@@ -3770,16 +3772,30 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
                   </div>
                 )
               ) : (
-                <textarea
-                  dir="ltr"
-                  disabled={disabled}
-                  required={field.required === true}
-                  value={value === undefined || value === null ? '' : String(value)}
-                  onChange={(ev) => this.setFieldValue(field.id, ev.currentTarget.value)}
-                  placeholder={placeholder}
-                  rows={4}
-                  style={plainTextInputStyle}
-                />
+                disabled ? (
+                  <ReadOnlyMultilineText
+                    text={richTextValueRaw}
+                    ariaLabel={field.label}
+                    style={Object.assign({}, plainTextInputStyle, {
+                      minHeight: '120px',
+                      maxHeight: '600px',
+                      padding: '12px',
+                      border: '1px solid #d1d1d1',
+                      backgroundColor: '#f3f2f1',
+                      lineHeight: '1.6',
+                    })}
+                  />
+                ) : (
+                  <textarea
+                    dir="ltr"
+                    required={field.required === true}
+                    value={value === undefined || value === null ? '' : String(value)}
+                    onChange={(ev) => this.setFieldValue(field.id, ev.currentTarget.value)}
+                    placeholder={placeholder}
+                    rows={4}
+                    style={plainTextInputStyle}
+                  />
+                )
               )
             )}
             </div>

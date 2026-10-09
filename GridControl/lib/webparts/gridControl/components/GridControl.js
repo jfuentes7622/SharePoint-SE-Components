@@ -316,6 +316,7 @@ function toPriorityNumber(value, fallback) {
     }
     return parsed;
 }
+var CONDITIONAL_STYLE_REEVALUATION_INTERVAL_MS = 5 * 60 * 1000;
 var GridControl = (function (_super) {
     __extends(GridControl, _super);
     function GridControl(props) {
@@ -333,6 +334,7 @@ var GridControl = (function (_super) {
         _this._pagingRuntimeFilterFieldNames = [];
         _this._lastReportedFilteredCount = -1;
         _this._attachmentPickerItemId = 0;
+        _this._conditionalStyleReevaluationTimer = 0;
         _this._setTableWrapRef = function (el) {
             _this._tableWrapEl = el;
             _this.refreshTableViewport();
@@ -474,10 +476,12 @@ var GridControl = (function (_super) {
             window.addEventListener('resize', this._scrollArrowResizeHandler);
             window.addEventListener('scroll', this._scrollArrowScrollHandler, true);
         }
+        this.updateConditionalStyleReevaluationTimer();
         this.reportFilteredCount();
     };
     GridControl.prototype.componentWillUnmount = function () {
         this._loadRowsRequestId += 1;
+        this.clearConditionalStyleReevaluationTimer();
         if (typeof window !== 'undefined' && window.removeEventListener) {
             window.removeEventListener(GRID_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
             window.removeEventListener(GRID_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
@@ -485,8 +489,32 @@ var GridControl = (function (_super) {
             window.removeEventListener('scroll', this._scrollArrowScrollHandler, true);
         }
     };
+    GridControl.prototype.updateConditionalStyleReevaluationTimer = function () {
+        var _this = this;
+        var hasConditionalStyles = !!String(this.props.conditionalStyleJson || '').trim();
+        if (!hasConditionalStyles || typeof window === 'undefined') {
+            this.clearConditionalStyleReevaluationTimer();
+            return;
+        }
+        if (this._conditionalStyleReevaluationTimer) {
+            return;
+        }
+        this._conditionalStyleReevaluationTimer = window.setInterval(function () {
+            _this.forceUpdate();
+        }, CONDITIONAL_STYLE_REEVALUATION_INTERVAL_MS);
+    };
+    GridControl.prototype.clearConditionalStyleReevaluationTimer = function () {
+        if (!this._conditionalStyleReevaluationTimer || typeof window === 'undefined') {
+            return;
+        }
+        window.clearInterval(this._conditionalStyleReevaluationTimer);
+        this._conditionalStyleReevaluationTimer = 0;
+    };
     GridControl.prototype.componentDidUpdate = function (prevProps, prevState) {
         var _this = this;
+        if (prevProps.conditionalStyleJson !== this.props.conditionalStyleJson) {
+            this.updateConditionalStyleReevaluationTimer();
+        }
         if (prevProps.readSecurityGroupId !== this.props.readSecurityGroupId
             || prevProps.editSecurityGroupId !== this.props.editSecurityGroupId) {
             this.loadAccessAndRows();

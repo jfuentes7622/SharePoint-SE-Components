@@ -237,6 +237,36 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
       || zone.querySelector('[data-spse-exclude-from-tabs="true"]') !== null;
   }
 
+  private releaseZoneFromTabControl(zone: HTMLElement): void {
+    zone.classList.remove('sectionHidden');
+    zone.removeAttribute('part-Loading');
+
+    const borderedElements: HTMLElement[] = [];
+    if (zone.classList.contains('spseTabOverallBorderContent')) {
+      borderedElements.push(zone);
+    }
+    Array.from(zone.querySelectorAll('.spseTabOverallBorderContent')).forEach((element: Element) => {
+      borderedElements.push(element as HTMLElement);
+    });
+    borderedElements.forEach((element: HTMLElement) => {
+      element.classList.remove('spseTabOverallBorderContent');
+      element.style.removeProperty('--spse-tab-border-color');
+      element.style.removeProperty('--spse-tab-border-width');
+      element.style.removeProperty('--spse-tab-border-style');
+      element.style.removeProperty('--spse-tab-border-radius');
+      element.style.removeProperty('--spse-tab-content-padding-top');
+      element.style.removeProperty('--spse-tab-content-padding-bottom');
+    });
+  }
+
+  private releaseZonesNoLongerControlled(nextZones: HTMLElement[]): void {
+    this.controlledZones.forEach((zone: HTMLElement) => {
+      if (nextZones.indexOf(zone) < 0) {
+        this.releaseZoneFromTabControl(zone);
+      }
+    });
+  }
+
   private observeTabExclusions(): void {
     if (this.excludeObserver || !this.ContentArea) {
       return;
@@ -360,6 +390,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
       ctrlZones = Array.from(this.ContentArea.querySelectorAll('.ControlZone'))
         .filter(d => { return !this.isExcludedFromTabs(d) && !this.findInAncestors(d, this.domElement); });
     }
+    this.releaseZonesNoLongerControlled(ctrlZones as HTMLElement[]);
     this.controlledZones = ctrlZones as HTMLElement[];
 
     this.logDiagnostic('Discovered ' + String(ctrlZones.length) + ' tab zone(s) for TabType=' + tabtype + ' (processed=' + String(this.tabsProcessedCount) + ', foundAnotherTab=' + String(this.foundAnotherTab) + ').');
@@ -444,6 +475,8 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
 
   protected onDispose(): void {
     this.logDiagnostic('onDispose invoked; unmounting React tree.');
+    this.controlledZones.forEach((zone: HTMLElement) => this.releaseZoneFromTabControl(zone));
+    this.controlledZones = [];
     releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
     window.removeEventListener(FORM_ACTIVATION_QUERY_EVENT, this.activationQueryHandler);
     if (this.excludeObserver) {

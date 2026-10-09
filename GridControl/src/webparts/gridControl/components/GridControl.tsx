@@ -595,6 +595,8 @@ function toPriorityNumber(value: any, fallback: number): number {
   return parsed;
 }
 
+var CONDITIONAL_STYLE_REEVALUATION_INTERVAL_MS = 5 * 60 * 1000;
+
 export class GridControl extends React.Component<IGridControlProps, IGridControlState> {
   private _refreshEventHandler: any;
   private _runtimeConfigEventHandler: any;
@@ -619,6 +621,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   private _attachmentInputEl: HTMLInputElement;
   private _attachmentPickerItemId: number = 0;
   private _documentInputEl: HTMLInputElement;
+  private _conditionalStyleReevaluationTimer: number = 0;
 
   public constructor(props: IGridControlProps) {
     super(props);
@@ -714,11 +717,13 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       window.addEventListener('resize', this._scrollArrowResizeHandler);
       window.addEventListener('scroll', this._scrollArrowScrollHandler, true);
     }
+    this.updateConditionalStyleReevaluationTimer();
     this.reportFilteredCount();
   }
 
   public componentWillUnmount(): void {
     this._loadRowsRequestId += 1;
+    this.clearConditionalStyleReevaluationTimer();
     if (typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener(GRID_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
       window.removeEventListener(GRID_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
@@ -727,7 +732,32 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     }
   }
 
+  private updateConditionalStyleReevaluationTimer(): void {
+    var hasConditionalStyles = !!String(this.props.conditionalStyleJson || '').trim();
+    if (!hasConditionalStyles || typeof window === 'undefined') {
+      this.clearConditionalStyleReevaluationTimer();
+      return;
+    }
+    if (this._conditionalStyleReevaluationTimer) {
+      return;
+    }
+    this._conditionalStyleReevaluationTimer = window.setInterval(() => {
+      this.forceUpdate();
+    }, CONDITIONAL_STYLE_REEVALUATION_INTERVAL_MS);
+  }
+
+  private clearConditionalStyleReevaluationTimer(): void {
+    if (!this._conditionalStyleReevaluationTimer || typeof window === 'undefined') {
+      return;
+    }
+    window.clearInterval(this._conditionalStyleReevaluationTimer);
+    this._conditionalStyleReevaluationTimer = 0;
+  }
+
   public componentDidUpdate(prevProps: IGridControlProps, prevState: IGridControlState): void {
+    if (prevProps.conditionalStyleJson !== this.props.conditionalStyleJson) {
+      this.updateConditionalStyleReevaluationTimer();
+    }
     if (prevProps.readSecurityGroupId !== this.props.readSecurityGroupId
       || prevProps.editSecurityGroupId !== this.props.editSecurityGroupId) {
       this.loadAccessAndRows();

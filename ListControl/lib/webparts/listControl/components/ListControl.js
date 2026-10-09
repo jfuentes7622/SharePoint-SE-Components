@@ -300,6 +300,7 @@ function toPriorityNumber(value, fallback) {
     }
     return parsed;
 }
+var CONDITIONAL_STYLE_REEVALUATION_INTERVAL_MS = 5 * 60 * 1000;
 var ListControl = (function (_super) {
     __extends(ListControl, _super);
     function ListControl(props) {
@@ -312,6 +313,7 @@ var ListControl = (function (_super) {
         _this._pagingRequestBody = undefined;
         _this._pagingRuntimeFilterFieldNames = [];
         _this._lastReportedFilteredCount = -1;
+        _this._conditionalStyleReevaluationTimer = 0;
         _this.setDisplayFormFrameRef = function (frame) {
             if (!frame) {
                 return;
@@ -437,16 +439,39 @@ var ListControl = (function (_super) {
             window.dispatchEvent(requestEvent);
         }
         this.loadRows();
+        this.updateConditionalStyleReevaluationTimer();
         this.reportFilteredCount();
     };
     ListControl.prototype.componentWillUnmount = function () {
         this._loadRowsRequestId += 1;
+        this.clearConditionalStyleReevaluationTimer();
         if (typeof window !== 'undefined' && window.removeEventListener) {
             window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
             window.removeEventListener(LIST_CONTROL_RUNTIME_CONFIG_EVENT, this._runtimeConfigEventHandler);
             window.removeEventListener('resize', this._scrollArrowResizeHandler);
             window.removeEventListener('scroll', this._scrollArrowScrollHandler, true);
         }
+    };
+    ListControl.prototype.updateConditionalStyleReevaluationTimer = function () {
+        var _this = this;
+        var hasConditionalStyles = !!String(this.props.conditionalStyleJson || '').trim();
+        if (!hasConditionalStyles || typeof window === 'undefined') {
+            this.clearConditionalStyleReevaluationTimer();
+            return;
+        }
+        if (this._conditionalStyleReevaluationTimer) {
+            return;
+        }
+        this._conditionalStyleReevaluationTimer = window.setInterval(function () {
+            _this.forceUpdate();
+        }, CONDITIONAL_STYLE_REEVALUATION_INTERVAL_MS);
+    };
+    ListControl.prototype.clearConditionalStyleReevaluationTimer = function () {
+        if (!this._conditionalStyleReevaluationTimer || typeof window === 'undefined') {
+            return;
+        }
+        window.clearInterval(this._conditionalStyleReevaluationTimer);
+        this._conditionalStyleReevaluationTimer = 0;
     };
     ListControl.prototype.openItemLinkDialog = function (itemLinkUrl) {
         if (!itemLinkUrl) {
@@ -474,6 +499,9 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.componentDidUpdate = function (prevProps, prevState) {
         var _this = this;
+        if (prevProps.conditionalStyleJson !== this.props.conditionalStyleJson) {
+            this.updateConditionalStyleReevaluationTimer();
+        }
         if (prevProps.listName !== this.props.listName || prevProps.defaultViewId !== this.props.defaultViewId) {
             this.logDiagnostic('Props changed; resetting selection and reloading rows. listName=' + String(this.props.listName || '(none)') + ', viewId=' + String(this.props.defaultViewId || '(none)'));
             var nextSelectedViewId = this.props.defaultViewId || this.getInitialViewId(this.props.views);

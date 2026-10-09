@@ -12,6 +12,19 @@ SPFx 1.5.1 list control web part for SharePoint Server Subscription Edition.
 - Publish selected item ID and selected mode via Dynamic Data
 - Support `New`, `Edit`, `View`, and `Delete` actions
 
+## Conditional Formatting Timer
+
+When conditional-style JSON is configured, ListControl reevaluates its row and column formatting every five minutes. This allows expressions such as `now` to move records between time-based formatting bands while the page remains open.
+
+The timer:
+
+- Renders the rows already held in the client-side cache; it does not reload the page or request the list data again.
+- Starts only when conditional formatting is configured.
+- Restarts its behavior when the conditional-style configuration changes.
+- Stops when conditional formatting is removed or the web part is unmounted.
+
+The five-minute interval affects only conditional-format evaluation. The Refresh command and normal paging/filtering behavior continue to control when SharePoint data itself is retrieved.
+
 ## View Columns
 
 Selecting a list and view initializes the `viewColumns` collection from the SharePoint view's field order. Each row contains:

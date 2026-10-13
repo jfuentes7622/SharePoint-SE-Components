@@ -154,6 +154,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private _conditionalStyleLookupMessage;
     private _isGridDesignerOpen;
     private _externalSearchFilterJson;
+    private _externalSearchExecutionMode;
     private _searchSourceHandlers;
     private _searchSourceDiscoveryTimer;
     private _searchSourceDiscoveryAttempts;

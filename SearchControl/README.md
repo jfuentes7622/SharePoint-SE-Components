@@ -6,7 +6,9 @@ SPS Search Control connects to an SPS List Control or Grid Control through SPFx 
 
 When mode switching is enabled, **Simple** and **Advanced** are shown as radio buttons in the top-right corner of the control.
 
-- **Simple** searches one selected field or all compatible fields.
+- **Simple** initially shows one search box, a Search button, and a **Show fields** checkbox. Select **Show fields** to display
+  the optional field selector and search one selected field instead of all compatible fields.
+  Clearing the search box with its built-in **X** immediately removes the active search filter.
 - **Advanced** supports multiple typed conditions joined with AND or OR. The Connector and Operator controls use compact columns so that more horizontal space remains available for the Field and Value controls.
 
 Choice and Boolean fields use fixed options, lookup and person options are loaded on demand, and date/time fields use typed browser controls.
@@ -26,6 +28,8 @@ This setting applies to Search, Clear, Add condition, Apply filters, and Remove.
 | Property | Description |
 |----------|-------------|
 | Target control | Selects the SPS List Control or Grid Control that receives the published search state. |
+| Search data source | Uses either the records already loaded by the target control or a server query against the complete SharePoint source list. |
+| Search fields | Selects the fields shown in the simple field selector and used by **All compatible fields**. An empty selection uses all available fields. |
 | Default mode | Selects Simple or Advanced as the initial search mode. |
 | Allow users to switch modes | Shows or hides the top-right Simple and Advanced radio buttons. |
 | Title | Sets the heading displayed in the control. |
@@ -38,3 +42,7 @@ This setting applies to Search, Clear, Add condition, Apply filters, and Remove.
 | Minute increment | Selects 1, 5, 10, or 15-minute increments. |
 
 The web part also includes diagnostics, version information, tab exclusion, colors, border settings, typography, and optional override CSS.
+
+Server search queries the complete source list through the connected control and pages only matching
+records. The **Ends with** and **Does not contain** operators remain available in Local mode but are
+not supported in Server mode because SharePoint CAML does not provide equivalent text operators.

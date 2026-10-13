@@ -217,6 +217,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
   private _conditionalStyleLookupMessage: string = '';
   private _isGridDesignerOpen: boolean = false;
   private _externalSearchFilterJson: string = '';
+  private _externalSearchExecutionMode: string = 'local';
   private _searchSourceHandlers: { [sourceId: string]: () => void } = {};
   private _searchSourceDiscoveryTimer: number = 0;
   private _searchSourceDiscoveryAttempts: number = 0;
@@ -398,6 +399,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       webpartBorderWidth: this.properties.webpartBorderWidth || 0,
       filterJson: this.properties.filterJson || '',
       externalFilterJson: this._externalSearchFilterJson,
+      externalSearchExecutionMode: this._externalSearchExecutionMode,
       conditionalStyleJson: this.properties.conditionalStyleJson || '',
       onSelectionChange: (itemId: number, mode: string) => this.handleSelectionChange(itemId, mode),
       onFilteredCountChange: (count: number) => this.handleFilteredCountChange(count)
@@ -838,6 +840,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       instanceName: String(this.properties.instanceName || '').trim() || strings.DynamicSourceTitle,
       controlType: 'grid',
       listName: String(this.properties.listName || ''),
+      serverSearchSupported: true,
       fields: this._listFields.map((option: IDropdownOption) => {
         var internalName = String(option.key || '');
         return {
@@ -884,9 +887,13 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         return;
       }
       var nextFilter = String(state.filterJson || '');
-      if (nextFilter === this._externalSearchFilterJson) { return; }
+      var nextExecutionMode = state.executionMode === 'server' ? 'server' : 'local';
+      if (nextFilter === this._externalSearchFilterJson
+        && nextExecutionMode === this._externalSearchExecutionMode) { return; }
       this._externalSearchFilterJson = nextFilter;
-      this.logDiagnostic('Applied Search Control filter from source ' + String(source.id || '') + '.');
+      this._externalSearchExecutionMode = nextExecutionMode;
+      this.logDiagnostic('Applied Search Control filter from source ' + String(source.id || '')
+        + ' using ' + nextExecutionMode + ' execution.');
       this.render();
     } catch (error) {
       console.error('[GridControlWebPart] Failed to apply Search Control Dynamic Data.', error);
@@ -2688,9 +2695,6 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
   }
 
   private handleFilteredCountChange(count: number): void {
-    if (count === this._searchResultCount) {
-      return;
-    }
     this._searchResultCount = count;
     this.notifyDynamicData('searchResultCount');
   }

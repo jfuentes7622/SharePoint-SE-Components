@@ -93,6 +93,7 @@ export interface IGridControlProps {
   webpartBorderWidth: number;
   filterJson?: string;
   externalFilterJson?: string;
+  externalSearchExecutionMode?: string;
   conditionalStyleJson?: string;
   onSelectionChange: (itemId: number, mode: string) => void;
   onFilteredCountChange: (count: number) => void;
@@ -821,6 +822,16 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this.loadRows();
       return;
     }
+    var wasExternalServerSearch = this.isExternalServerSearch(
+      prevProps.externalFilterJson, prevProps.externalSearchExecutionMode);
+    var isExternalServerSearch = this.isExternalServerSearch(
+      this.props.externalFilterJson, this.props.externalSearchExecutionMode);
+    if ((prevProps.externalFilterJson !== this.props.externalFilterJson
+      || prevProps.externalSearchExecutionMode !== this.props.externalSearchExecutionMode)
+      && (wasExternalServerSearch || isExternalServerSearch)) {
+      this.setState({ currentPage: 0 }, () => this.loadRows());
+      return;
+    }
     if (prevState.runtimeFilterJson !== this.state.runtimeFilterJson) {
       this.loadRows();
       return;
@@ -831,7 +842,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       || prevState.columnFilters !== this.state.columnFilters
       || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
       || prevProps.externalFilterJson !== this.props.externalFilterJson
-      || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode) {
+      || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode
+      && !isExternalServerSearch) {
       this.loadAllRemainingRows();
     }
 
@@ -839,12 +851,13 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       this._stickyHeaderSourceHtml = '';
       window.setTimeout(() => this.refreshTableViewport(), 0);
     }
-    this.reportFilteredCount();
+    this.reportFilteredCount(prevProps.externalFilterJson !== this.props.externalFilterJson
+      || prevProps.externalSearchExecutionMode !== this.props.externalSearchExecutionMode);
   }
 
-  private reportFilteredCount(): void {
+  private reportFilteredCount(force?: boolean): void {
     var count = this.getProcessedRows().length;
-    if (count === this._lastReportedFilteredCount) {
+    if (force !== true && count === this._lastReportedFilteredCount) {
       return;
     }
     this._lastReportedFilteredCount = count;
@@ -1525,6 +1538,137 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       existingFields[fieldName.toLowerCase()] = true;
     }
 
+    return new XMLSerializer().serializeToString(xmlDocument);
+  }
+
+  private isExternalServerSearch(filterJson?: string, executionMode?: string): boolean {
+    return executionMode === 'server' && !!String(filterJson || '').trim();
+  }
+
+  private getCamlValueType(fieldType: string): string {
+    var normalized = String(fieldType || '').toLowerCase();
+    if (normalized.indexOf('datetime') >= 0) { return 'DateTime'; }
+    if (normalized === 'boolean') { return 'Boolean'; }
+    if (normalized === 'number' || normalized === 'currency' || normalized === 'integer'
+      || normalized === 'counter') { return 'Number'; }
+    if (normalized.indexOf('lookup') >= 0 || normalized.indexOf('user') >= 0) { return 'Integer'; }
+    return 'Text';
+  }
+
+  private createCamlValueElement(xmlDocument: XMLDocument, condition: any, value: any): Element {
+    var valueElement = xmlDocument.createElement('Value');
+    var camlValueType = this.getCamlValueType(condition.fieldType);
+    valueElement.setAttribute('Type', camlValueType);
+    if (camlValueType === 'DateTime') {
+      valueElement.setAttribute('IncludeTimeValue', condition.dateOnly === true ? 'FALSE' : 'TRUE');
+    }
+    var textValue = String(value === undefined || value === null ? '' : value);
+    if (camlValueType === 'Boolean') {
+      textValue = /^(true|yes|1)$/i.test(textValue) ? '1' : '0';
+    }
+    valueElement.appendChild(xmlDocument.createTextNode(textValue));
+    return valueElement;
+  }
+
+  private createCamlLeafCondition(xmlDocument: XMLDocument, condition: any, value: any): Element {
+    var operator = normalizeFilterOperator(condition.operator);
+    if (operator === 'endswith' || operator === 'notcontains') {
+      throw new Error('Server search does not support the '
+        + (operator === 'endswith' ? 'Ends with' : 'Does not contain')
+        + ' operator. Use Local search for this operator.');
+    }
+    var operatorNames: { [operator: string]: string } = {
+      eq: 'Eq',
+      ne: 'Neq',
+      contains: 'Contains',
+      startswith: 'BeginsWith',
+      gt: 'Gt',
+      ge: 'Geq',
+      lt: 'Lt',
+      le: 'Leq'
+    };
+    var comparison = xmlDocument.createElement(operatorNames[operator] || 'Contains');
+    var fieldRef = xmlDocument.createElement('FieldRef');
+    fieldRef.setAttribute('Name', String(condition.field || ''));
+    var normalizedFieldType = String(condition.fieldType || '').toLowerCase();
+    if (normalizedFieldType.indexOf('lookup') >= 0 || normalizedFieldType.indexOf('user') >= 0) {
+      fieldRef.setAttribute('LookupId', 'TRUE');
+    }
+    comparison.appendChild(fieldRef);
+    comparison.appendChild(this.createCamlValueElement(xmlDocument, condition, value));
+    return comparison;
+  }
+
+  private combineCamlConditions(xmlDocument: XMLDocument, left: Element, right: Element, logical: string): Element {
+    var combined = xmlDocument.createElement(String(logical || '').toLowerCase() === 'or' ? 'Or' : 'And');
+    combined.appendChild(left);
+    combined.appendChild(right);
+    return combined;
+  }
+
+  private createCamlCondition(xmlDocument: XMLDocument, condition: any): Element {
+    var fieldName = String(condition && condition.field || '').trim();
+    if (!fieldName) {
+      throw new Error('Server search received a condition without a field.');
+    }
+    if (String(condition.valueType || '').toLowerCase() === 'expression') {
+      throw new Error('Server search does not support expression-based values.');
+    }
+    var values = Array.isArray(condition.value) ? condition.value : [condition.value];
+    var filteredValues = values.filter(function(value: any): boolean {
+      return value !== undefined && value !== null && String(value).trim() !== '';
+    });
+    if (filteredValues.length === 0) {
+      throw new Error('Server search received an empty condition value for ' + fieldName + '.');
+    }
+    var aggregate = this.createCamlLeafCondition(xmlDocument, condition, filteredValues[0]);
+    for (var valueIndex = 1; valueIndex < filteredValues.length; valueIndex += 1) {
+      var valueLogical = normalizeFilterOperator(condition.operator) === 'ne' ? 'and' : 'or';
+      aggregate = this.combineCamlConditions(xmlDocument, aggregate,
+        this.createCamlLeafCondition(xmlDocument, condition, filteredValues[valueIndex]), valueLogical);
+    }
+    return aggregate;
+  }
+
+  private applyExternalServerSearchToViewXml(viewXml: string): string {
+    var source = String(this.props.externalFilterJson || '').trim();
+    var conditions: any[];
+    try {
+      conditions = JSON.parse(source);
+    } catch (error) {
+      throw new Error('Search Control server filter is invalid JSON: '
+        + String(error && error.message ? error.message : error));
+    }
+    if (!Array.isArray(conditions) || conditions.length === 0) {
+      throw new Error('Search Control server filter does not contain any conditions.');
+    }
+
+    var xmlDocument = new DOMParser().parseFromString(String(viewXml || '<View></View>'), 'text/xml');
+    if (xmlDocument.getElementsByTagName('parsererror').length > 0) {
+      throw new Error('The SharePoint view definition is invalid.');
+    }
+    var viewElement = xmlDocument.getElementsByTagName('View')[0];
+    if (!viewElement) {
+      throw new Error('The SharePoint view definition does not contain a View element.');
+    }
+    var queryElements = viewElement.getElementsByTagName('Query');
+    var queryElement = queryElements.length > 0 ? queryElements[0] : xmlDocument.createElement('Query');
+    if (queryElements.length === 0) {
+      viewElement.insertBefore(queryElement, viewElement.firstChild);
+    }
+    var whereElements = queryElement.getElementsByTagName('Where');
+    while (whereElements.length > 0) {
+      whereElements[0].parentNode.removeChild(whereElements[0]);
+    }
+
+    var aggregate = this.createCamlCondition(xmlDocument, conditions[0]);
+    for (var conditionIndex = 1; conditionIndex < conditions.length; conditionIndex += 1) {
+      aggregate = this.combineCamlConditions(xmlDocument, aggregate,
+        this.createCamlCondition(xmlDocument, conditions[conditionIndex]), conditions[conditionIndex].logical);
+    }
+    var whereElement = xmlDocument.createElement('Where');
+    whereElement.appendChild(aggregate);
+    queryElement.insertBefore(whereElement, queryElement.firstChild);
     return new XMLSerializer().serializeToString(xmlDocument);
   }
 
@@ -2406,9 +2550,12 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           RenderOptions: 7
         }
       };
-      body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewId
-        ? this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames)
-        : (selectedViewXml || '<View></View>'));
+      var requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames);
+      if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
+        requestViewXml = this.applyExternalServerSearchToViewXml(requestViewXml);
+        this.logDiagnostic('Server search CAML: ' + requestViewXml);
+      }
+      body.parameters.ViewXml = this.applyFetchBatchSize(requestViewXml);
       this._pagingEndpoint = baseEndpoint;
       this._pagingRequestBody = body;
       this._pagingSchemaFieldNames = schemaFieldNames.slice(0);
@@ -2553,7 +2700,12 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         loading: false,
         error: null
       }, () => {
-        if (!this.props.isEditMode && (this.parsePresetFilterConditions().length > 0 || this.getGridGroupingConfig().enabled) && this.state.nextPageHref) {
+        if (this.props.externalFilterJson) {
+          this.reportFilteredCount(true);
+        }
+        if (!this.props.isEditMode && (this.parsePresetFilterConditions().length > 0 || this.getGridGroupingConfig().enabled)
+          && this.state.nextPageHref
+          && !this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
           this.loadAllRemainingRows();
         }
       });

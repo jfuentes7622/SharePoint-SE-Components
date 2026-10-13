@@ -575,6 +575,14 @@ var GridControl = (function (_super) {
             this.loadRows();
             return;
         }
+        var wasExternalServerSearch = this.isExternalServerSearch(prevProps.externalFilterJson, prevProps.externalSearchExecutionMode);
+        var isExternalServerSearch = this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode);
+        if ((prevProps.externalFilterJson !== this.props.externalFilterJson
+            || prevProps.externalSearchExecutionMode !== this.props.externalSearchExecutionMode)
+            && (wasExternalServerSearch || isExternalServerSearch)) {
+            this.setState({ currentPage: 0 }, function () { return _this.loadRows(); });
+            return;
+        }
         if (prevState.runtimeFilterJson !== this.state.runtimeFilterJson) {
             this.loadRows();
             return;
@@ -584,18 +592,20 @@ var GridControl = (function (_super) {
             || prevState.columnFilters !== this.state.columnFilters
             || prevState.runtimeFilterJson !== this.state.runtimeFilterJson
             || prevProps.externalFilterJson !== this.props.externalFilterJson
-            || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode) {
+            || prevProps.filterJson !== this.props.filterJson) && this.state.nextPageHref && !this.props.isEditMode
+            && !isExternalServerSearch) {
             this.loadAllRemainingRows();
         }
         if (typeof window !== 'undefined') {
             this._stickyHeaderSourceHtml = '';
             window.setTimeout(function () { return _this.refreshTableViewport(); }, 0);
         }
-        this.reportFilteredCount();
+        this.reportFilteredCount(prevProps.externalFilterJson !== this.props.externalFilterJson
+            || prevProps.externalSearchExecutionMode !== this.props.externalSearchExecutionMode);
     };
-    GridControl.prototype.reportFilteredCount = function () {
+    GridControl.prototype.reportFilteredCount = function (force) {
         var count = this.getProcessedRows().length;
-        if (count === this._lastReportedFilteredCount) {
+        if (force !== true && count === this._lastReportedFilteredCount) {
             return;
         }
         this._lastReportedFilteredCount = count;
@@ -1295,6 +1305,135 @@ var GridControl = (function (_super) {
             viewFieldsElement.appendChild(fieldRef);
             existingFields[fieldName.toLowerCase()] = true;
         }
+        return new XMLSerializer().serializeToString(xmlDocument);
+    };
+    GridControl.prototype.isExternalServerSearch = function (filterJson, executionMode) {
+        return executionMode === 'server' && !!String(filterJson || '').trim();
+    };
+    GridControl.prototype.getCamlValueType = function (fieldType) {
+        var normalized = String(fieldType || '').toLowerCase();
+        if (normalized.indexOf('datetime') >= 0) {
+            return 'DateTime';
+        }
+        if (normalized === 'boolean') {
+            return 'Boolean';
+        }
+        if (normalized === 'number' || normalized === 'currency' || normalized === 'integer'
+            || normalized === 'counter') {
+            return 'Number';
+        }
+        if (normalized.indexOf('lookup') >= 0 || normalized.indexOf('user') >= 0) {
+            return 'Integer';
+        }
+        return 'Text';
+    };
+    GridControl.prototype.createCamlValueElement = function (xmlDocument, condition, value) {
+        var valueElement = xmlDocument.createElement('Value');
+        var camlValueType = this.getCamlValueType(condition.fieldType);
+        valueElement.setAttribute('Type', camlValueType);
+        if (camlValueType === 'DateTime') {
+            valueElement.setAttribute('IncludeTimeValue', condition.dateOnly === true ? 'FALSE' : 'TRUE');
+        }
+        var textValue = String(value === undefined || value === null ? '' : value);
+        if (camlValueType === 'Boolean') {
+            textValue = /^(true|yes|1)$/i.test(textValue) ? '1' : '0';
+        }
+        valueElement.appendChild(xmlDocument.createTextNode(textValue));
+        return valueElement;
+    };
+    GridControl.prototype.createCamlLeafCondition = function (xmlDocument, condition, value) {
+        var operator = normalizeFilterOperator(condition.operator);
+        if (operator === 'endswith' || operator === 'notcontains') {
+            throw new Error('Server search does not support the '
+                + (operator === 'endswith' ? 'Ends with' : 'Does not contain')
+                + ' operator. Use Local search for this operator.');
+        }
+        var operatorNames = {
+            eq: 'Eq',
+            ne: 'Neq',
+            contains: 'Contains',
+            startswith: 'BeginsWith',
+            gt: 'Gt',
+            ge: 'Geq',
+            lt: 'Lt',
+            le: 'Leq'
+        };
+        var comparison = xmlDocument.createElement(operatorNames[operator] || 'Contains');
+        var fieldRef = xmlDocument.createElement('FieldRef');
+        fieldRef.setAttribute('Name', String(condition.field || ''));
+        var normalizedFieldType = String(condition.fieldType || '').toLowerCase();
+        if (normalizedFieldType.indexOf('lookup') >= 0 || normalizedFieldType.indexOf('user') >= 0) {
+            fieldRef.setAttribute('LookupId', 'TRUE');
+        }
+        comparison.appendChild(fieldRef);
+        comparison.appendChild(this.createCamlValueElement(xmlDocument, condition, value));
+        return comparison;
+    };
+    GridControl.prototype.combineCamlConditions = function (xmlDocument, left, right, logical) {
+        var combined = xmlDocument.createElement(String(logical || '').toLowerCase() === 'or' ? 'Or' : 'And');
+        combined.appendChild(left);
+        combined.appendChild(right);
+        return combined;
+    };
+    GridControl.prototype.createCamlCondition = function (xmlDocument, condition) {
+        var fieldName = String(condition && condition.field || '').trim();
+        if (!fieldName) {
+            throw new Error('Server search received a condition without a field.');
+        }
+        if (String(condition.valueType || '').toLowerCase() === 'expression') {
+            throw new Error('Server search does not support expression-based values.');
+        }
+        var values = Array.isArray(condition.value) ? condition.value : [condition.value];
+        var filteredValues = values.filter(function (value) {
+            return value !== undefined && value !== null && String(value).trim() !== '';
+        });
+        if (filteredValues.length === 0) {
+            throw new Error('Server search received an empty condition value for ' + fieldName + '.');
+        }
+        var aggregate = this.createCamlLeafCondition(xmlDocument, condition, filteredValues[0]);
+        for (var valueIndex = 1; valueIndex < filteredValues.length; valueIndex += 1) {
+            var valueLogical = normalizeFilterOperator(condition.operator) === 'ne' ? 'and' : 'or';
+            aggregate = this.combineCamlConditions(xmlDocument, aggregate, this.createCamlLeafCondition(xmlDocument, condition, filteredValues[valueIndex]), valueLogical);
+        }
+        return aggregate;
+    };
+    GridControl.prototype.applyExternalServerSearchToViewXml = function (viewXml) {
+        var source = String(this.props.externalFilterJson || '').trim();
+        var conditions;
+        try {
+            conditions = JSON.parse(source);
+        }
+        catch (error) {
+            throw new Error('Search Control server filter is invalid JSON: '
+                + String(error && error.message ? error.message : error));
+        }
+        if (!Array.isArray(conditions) || conditions.length === 0) {
+            throw new Error('Search Control server filter does not contain any conditions.');
+        }
+        var xmlDocument = new DOMParser().parseFromString(String(viewXml || '<View></View>'), 'text/xml');
+        if (xmlDocument.getElementsByTagName('parsererror').length > 0) {
+            throw new Error('The SharePoint view definition is invalid.');
+        }
+        var viewElement = xmlDocument.getElementsByTagName('View')[0];
+        if (!viewElement) {
+            throw new Error('The SharePoint view definition does not contain a View element.');
+        }
+        var queryElements = viewElement.getElementsByTagName('Query');
+        var queryElement = queryElements.length > 0 ? queryElements[0] : xmlDocument.createElement('Query');
+        if (queryElements.length === 0) {
+            viewElement.insertBefore(queryElement, viewElement.firstChild);
+        }
+        var whereElements = queryElement.getElementsByTagName('Where');
+        while (whereElements.length > 0) {
+            whereElements[0].parentNode.removeChild(whereElements[0]);
+        }
+        var aggregate = this.createCamlCondition(xmlDocument, conditions[0]);
+        for (var conditionIndex = 1; conditionIndex < conditions.length; conditionIndex += 1) {
+            aggregate = this.combineCamlConditions(xmlDocument, aggregate, this.createCamlCondition(xmlDocument, conditions[conditionIndex]), conditions[conditionIndex].logical);
+        }
+        var whereElement = xmlDocument.createElement('Where');
+        whereElement.appendChild(aggregate);
+        queryElement.insertBefore(whereElement, queryElement.firstChild);
         return new XMLSerializer().serializeToString(xmlDocument);
     };
     GridControl.prototype.loadSelectedViewFieldNames = function (selectedViewId) {
@@ -2210,7 +2349,7 @@ var GridControl = (function (_super) {
     GridControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, isDocumentLibrary, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
+            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, isDocumentLibrary, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -2256,9 +2395,12 @@ var GridControl = (function (_super) {
                                 RenderOptions: 7
                             }
                         };
-                        body.parameters.ViewXml = this.applyFetchBatchSize(selectedViewId
-                            ? this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames)
-                            : (selectedViewXml || '<View></View>'));
+                        requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames);
+                        if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
+                            requestViewXml = this.applyExternalServerSearchToViewXml(requestViewXml);
+                            this.logDiagnostic('Server search CAML: ' + requestViewXml);
+                        }
+                        body.parameters.ViewXml = this.applyFetchBatchSize(requestViewXml);
                         this._pagingEndpoint = baseEndpoint;
                         this._pagingRequestBody = body;
                         this._pagingSchemaFieldNames = schemaFieldNames.slice(0);
@@ -2432,7 +2574,12 @@ var GridControl = (function (_super) {
                             loading: false,
                             error: null
                         }, function () {
-                            if (!_this.props.isEditMode && (_this.parsePresetFilterConditions().length > 0 || _this.getGridGroupingConfig().enabled) && _this.state.nextPageHref) {
+                            if (_this.props.externalFilterJson) {
+                                _this.reportFilteredCount(true);
+                            }
+                            if (!_this.props.isEditMode && (_this.parsePresetFilterConditions().length > 0 || _this.getGridGroupingConfig().enabled)
+                                && _this.state.nextPageHref
+                                && !_this.isExternalServerSearch(_this.props.externalFilterJson, _this.props.externalSearchExecutionMode)) {
                                 _this.loadAllRemainingRows();
                             }
                         });

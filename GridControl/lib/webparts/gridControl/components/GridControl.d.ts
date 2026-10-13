@@ -86,6 +86,7 @@ export interface IGridControlProps {
     webpartBorderWidth: number;
     filterJson?: string;
     externalFilterJson?: string;
+    externalSearchExecutionMode?: string;
     conditionalStyleJson?: string;
     onSelectionChange: (itemId: number, mode: string) => void;
     onFilteredCountChange: (count: number) => void;
@@ -237,7 +238,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private updateConditionalStyleReevaluationTimer();
     private clearConditionalStyleReevaluationTimer();
     componentDidUpdate(prevProps: IGridControlProps, prevState: IGridControlState): void;
-    private reportFilteredCount();
+    private reportFilteredCount(force?);
     private _setTableWrapRef;
     private _setTableHeadRef;
     private _setStickyHeaderViewportRef;
@@ -268,6 +269,13 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private buildMinimalViewXml(viewQuery, viewFieldNames, rowLimit, scope);
     private loadSelectedViewXml(selectedViewId, viewFieldNames);
     private addFieldsToViewXml(viewXml, fieldNames);
+    private isExternalServerSearch(filterJson?, executionMode?);
+    private getCamlValueType(fieldType);
+    private createCamlValueElement(xmlDocument, condition, value);
+    private createCamlLeafCondition(xmlDocument, condition, value);
+    private combineCamlConditions(xmlDocument, left, right, logical);
+    private createCamlCondition(xmlDocument, condition);
+    private applyExternalServerSearchToViewXml(viewXml);
     private loadSelectedViewFieldNames(selectedViewId);
     private getDisplayFields();
     private ensureAttachmentDisplayField(fields);

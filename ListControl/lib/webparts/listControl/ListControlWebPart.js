@@ -116,6 +116,7 @@ var ListControlWebPart = (function (_super) {
         _this._filterLookupMessage = '';
         _this._conditionalStyleLookupMessage = '';
         _this._externalSearchFilterJson = '';
+        _this._externalSearchExecutionMode = 'local';
         _this._searchSourceHandlers = {};
         _this._searchSourceDiscoveryTimer = 0;
         _this._searchSourceDiscoveryAttempts = 0;
@@ -291,6 +292,7 @@ var ListControlWebPart = (function (_super) {
             webpartBorderWidth: this.properties.webpartBorderWidth || 0,
             filterJson: this.properties.filterJson || '',
             externalFilterJson: this._externalSearchFilterJson,
+            externalSearchExecutionMode: this._externalSearchExecutionMode,
             conditionalStyleJson: this.properties.conditionalStyleJson || '',
             onSelectionChange: function (itemId, mode) { return _this.handleSelectionChange(itemId, mode); },
             onFilteredCountChange: function (count) { return _this.handleFilteredCountChange(count); }
@@ -768,6 +770,7 @@ var ListControlWebPart = (function (_super) {
             instanceName: String(this.properties.instanceName || '').trim() || strings.DynamicSourceTitle,
             controlType: 'list',
             listName: String(this.properties.listName || ''),
+            serverSearchSupported: true,
             fields: this._listFields.map(function (option) {
                 var internalName = String(option.key || '');
                 return {
@@ -817,11 +820,15 @@ var ListControlWebPart = (function (_super) {
                 return;
             }
             var nextFilter = String(state.filterJson || '');
-            if (nextFilter === this._externalSearchFilterJson) {
+            var nextExecutionMode = state.executionMode === 'server' ? 'server' : 'local';
+            if (nextFilter === this._externalSearchFilterJson
+                && nextExecutionMode === this._externalSearchExecutionMode) {
                 return;
             }
             this._externalSearchFilterJson = nextFilter;
-            this.logDiagnostic('Applied Search Control filter from source ' + String(source.id || '') + '.');
+            this._externalSearchExecutionMode = nextExecutionMode;
+            this.logDiagnostic('Applied Search Control filter from source ' + String(source.id || '')
+                + ' using ' + nextExecutionMode + ' execution.');
             this.render();
         }
         catch (error) {
@@ -2482,9 +2489,6 @@ var ListControlWebPart = (function (_super) {
         this.render();
     };
     ListControlWebPart.prototype.handleFilteredCountChange = function (count) {
-        if (count === this._searchResultCount) {
-            return;
-        }
         this._searchResultCount = count;
         this.notifyDynamicData('searchResultCount');
     };

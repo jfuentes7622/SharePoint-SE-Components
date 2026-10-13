@@ -149,6 +149,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private _filterLookupMessage;
     private _conditionalStyleLookupMessage;
     private _externalSearchFilterJson;
+    private _externalSearchExecutionMode;
     private _searchSourceHandlers;
     private _searchSourceDiscoveryTimer;
     private _searchSourceDiscoveryAttempts;

@@ -10,8 +10,8 @@ import {
 } from '@microsoft/sp-webpart-base';
 import { SPHttpClient } from '@microsoft/sp-http';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
+import { PropertyFieldMultiSelect } from '@pnp/spfx-property-controls/lib/PropertyFieldMultiSelect';
 
-import * as strings from 'SearchControlWebPartStrings';
 import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 import './SearchControl.css';
 
@@ -31,6 +31,8 @@ interface IDynamicDataSourceCompat {
 export interface ISearchControlWebPartProps {
   title: string;
   targetInstanceId: string;
+  searchExecutionMode: string;
+  searchFieldNames: string[];
   defaultMode: string;
   showModeToggle: boolean;
   buttonDisplayMode?: string;
@@ -67,6 +69,7 @@ interface ISearchMetadata {
   instanceName: string;
   controlType: string;
   listName: string;
+  serverSearchSupported?: boolean;
   fields: ISearchFieldMetadata[];
 }
 
@@ -91,8 +94,16 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
   private _mode: string = 'simple';
   private _simpleField: string = '*';
   private _simpleValue: string = '';
+  private _showSimpleFields: boolean = false;
   private _conditions: ISearchCondition[] = [];
-  private _searchState: any = { targetInstanceId: '', filterJson: '', mode: 'simple', query: '', conditions: [] };
+  private _searchState: any = {
+    targetInstanceId: '',
+    filterJson: '',
+    mode: 'simple',
+    executionMode: 'local',
+    query: '',
+    conditions: []
+  };
   private _targetSourceId: string = '';
   private _targetSourceChangedHandler: () => void;
   private _lookupOptions: { [fieldName: string]: IOption[] } = {};
@@ -336,9 +347,11 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
       this._targetDiscoveryTimer = 0;
     }
 
-    var fields = target.metadata.fields || [];
+    var fields = this.getConfiguredSearchFields(target.metadata.fields || []);
     if (fields.length === 0) {
-      this.appendMessage(root, 'The connected control is still loading its searchable field metadata.', false);
+      this.appendMessage(root, this.properties.searchFieldNames && this.properties.searchFieldNames.length > 0
+        ? 'None of the configured search fields are available on the connected control.'
+        : 'The connected control is still loading its searchable field metadata.', false);
       return;
     }
 
@@ -367,38 +380,62 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
   private renderSimple(root: HTMLElement, fields: ISearchFieldMetadata[]): void {
     var toolbar = document.createElement('div');
     toolbar.className = 'sc-toolbar';
-    var fieldOptions: IOption[] = [{ key: '*', text: 'All compatible fields' }];
-    for (var i = 0; i < fields.length; i += 1) {
-      fieldOptions.push({ key: fields[i].internalName, text: fields[i].title });
-    }
     if (this._simpleField !== '*' && !this.findField(fields, this._simpleField)) {
       this._simpleField = '*';
     }
-    var fieldSelect = this.createSelect(fieldOptions, this._simpleField, 'Search field');
-    fieldSelect.onchange = () => {
-      this._simpleField = fieldSelect.value;
-      this._simpleValue = '';
-      this.render();
-    };
-    toolbar.appendChild(this.wrapField('Field', fieldSelect));
+    if (this._showSimpleFields) {
+      var fieldOptions: IOption[] = [{ key: '*', text: 'All compatible fields' }];
+      for (var i = 0; i < fields.length; i += 1) {
+        fieldOptions.push({ key: fields[i].internalName, text: fields[i].title });
+      }
+      var fieldSelect = this.createSelect(fieldOptions, this._simpleField, 'Search field');
+      fieldSelect.onchange = () => {
+        this._simpleField = fieldSelect.value;
+        this._simpleValue = '';
+        this.render();
+      };
+      toolbar.appendChild(this.wrapField('Field', fieldSelect));
+    }
 
     var field = this.findField(fields, this._simpleField);
     this.ensureRemoteOptions(field);
     var valueControl = field
       ? this.createValueControl(field, this._simpleValue, (value: any) => {
         this._simpleValue = value;
+        if (!String(value === undefined || value === null ? '' : value).trim() && this._searchState.filterJson) {
+          this.clearSearch();
+          return;
+        }
         this.scheduleTypeSearch();
       })
       : this.createTextInput(this._simpleValue, this.properties.simplePlaceholder || 'Search...', (value: string) => {
         this._simpleValue = value;
+        if (!value.trim() && this._searchState.filterJson) {
+          this.clearSearch();
+          return;
+        }
         this.scheduleTypeSearch();
       });
     toolbar.appendChild(this.wrapField('Search for', valueControl));
     root.appendChild(toolbar);
 
     var actions = this.createActions();
+    var showFieldsLabel = document.createElement('label');
+    showFieldsLabel.className = 'sc-show-fields-option';
+    var showFieldsCheckbox = document.createElement('input');
+    showFieldsCheckbox.type = 'checkbox';
+    showFieldsCheckbox.checked = this._showSimpleFields;
+    showFieldsCheckbox.onchange = () => {
+      this._showSimpleFields = showFieldsCheckbox.checked;
+      if (!this._showSimpleFields) {
+        this._simpleField = '*';
+      }
+      this.render();
+    };
+    showFieldsLabel.appendChild(showFieldsCheckbox);
+    showFieldsLabel.appendChild(document.createTextNode('Show fields'));
+    actions.appendChild(showFieldsLabel);
     actions.appendChild(this.createButton('Search', 'Search', true, () => this.applySimple(fields)));
-    actions.appendChild(this.createButton('Clear', 'ClearFilter', false, () => this.clearSearch()));
     root.appendChild(actions);
   }
 
@@ -560,17 +597,45 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
   }
 
   private publish(conditions: any[], query: string): void {
-    this._searchState = {
+    var target = this.getSelectedTarget();
+    if (this.properties.searchExecutionMode === 'server'
+      && (!target || target.metadata.serverSearchSupported !== true)) {
+      this.setStatus('The connected List/Grid Control does not support server search. Deploy the updated target control package and try again.', true);
+      return;
+    }
+    var fields = target ? target.metadata.fields || [] : [];
+    var publishedConditions = conditions.map((condition: any) => {
+      var field = this.findField(fields, condition.field);
+      return Object.assign({}, condition, {
+        fieldType: field ? field.typeAsString : '',
+        dateOnly: field ? field.dateOnly === true : false
+      });
+    });
+    var nextSearchState = {
       targetInstanceId: this.properties.targetInstanceId,
-      filterJson: JSON.stringify(conditions),
+      filterJson: JSON.stringify(publishedConditions),
       mode: this._mode,
+      executionMode: this.properties.searchExecutionMode === 'server' ? 'server' : 'local',
       query: query,
-      conditions: conditions
+      conditions: publishedConditions
     };
+    var isRepeatedSearch = nextSearchState.targetInstanceId === this._searchState.targetInstanceId
+      && nextSearchState.filterJson === this._searchState.filterJson
+      && nextSearchState.mode === this._searchState.mode
+      && nextSearchState.executionMode === this._searchState.executionMode;
+    if (isRepeatedSearch) {
+      if (this._statusMessage !== 'Searching...' && target) {
+        this.updateResultCount(target.source);
+      }
+      this.render();
+      return;
+    }
+    this._searchState = nextSearchState;
     this._statusMessage = 'Searching...';
     this._statusIsError = false;
     this.notifySearchStateChanged();
-    this.logDiagnostic('Published ' + String(conditions.length) + ' filter condition(s) for target ' + this.properties.targetInstanceId + '.');
+    this.logDiagnostic('Published ' + String(conditions.length) + ' filter condition(s) for target '
+      + this.properties.targetInstanceId + ' using ' + nextSearchState.executionMode + ' execution.');
     this.render();
   }
 
@@ -583,6 +648,7 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
       targetInstanceId: this.properties.targetInstanceId,
       filterJson: '',
       mode: this._mode,
+      executionMode: this.properties.searchExecutionMode === 'server' ? 'server' : 'local',
       query: '',
       conditions: []
     };
@@ -928,6 +994,20 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
     return error && error.message ? String(error.message) : String(error || 'Unknown error');
   }
 
+  private getConfiguredSearchFields(fields: ISearchFieldMetadata[]): ISearchFieldMetadata[] {
+    var selectedNames = Array.isArray(this.properties.searchFieldNames) ? this.properties.searchFieldNames : [];
+    if (selectedNames.length === 0) {
+      return fields;
+    }
+    var selectedLookup: { [fieldName: string]: boolean } = {};
+    for (var index = 0; index < selectedNames.length; index += 1) {
+      selectedLookup[String(selectedNames[index] || '').toLowerCase()] = true;
+    }
+    return fields.filter(function(field: ISearchFieldMetadata): boolean {
+      return selectedLookup[String(field.internalName || '').toLowerCase()] === true;
+    });
+  }
+
   private notifySearchStateChanged(): void {
     if (!this._dynamicDataSourceManager) {
       throw new Error('SearchControlWebPart: cannot publish because the Dynamic Data source manager is unavailable.');
@@ -958,6 +1038,7 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
           targetInstanceId: oldValue,
           filterJson: '',
           mode: this._mode,
+          executionMode: this.properties.searchExecutionMode === 'server' ? 'server' : 'local',
           query: '',
           conditions: []
         };
@@ -967,6 +1048,13 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
       this._lookupOptions = {};
       this._lookupErrors = {};
       this._conditions = [];
+      this.properties.searchFieldNames = [];
+      this.context.propertyPane.refresh();
+    } else if (propertyPath === 'searchExecutionMode' && oldValue !== newValue && this._searchState.filterJson) {
+      this._searchState.executionMode = newValue === 'server' ? 'server' : 'local';
+      this.notifySearchStateChanged();
+    } else if (propertyPath === 'searchFieldNames' && oldValue !== newValue && this._searchState.filterJson) {
+      this.clearSearch();
     }
   }
 
@@ -993,14 +1081,43 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
     if (targetOptions.length === 0) {
       targetOptions.push({ key: '', text: 'No SPS List/Grid controls found' });
     }
+    var selectedTarget = targets.filter((target: ITarget) =>
+      this.normalizeId(target.metadata.instanceId) === this.normalizeId(this.properties.targetInstanceId))[0];
+    var searchFieldOptions = selectedTarget
+      ? (selectedTarget.metadata.fields || []).map(function(field: ISearchFieldMetadata): IOption {
+        return { key: field.internalName, text: field.title };
+      })
+      : [];
 
     return {
       pages: [{
-        header: { description: strings.PropertyPaneDescription },
+        header: { description: '' },
         groups: [{
+          groupName: 'Version: ' + this.getWebPartVersion(),
+          groupFields: [
+            PropertyPaneLabel('propertyPaneVersionInfo', { text: ' ' })
+          ]
+        }, {
           groupName: 'Connection',
           groupFields: [
             PropertyPaneDropdown('targetInstanceId', { label: 'Target control', options: targetOptions }),
+            PropertyPaneDropdown('searchExecutionMode', {
+              label: 'Search data source',
+              options: [
+                { key: 'local', text: 'Loaded records (local)' },
+                { key: 'server', text: 'Source list (server)' }
+              ]
+            }),
+            PropertyFieldMultiSelect('searchFieldNames', {
+              key: 'searchFieldNames',
+              label: 'Search fields',
+              options: searchFieldOptions,
+              selectedKeys: this.properties.searchFieldNames || [],
+              disabled: !selectedTarget
+            }),
+            PropertyPaneLabel('searchFieldNamesHelp', {
+              text: 'Fields shown in the simple field selector and included in All compatible fields. Leave empty to use every available field.'
+            }),
             PropertyPaneDropdown('defaultMode', {
               label: 'Default mode',
               options: [{ key: 'simple', text: 'Simple' }, { key: 'advanced', text: 'Advanced' }]
@@ -1092,8 +1209,7 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
               this.render();
             }),
             PropertyPaneCheckbox('excludeFromTabs', { text: 'Exclude this web part from SPS Tabs' }),
-            PropertyPaneCheckbox('enableDiagnostics', { text: 'Enable diagnostic console logging' }),
-            PropertyPaneLabel('versionInfo', { text: 'SPS Search Control version: ' + this.getWebPartVersion() })
+            PropertyPaneCheckbox('enableDiagnostics', { text: 'Enable diagnostic console logging' })
           ]
         }]
       }]

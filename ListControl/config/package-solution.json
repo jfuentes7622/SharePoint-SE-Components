@@ -3,7 +3,7 @@
   "solution": {
     "name": "SPS List Control",
     "id": "77b39c35-1f47-4895-a55f-997270202001",
-    "version": "1.0.0.107",
+    "version": "1.0.0.108",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "features": [
@@ -11,11 +11,11 @@
         "title": "SPS List Control Feature",
         "description": "The feature that activates elements of the List Control solution.",
         "id": "ca9ab008-a03d-4cc9-8f57-a15f0f3d4001",
-        "version": "1.0.0.107"
+        "version": "1.0.0.108"
       }
     ]
   },
   "paths": {
     "zippedPackage": "solution/SPS-list-control.sppkg"
   }
-} 
+}

@@ -82,6 +82,7 @@ export interface IListControlProps {
     webpartBorderWidth: number;
     filterJson?: string;
     externalFilterJson?: string;
+    externalSearchExecutionMode?: string;
     conditionalStyleJson?: string;
     onSelectionChange: (itemId: number, mode: string) => void;
     onFilteredCountChange: (count: number) => void;
@@ -196,7 +197,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private closeDefaultDisplayForm();
     private setDisplayFormFrameRef;
     componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void;
-    private reportFilteredCount();
+    private reportFilteredCount(force?);
     private _setTableWrapRef;
     private _setTableHeadRef;
     private _setStickyHeaderViewportRef;
@@ -220,6 +221,13 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private buildViewIdCandidates(selectedViewId);
     private buildMinimalViewXml(viewQuery, viewFieldNames, rowLimit, scope);
     private addFieldsToViewXml(viewXml, fieldNames);
+    private isExternalServerSearch(filterJson?, executionMode?);
+    private getCamlValueType(fieldType);
+    private createCamlValueElement(xmlDocument, condition, value);
+    private createCamlLeafCondition(xmlDocument, condition, value);
+    private combineCamlConditions(xmlDocument, left, right, logical);
+    private createCamlCondition(xmlDocument, condition);
+    private applyExternalServerSearchToViewXml(viewXml);
     private loadSelectedViewXml(selectedViewId, viewFieldNames);
     private loadSelectedViewFieldNames(selectedViewId);
     private getDisplayFields();

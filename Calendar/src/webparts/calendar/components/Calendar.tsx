@@ -625,6 +625,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
 
   private closeNewEventDialog(): void {
     this.disconnectNewEventFrameObserver();
+    this.invalidateEventCacheForList(this.state.newEventSourceListName);
     this.setState({
       newEventDate: undefined,
       newEventSourceListName: '',
@@ -1950,6 +1951,25 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     return sources;
   }
 
+  private getEventCacheKey(source: ICalendarDataSource, sourceIndex: number): string {
+    return 'source-' + String(sourceIndex) + '-'
+      + source.listName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  }
+
+  private invalidateEventCacheForList(listName: string): void {
+    var normalizedListName = String(listName || '').trim().toLowerCase();
+    if (!normalizedListName) {
+      return;
+    }
+    var sources = this.getEffectiveDataSources();
+    for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+      if (sources[sourceIndex].listName.toLowerCase() === normalizedListName) {
+        delete this._eventCache[this.getEventCacheKey(sources[sourceIndex], sourceIndex)];
+      }
+    }
+    this.logDiagnostic('Invalidated cached events for list "' + listName + '".');
+  }
+
   // Computes the previous/current/next month window (relative to the currently displayed month)
   // that should be cached and fetched together, so navigating within it never re-queries SharePoint.
   private getCacheWindow(visibleStart: Date, visibleEnd: Date): { start: Date; end: Date } {
@@ -2107,7 +2127,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       for (var sourceIndex = 0; sourceIndex < dataSources.length; sourceIndex += 1) {
       var source = dataSources[sourceIndex];
       var listName = source.listName;
-      var sourceKey = 'source-' + String(sourceIndex) + '-' + listName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      var sourceKey = this.getEventCacheKey(source, sourceIndex);
       try {
       var isEventsList = Number(source.baseTemplate || 0) === 106;
       var configuredStartField = String(source.startFieldName || '');

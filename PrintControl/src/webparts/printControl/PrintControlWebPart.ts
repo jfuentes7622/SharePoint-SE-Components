@@ -8,12 +8,12 @@ import {
   PropertyPaneTextField
 } from '@microsoft/sp-webpart-base';
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
-import * as strings from 'PrintControlWebPartStrings';
 import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface IPrintControlWebPartProps {
+  appearanceMode?: string;
   buttonLabel?: string;
   alignment?: 'left' | 'center' | 'right';
   buttonTextColor?: string;
@@ -40,6 +40,7 @@ interface IDropdownOption {
 
 export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintControlWebPartProps> {
   private _printButton: HTMLButtonElement | undefined;
+  private _siteTheme: any;
 
   public constructor() {
     super();
@@ -52,6 +53,40 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
       return;
     }
     console.log('[PrintControlWebPart] ' + message);
+  }
+
+  protected onThemeChanged(currentTheme: any): void {
+    this._siteTheme = currentTheme;
+    this.render();
+    if (this.context && this.context.propertyPane) {
+      this.context.propertyPane.refresh();
+    }
+  }
+
+  private getAppearanceMode(): string {
+    const mode = String(this.properties.appearanceMode || '');
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearance(manualValue: any, semanticName: string, paletteName: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this._siteTheme || {};
+    return String(theme.semanticColors && theme.semanticColors[semanticName]
+      || theme.palette && theme.palette[paletteName] || fallback);
+  }
+
+  private resolveFontFamily(manualValue: any, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this._siteTheme || {};
+    return String(theme.fonts && theme.fonts.medium && theme.fonts.medium.fontFamily || fallback);
   }
 
   private getWebPartVersion(): string {
@@ -297,14 +332,18 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
     button.type = 'button';
     button.textContent = String(this.properties.buttonLabel || 'Print');
     button.setAttribute('aria-label', String(this.properties.buttonLabel || 'Print'));
-    button.style.backgroundColor = String(this.properties.buttonBackgroundColor || '#f0f0f0');
-    button.style.color = String(this.properties.buttonTextColor || '#000000');
-    button.style.borderColor = String(this.properties.buttonBorderColor || this.properties.buttonBackgroundColor || '#f0f0f0');
+    const buttonBackgroundColor = this.resolveAppearance(this.properties.buttonBackgroundColor,
+      'primaryButtonBackground', 'themePrimary', '#f0f0f0');
+    button.style.backgroundColor = buttonBackgroundColor;
+    button.style.color = this.resolveAppearance(this.properties.buttonTextColor,
+      'primaryButtonText', 'white', '#000000');
+    button.style.borderColor = this.resolveAppearance(this.properties.buttonBorderColor,
+      'primaryButtonBorder', 'themePrimary', buttonBackgroundColor);
     button.style.borderWidth = String(this.properties.buttonBorderWidth === undefined ? 1 : Math.max(0, this.properties.buttonBorderWidth)) + 'px';
     button.style.borderStyle = 'solid';
     button.style.borderRadius = this.properties.buttonCornerStyle === 'rounded'
       ? String(Math.max(0, this.properties.buttonCornerRadius || 4)) + 'px' : '0';
-    button.style.fontFamily = String(this.properties.buttonFontFamily || 'inherit');
+    button.style.fontFamily = this.resolveFontFamily(this.properties.buttonFontFamily, 'inherit');
     button.style.fontSize = String(Math.max(10, this.properties.buttonFontSize || 14)) + 'px';
     button.style.fontStyle = String(this.properties.buttonFontStyle || 'normal');
     button.style.fontWeight = this.properties.buttonFontBold ? 'bold' : 'normal';
@@ -326,13 +365,17 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
-    if (propertyPath === 'buttonCornerStyle') {
+    if (propertyPath === 'appearanceMode' && oldValue !== newValue) {
+      this.context.propertyPane.refresh();
+      this.render();
+    } else if (propertyPath === 'buttonCornerStyle') {
       this.context.propertyPane.refresh();
     }
   }
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
     const fontFamilyOptions = this.getFontFamilyOptions();
+    const strictTheme = this.getAppearanceMode() === 'siteTheme';
     const savedFontFamily = String(this.properties.buttonFontFamily || '');
     if (savedFontFamily && !fontFamilyOptions.some((option: IDropdownOption) => option.key === savedFontFamily)) {
       fontFamilyOptions.push({ key: savedFontFamily, text: savedFontFamily });
@@ -340,7 +383,7 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
 
     return {
       pages: [{
-        header: { description: strings.PropertyPaneDescription },
+        header: { description: '' },
         groups: [
           {
             groupName: 'Version: ' + this.getWebPartVersion(),
@@ -349,13 +392,27 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
           {
             groupName: 'Print Button',
             groupFields: [
+              PropertyPaneDropdown('appearanceMode', {
+                label: 'Appearance mode',
+                options: [
+                  { key: 'manual', text: 'Manual styling' },
+                  { key: 'siteTheme', text: 'Site theme only' },
+                  { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                ],
+                selectedKey: this.getAppearanceMode()
+              }),
+              PropertyPaneLabel('siteThemeAppearanceHelp', {
+                text: strictTheme
+                  ? 'Theme-controlled colors and font family are disabled while Site theme only is selected.'
+                  : 'Choose how configurable colors and font family use the SharePoint site theme.'
+              }),
               PropertyPaneTextField('buttonLabel', { label: 'Button Label' }),
               PropertyPaneDropdown('alignment', { label: 'Alignment', options: [{ key: 'left', text: 'Left' }, { key: 'center', text: 'Center' }, { key: 'right', text: 'Right' }] }),
-              PropertyFieldColorPicker('buttonTextColor', { label: 'Text Color', selectedColor: this.properties.buttonTextColor || '#000000', onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Inline, key: 'printButtonTextColor' }),
-              PropertyFieldColorPicker('buttonBackgroundColor', { label: 'Background Color', selectedColor: this.properties.buttonBackgroundColor || '#f0f0f0', onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Inline, key: 'printButtonBackgroundColor' }),
-              PropertyFieldColorPicker('buttonBorderColor', { label: 'Border Color', selectedColor: this.properties.buttonBorderColor || '#f0f0f0', onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Inline, key: 'printButtonBorderColor' }),
+              PropertyFieldColorPicker('buttonTextColor', { label: 'Text Color', selectedColor: this.properties.buttonTextColor || '#000000', onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Inline, key: 'printButtonTextColor', disabled: strictTheme }),
+              PropertyFieldColorPicker('buttonBackgroundColor', { label: 'Background Color', selectedColor: this.properties.buttonBackgroundColor || '#f0f0f0', onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Inline, key: 'printButtonBackgroundColor', disabled: strictTheme }),
+              PropertyFieldColorPicker('buttonBorderColor', { label: 'Border Color', selectedColor: this.properties.buttonBorderColor || '#f0f0f0', onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Inline, key: 'printButtonBorderColor', disabled: strictTheme }),
               PropertyPaneSlider('buttonBorderWidth', { label: 'Border Width', min: 0, max: 10, step: 1, value: this.properties.buttonBorderWidth === undefined ? 1 : this.properties.buttonBorderWidth }),
-              PropertyPaneDropdown('buttonFontFamily', { label: 'Font Family', options: fontFamilyOptions }),
+              PropertyPaneDropdown('buttonFontFamily', { label: 'Font Family', options: fontFamilyOptions, disabled: strictTheme }),
               PropertyPaneSlider('buttonFontSize', { label: 'Font Size', min: 10, max: 40, step: 1, value: this.properties.buttonFontSize || 14 }),
               PropertyPaneDropdown('buttonFontStyle', { label: 'Font Style', options: this.getFontStyleOptions() }),
               PropertyPaneCheckbox('buttonFontBold', { text: 'Bold' }),

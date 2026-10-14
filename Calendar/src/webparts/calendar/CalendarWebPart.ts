@@ -46,6 +46,7 @@ export interface IDynamicDataSourceMetadataCompat {
 }
 
 export interface ICalendarWebPartProps {
+  appearanceMode?: string;
   forceFullWidth?: boolean;
   title: string;
   description: string;
@@ -191,6 +192,7 @@ export interface ICalendarWebPartProps {
 }
 
 export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebPartProps> {
+  private _siteTheme: any;
   private _lists: IDropdownOption[] = [];
   private _sitePages: IDropdownOption[] = [];
   private _dateFieldOptions: IDropdownOption[] = [];
@@ -214,6 +216,115 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   private _conditionalStyleDesignerMessage: string = '';
   private _isEditingConditionalStyle: boolean = false;
   private _conditionalStyleDesignerRevision: number = 0;
+
+  protected onThemeChanged(currentTheme: any): void {
+    this._siteTheme = currentTheme;
+    this.render();
+    if (this.context && this.context.propertyPane) {
+      this.context.propertyPane.refresh();
+    }
+  }
+
+  private getAppearanceMode(): string {
+    var mode = String(this.properties.appearanceMode || '');
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearance(manualValue: any, semanticName: string, paletteName: string, fallback: string): string {
+    var mode = this.getAppearanceMode();
+    var manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    var theme = this._siteTheme || {};
+    return String(theme.semanticColors && theme.semanticColors[semanticName]
+      || theme.palette && theme.palette[paletteName] || fallback);
+  }
+
+  private resolveFontFamily(manualValue: any, fallback: string): string {
+    var mode = this.getAppearanceMode();
+    var manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    var theme = this._siteTheme || {};
+    return String(theme.fonts && theme.fonts.medium && theme.fonts.medium.fontFamily || fallback);
+  }
+
+  private getResolvedAppearance(): any {
+    return {
+      calendarBackgroundColor: this.resolveAppearance(this.properties.calendarBackgroundColor,
+        'bodyBackground', 'white', '#ffffff'),
+      webPartBorderColor: this.resolveAppearance(this.properties.webPartBorderColor,
+        'variantBorder', 'neutralLight', '#d2d0ce'),
+      webPartTitleTextColor: this.resolveAppearance(this.properties.webPartTitleTextColor,
+        'bodyText', 'neutralPrimary', '#323130'),
+      webPartTitleFontFamily: this.resolveFontFamily(this.properties.webPartTitleFontFamily, 'inherit'),
+      webPartTitleBackgroundColor: this.resolveAppearance(this.properties.webPartTitleBackgroundColor,
+        'bodyBackground', 'white', '#ffffff'),
+      webPartDescriptionTextColor: this.resolveAppearance(this.properties.webPartDescriptionTextColor,
+        'bodySubtext', 'neutralSecondary', '#605e5c'),
+      webPartDescriptionFontFamily: this.resolveFontFamily(this.properties.webPartDescriptionFontFamily, 'inherit'),
+      calendarTitleTextColor: this.resolveAppearance(this.properties.calendarTitleTextColor,
+        'bodyText', 'neutralPrimary', '#323130'),
+      calendarTitleFontFamily: this.resolveFontFamily(this.properties.calendarTitleFontFamily, 'inherit'),
+      toolbarButtonBackgroundColor: this.resolveAppearance(this.properties.toolbarButtonBackgroundColor,
+        'primaryButtonBackground', 'themePrimary', '#2f4358'),
+      toolbarButtonTextColor: this.resolveAppearance(this.properties.toolbarButtonTextColor,
+        'primaryButtonText', 'white', '#ffffff'),
+      toolbarButtonBorderColor: this.resolveAppearance(this.properties.toolbarButtonBorderColor,
+        'primaryButtonBackground', 'themePrimary', '#2f4358'),
+      toolbarButtonActiveBackgroundColor: this.resolveAppearance(this.properties.toolbarButtonActiveBackgroundColor,
+        'primaryButtonBackgroundPressed', 'themeDark', '#172536'),
+      toolbarButtonActiveTextColor: this.resolveAppearance(this.properties.toolbarButtonActiveTextColor,
+        'primaryButtonText', 'white', '#ffffff'),
+      toolbarButtonFontFamily: this.resolveFontFamily(this.properties.toolbarButtonFontFamily, 'inherit'),
+      dayHeaderBackgroundColor: this.resolveAppearance(this.properties.dayHeaderBackgroundColor,
+        'bodyStandoutBackground', 'neutralLighterAlt', '#f3f2f1'),
+      dayHeaderTextColor: this.resolveAppearance(this.properties.dayHeaderTextColor,
+        'bodyText', 'neutralPrimary', '#323130'),
+      dayHeaderFontFamily: this.resolveFontFamily(this.properties.dayHeaderFontFamily, 'inherit'),
+      dayHeaderBorderColor: this.resolveAppearance(this.properties.dayHeaderBorderColor,
+        'variantBorder', 'neutralLight', '#d2d0ce'),
+      eventBackgroundColor: this.resolveAppearance(this.properties.eventBackgroundColor,
+        'primaryButtonBackground', 'themePrimary', '#3788d8'),
+      eventTextColor: this.resolveAppearance(this.properties.eventTextColor,
+        'primaryButtonText', 'white', '#ffffff'),
+      eventBorderColor: this.resolveAppearance(this.properties.eventBorderColor,
+        'primaryButtonBackgroundPressed', 'themeDarkAlt', '#2c6faa'),
+      eventFontFamily: this.resolveFontFamily(this.properties.eventFontFamily, 'inherit'),
+      selectedEventBackgroundColor: this.resolveAppearance(this.properties.selectedEventBackgroundColor,
+        'primaryButtonBackgroundPressed', 'themeDark', '#ffb900'),
+      selectedEventTextColor: this.resolveAppearance(this.properties.selectedEventTextColor,
+        'primaryButtonText', 'white', '#201f1e'),
+      selectedEventBorderColor: this.resolveAppearance(this.properties.selectedEventBorderColor,
+        'primaryButtonBackgroundHovered', 'themeDarker', '#8a4b00'),
+      selectedEventFontFamily: this.resolveFontFamily(this.properties.selectedEventFontFamily, 'inherit'),
+      detailsPanelBackgroundColor: this.resolveAppearance(this.properties.detailsPanelBackgroundColor,
+        'bodyBackground', 'white', '#ffffff'),
+      detailsPanelBorderColor: this.resolveAppearance(this.properties.detailsPanelBorderColor,
+        'variantBorder', 'neutralTertiary', '#8a8886'),
+      detailsOverlayColor: this.resolveAppearance(this.properties.detailsOverlayColor,
+        'bodyText', 'black', '#000000'),
+      detailsTitleTextColor: this.resolveAppearance(this.properties.detailsTitleTextColor,
+        'bodyText', 'neutralPrimary', '#201f1e'),
+      detailsTitleFontFamily: this.resolveFontFamily(this.properties.detailsTitleFontFamily, 'inherit'),
+      detailsLabelTextColor: this.resolveAppearance(this.properties.detailsLabelTextColor,
+        'bodyText', 'neutralPrimary', '#323130'),
+      detailsLabelFontFamily: this.resolveFontFamily(this.properties.detailsLabelFontFamily, 'inherit'),
+      detailsValueTextColor: this.resolveAppearance(this.properties.detailsValueTextColor,
+        'bodyText', 'neutralPrimary', '#201f1e'),
+      detailsValueFontFamily: this.resolveFontFamily(this.properties.detailsValueFontFamily, 'inherit'),
+      detailsDividerColor: this.resolveAppearance(this.properties.detailsDividerColor,
+        'variantBorder', 'neutralLight', '#edebe9'),
+      detailsCloseButtonColor: this.resolveAppearance(this.properties.detailsCloseButtonColor,
+        'buttonText', 'neutralPrimary', '#323130'),
+      detailsCloseButtonBackgroundColor: this.resolveAppearance(this.properties.detailsCloseButtonBackgroundColor,
+        'buttonBackground', 'white', '#ffffff'),
+      detailsCloseButtonHoverBackgroundColor: this.resolveAppearance(this.properties.detailsCloseButtonHoverBackgroundColor,
+        'buttonBackgroundHovered', 'neutralLighter', '#edebe9')
+    };
+  }
 
   public get id(): string {
     return this.context.instanceId;
@@ -272,6 +383,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
     var primaryListName = this.getPrimaryListName();
+    var resolved = this.getResolvedAppearance();
     this.logDiagnostic('render() called. primaryListName=' + String(primaryListName || '(none)'));
     const element: React.ReactElement<ICalendarProps> = React.createElement(
       Calendar,
@@ -319,62 +431,62 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         linkTargetPageUrl: this.properties.linkTargetPageUrl || '',
         linkTargetIdParam: this.properties.linkTargetIdParam || 'itemid',
         includeReturnUrlParam: this.properties.includeReturnUrlParam === true,
-        calendarBackgroundColor: this.properties.calendarBackgroundColor || '#ffffff',
-        webPartBorderColor: this.properties.webPartBorderColor || '#d2d0ce',
+        calendarBackgroundColor: resolved.calendarBackgroundColor,
+        webPartBorderColor: resolved.webPartBorderColor,
         webPartBorderWidth: typeof this.properties.webPartBorderWidth === 'number' ? this.properties.webPartBorderWidth : 0,
         webPartCornerRadius: typeof this.properties.webPartCornerRadius === 'number' ? this.properties.webPartCornerRadius : 0,
-        webPartTitleTextColor: this.properties.webPartTitleTextColor || '#323130',
-        webPartTitleFontFamily: this.properties.webPartTitleFontFamily || 'inherit',
+        webPartTitleTextColor: resolved.webPartTitleTextColor,
+        webPartTitleFontFamily: resolved.webPartTitleFontFamily,
         webPartTitleFontSize: this.properties.webPartTitleFontSize || '20px',
         webPartTitleFontStyle: this.properties.webPartTitleFontStyle || 'normal',
         webPartTitleFontBold: this.properties.webPartTitleFontBold !== false,
         webPartTitleAlignment: this.properties.webPartTitleAlignment || 'left',
-        webPartTitleBackgroundColor: this.properties.webPartTitleBackgroundColor || '#ffffff',
+        webPartTitleBackgroundColor: resolved.webPartTitleBackgroundColor,
         webPartTitleMinHeight: typeof this.properties.webPartTitleMinHeight === 'number'
           ? this.properties.webPartTitleMinHeight : 0,
-        webPartDescriptionTextColor: this.properties.webPartDescriptionTextColor || '#605e5c',
-        webPartDescriptionFontFamily: this.properties.webPartDescriptionFontFamily || 'inherit',
+        webPartDescriptionTextColor: resolved.webPartDescriptionTextColor,
+        webPartDescriptionFontFamily: resolved.webPartDescriptionFontFamily,
         webPartDescriptionFontSize: this.properties.webPartDescriptionFontSize || '14px',
         webPartDescriptionFontStyle: this.properties.webPartDescriptionFontStyle || 'normal',
         webPartDescriptionFontBold: this.properties.webPartDescriptionFontBold === true,
-        calendarTitleTextColor: this.properties.calendarTitleTextColor || '#323130',
-        calendarTitleFontFamily: this.properties.calendarTitleFontFamily || 'inherit',
+        calendarTitleTextColor: resolved.calendarTitleTextColor,
+        calendarTitleFontFamily: resolved.calendarTitleFontFamily,
         calendarTitleFontSize: this.properties.calendarTitleFontSize || '28px',
         calendarTitleFontStyle: this.properties.calendarTitleFontStyle || 'normal',
         calendarTitleFontBold: this.properties.calendarTitleFontBold !== false,
-        toolbarButtonBackgroundColor: this.properties.toolbarButtonBackgroundColor || '#2f4358',
-        toolbarButtonTextColor: this.properties.toolbarButtonTextColor || '#ffffff',
-        toolbarButtonBorderColor: this.properties.toolbarButtonBorderColor || '#2f4358',
-        toolbarButtonActiveBackgroundColor: this.properties.toolbarButtonActiveBackgroundColor || '#172536',
-        toolbarButtonActiveTextColor: this.properties.toolbarButtonActiveTextColor || '#ffffff',
-        toolbarButtonFontFamily: this.properties.toolbarButtonFontFamily || 'inherit',
+        toolbarButtonBackgroundColor: resolved.toolbarButtonBackgroundColor,
+        toolbarButtonTextColor: resolved.toolbarButtonTextColor,
+        toolbarButtonBorderColor: resolved.toolbarButtonBorderColor,
+        toolbarButtonActiveBackgroundColor: resolved.toolbarButtonActiveBackgroundColor,
+        toolbarButtonActiveTextColor: resolved.toolbarButtonActiveTextColor,
+        toolbarButtonFontFamily: resolved.toolbarButtonFontFamily,
         toolbarButtonFontSize: this.properties.toolbarButtonFontSize || '16px',
         toolbarButtonFontStyle: this.properties.toolbarButtonFontStyle || 'normal',
         toolbarButtonFontBold: this.properties.toolbarButtonFontBold === true,
         toolbarButtonBorderWidth: typeof this.properties.toolbarButtonBorderWidth === 'number' ? this.properties.toolbarButtonBorderWidth : 1,
         toolbarButtonCornerRadius: typeof this.properties.toolbarButtonCornerRadius === 'number' ? this.properties.toolbarButtonCornerRadius : 4,
-        dayHeaderBackgroundColor: this.properties.dayHeaderBackgroundColor || '#f3f2f1',
-        dayHeaderTextColor: this.properties.dayHeaderTextColor || '#323130',
-        dayHeaderFontFamily: this.properties.dayHeaderFontFamily || 'inherit',
+        dayHeaderBackgroundColor: resolved.dayHeaderBackgroundColor,
+        dayHeaderTextColor: resolved.dayHeaderTextColor,
+        dayHeaderFontFamily: resolved.dayHeaderFontFamily,
         dayHeaderFontSize: this.properties.dayHeaderFontSize || 'inherit',
         dayHeaderFontStyle: this.properties.dayHeaderFontStyle || 'normal',
         dayHeaderFontBold: this.properties.dayHeaderFontBold === true,
-        dayHeaderBorderColor: this.properties.dayHeaderBorderColor || '#d2d0ce',
+        dayHeaderBorderColor: resolved.dayHeaderBorderColor,
         dayHeaderBorderWidth: typeof this.properties.dayHeaderBorderWidth === 'number' ? this.properties.dayHeaderBorderWidth : 1,
         dayHeaderPadding: typeof this.properties.dayHeaderPadding === 'number' ? this.properties.dayHeaderPadding : 8,
-        eventBackgroundColor: this.properties.eventBackgroundColor || '#3788d8',
-        eventTextColor: this.properties.eventTextColor || '#ffffff',
-        eventBorderColor: this.properties.eventBorderColor || '#2c6faa',
-        eventFontFamily: this.properties.eventFontFamily || 'inherit',
+        eventBackgroundColor: resolved.eventBackgroundColor,
+        eventTextColor: resolved.eventTextColor,
+        eventBorderColor: resolved.eventBorderColor,
+        eventFontFamily: resolved.eventFontFamily,
         eventFontSize: this.properties.eventFontSize || 'inherit',
         eventFontStyle: this.properties.eventFontStyle || 'normal',
         eventFontBold: this.properties.eventFontBold === true,
         eventBorderWidth: typeof this.properties.eventBorderWidth === 'number' ? this.properties.eventBorderWidth : 1,
         eventCornerRadius: typeof this.properties.eventCornerRadius === 'number' ? this.properties.eventCornerRadius : 3,
-        selectedEventBackgroundColor: this.properties.selectedEventBackgroundColor || '#ffb900',
-        selectedEventTextColor: this.properties.selectedEventTextColor || '#201f1e',
-        selectedEventBorderColor: this.properties.selectedEventBorderColor || '#8a4b00',
-        selectedEventFontFamily: this.properties.selectedEventFontFamily || 'inherit',
+        selectedEventBackgroundColor: resolved.selectedEventBackgroundColor,
+        selectedEventTextColor: resolved.selectedEventTextColor,
+        selectedEventBorderColor: resolved.selectedEventBorderColor,
+        selectedEventFontFamily: resolved.selectedEventFontFamily,
         selectedEventFontSize: this.properties.selectedEventFontSize || 'inherit',
         selectedEventFontStyle: this.properties.selectedEventFontStyle || 'normal',
         selectedEventFontBold: this.properties.selectedEventFontBold !== false,
@@ -382,35 +494,35 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
           ? this.properties.selectedEventBorderWidth : 3,
         selectedEventCornerRadius: typeof this.properties.selectedEventCornerRadius === 'number'
           ? this.properties.selectedEventCornerRadius : 5,
-        detailsPanelBackgroundColor: this.properties.detailsPanelBackgroundColor || '#ffffff',
-        detailsPanelBorderColor: this.properties.detailsPanelBorderColor || '#8a8886',
+        detailsPanelBackgroundColor: resolved.detailsPanelBackgroundColor,
+        detailsPanelBorderColor: resolved.detailsPanelBorderColor,
         detailsPanelBorderWidth: typeof this.properties.detailsPanelBorderWidth === 'number' ? this.properties.detailsPanelBorderWidth : 1,
         detailsPanelCornerRadius: typeof this.properties.detailsPanelCornerRadius === 'number' ? this.properties.detailsPanelCornerRadius : 6,
         detailsPanelMaxWidth: typeof this.properties.detailsPanelMaxWidth === 'number' ? this.properties.detailsPanelMaxWidth : 680,
         detailsPanelPadding: typeof this.properties.detailsPanelPadding === 'number' ? this.properties.detailsPanelPadding : 30,
         detailsPanelShadow: this.properties.detailsPanelShadow !== false,
-        detailsOverlayColor: this.properties.detailsOverlayColor || '#000000',
+        detailsOverlayColor: resolved.detailsOverlayColor,
         detailsOverlayOpacity: typeof this.properties.detailsOverlayOpacity === 'number' ? this.properties.detailsOverlayOpacity : 28,
-        detailsTitleTextColor: this.properties.detailsTitleTextColor || '#201f1e',
-        detailsTitleFontFamily: this.properties.detailsTitleFontFamily || 'inherit',
+        detailsTitleTextColor: resolved.detailsTitleTextColor,
+        detailsTitleFontFamily: resolved.detailsTitleFontFamily,
         detailsTitleFontSize: this.properties.detailsTitleFontSize || '24px',
         detailsTitleFontStyle: this.properties.detailsTitleFontStyle || 'normal',
         detailsTitleFontBold: this.properties.detailsTitleFontBold !== false,
-        detailsLabelTextColor: this.properties.detailsLabelTextColor || '#323130',
-        detailsLabelFontFamily: this.properties.detailsLabelFontFamily || 'inherit',
+        detailsLabelTextColor: resolved.detailsLabelTextColor,
+        detailsLabelFontFamily: resolved.detailsLabelFontFamily,
         detailsLabelFontSize: this.properties.detailsLabelFontSize || '14px',
         detailsLabelFontStyle: this.properties.detailsLabelFontStyle || 'normal',
         detailsLabelFontBold: this.properties.detailsLabelFontBold !== false,
-        detailsValueTextColor: this.properties.detailsValueTextColor || '#201f1e',
-        detailsValueFontFamily: this.properties.detailsValueFontFamily || 'inherit',
+        detailsValueTextColor: resolved.detailsValueTextColor,
+        detailsValueFontFamily: resolved.detailsValueFontFamily,
         detailsValueFontSize: this.properties.detailsValueFontSize || '14px',
         detailsValueFontStyle: this.properties.detailsValueFontStyle || 'normal',
         detailsValueFontBold: this.properties.detailsValueFontBold === true,
-        detailsDividerColor: this.properties.detailsDividerColor || '#edebe9',
+        detailsDividerColor: resolved.detailsDividerColor,
         detailsDividerWidth: typeof this.properties.detailsDividerWidth === 'number' ? this.properties.detailsDividerWidth : 1,
-        detailsCloseButtonColor: this.properties.detailsCloseButtonColor || '#323130',
-        detailsCloseButtonBackgroundColor: this.properties.detailsCloseButtonBackgroundColor || '#ffffff',
-        detailsCloseButtonHoverBackgroundColor: this.properties.detailsCloseButtonHoverBackgroundColor || '#edebe9',
+        detailsCloseButtonColor: resolved.detailsCloseButtonColor,
+        detailsCloseButtonBackgroundColor: resolved.detailsCloseButtonBackgroundColor,
+        detailsCloseButtonHoverBackgroundColor: resolved.detailsCloseButtonHoverBackgroundColor,
         detailsCloseButtonCornerRadius: typeof this.properties.detailsCloseButtonCornerRadius === 'number'
           ? this.properties.detailsCloseButtonCornerRadius : 2,
         enableDiagnostics: this.properties.enableDiagnostics !== false,
@@ -472,6 +584,12 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    if (propertyPath === 'appearanceMode' && oldValue !== newValue) {
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
     if (propertyPath === 'linkTargetPageUrl' && oldValue !== newValue) {
       this.properties.includeReturnUrlParam = !!newValue && newValue !== '__defaultForm__';
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
@@ -1437,6 +1555,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   }
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    const strictTheme = this.getAppearanceMode() === 'siteTheme';
     const viewOptions: IPropertyPaneDropdownOption[] = [
       { key: 'dayGridMonth', text: strings.ViewMonthLabel },
       { key: 'timeGridWeek', text: strings.ViewWeekLabel },
@@ -1525,7 +1644,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
     const fontFamilyOptions = this.getFontFamilyOptions();
     const fontSizeOptions = this.getFontSizeOptions();
 
-    return {
+    const configuration: any = {
       pages: [
         {
           header: {
@@ -1756,6 +1875,25 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
             description: strings.AppearancePageDescription
           },
           groups: [
+            {
+              groupName: 'Theme',
+              groupFields: [
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ],
+                  selectedKey: this.getAppearanceMode()
+                }),
+                PropertyPaneLabel('siteThemeAppearanceHelp', {
+                  text: strictTheme
+                    ? 'Theme-controlled colors and font families are disabled while Site theme only is selected.'
+                    : 'Choose how configurable colors and font families use the SharePoint site theme.'
+                })
+              ]
+            },
             {
               groupName: strings.CalendarSurfaceGroupName,
               groupFields: [
@@ -2725,5 +2863,30 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         }
       ]
     };
+    if (strictTheme) {
+      const controlledProperties = [
+        'calendarBackgroundColor', 'webPartBorderColor', 'webPartTitleTextColor',
+        'webPartTitleFontFamily', 'webPartTitleBackgroundColor',
+        'webPartDescriptionTextColor', 'webPartDescriptionFontFamily',
+        'calendarTitleTextColor', 'calendarTitleFontFamily',
+        'toolbarButtonBackgroundColor', 'toolbarButtonTextColor', 'toolbarButtonBorderColor',
+        'toolbarButtonActiveBackgroundColor', 'toolbarButtonActiveTextColor', 'toolbarButtonFontFamily',
+        'dayHeaderBackgroundColor', 'dayHeaderTextColor', 'dayHeaderBorderColor', 'dayHeaderFontFamily',
+        'eventBackgroundColor', 'eventTextColor', 'eventBorderColor', 'eventFontFamily',
+        'selectedEventBackgroundColor', 'selectedEventTextColor', 'selectedEventBorderColor',
+        'selectedEventFontFamily', 'detailsOverlayColor', 'detailsPanelBackgroundColor',
+        'detailsPanelBorderColor', 'detailsTitleTextColor', 'detailsTitleFontFamily',
+        'detailsLabelTextColor', 'detailsLabelFontFamily', 'detailsValueTextColor',
+        'detailsValueFontFamily', 'detailsDividerColor', 'detailsCloseButtonColor',
+        'detailsCloseButtonBackgroundColor', 'detailsCloseButtonHoverBackgroundColor'
+      ];
+      configuration.pages.forEach((page: any) => page.groups.forEach((group: any) =>
+        group.groupFields.forEach((field: any) => {
+          if (controlledProperties.indexOf(String(field.targetProperty || '')) >= 0) {
+            field.properties.disabled = true;
+          }
+        })));
+    }
+    return configuration;
   }
 }

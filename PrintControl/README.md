@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 web part that prints the SharePoint page content area without the site header, navigation, or page chrome.
 
+## October 14, 2026 release
+
+- npm version: `0.0.11`
+- SharePoint solution and feature version: `1.0.0.17`
+- Package: `sharepoint/solution/sps-print-control.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover print-button background, foreground, border, and font family while preserving alignment, size, corners, and print behavior.
+
 ## Features
 
 - Add the control only to pages that should expose printing.

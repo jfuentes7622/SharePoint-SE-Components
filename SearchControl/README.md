@@ -2,6 +2,15 @@
 
 SPS Search Control connects to an SPS List Control or Grid Control through SPFx Dynamic Data. The target publishes its list and typed field metadata; Search Control publishes an addressed filter state that only the selected target applies.
 
+## October 14, 2026 release
+
+- npm version: `1.0.14`
+- SharePoint solution and feature version: `1.0.0.14`
+- Package: `sharepoint/solution/sps-search-control.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover search surfaces, text, borders, buttons, selected states, and font family without changing search behavior or Dynamic Data connections.
+
 ## Search modes
 
 When mode switching is enabled, **Simple** and **Advanced** are shown as radio buttons in the top-right corner of the control.

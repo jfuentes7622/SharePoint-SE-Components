@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 web part that renders a configurable hyperlink as a styled button.
 
+## October 14, 2026 release
+
+- npm version: `0.0.4`
+- SharePoint solution and feature version: `2.0.2.15`
+- Package: `sharepoint/solution/sps-linkbutton.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover button background, foreground, and font family while preserving dimensions, shape, weight, and optional image settings.
+
 ## Features
 
 - Validate button text and destination URLs.

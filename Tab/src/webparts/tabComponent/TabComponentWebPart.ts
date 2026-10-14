@@ -42,6 +42,7 @@ export interface IConfigListData {
 }
 
 export interface ITabComponentWebPartProps {
+  appearanceMode?: string;
   forceFullWidth?: boolean;
   description: string;
   disableColor: string;
@@ -86,6 +87,7 @@ export interface ITabCollectionItem {
 }
 
 export default class TabComponentWebPart extends BaseClientSideWebPart<ITabComponentWebPartProps> {
+  private siteTheme: any;
 
   private found: boolean = false;
   private foundAnotherTab: boolean = false;
@@ -110,6 +112,40 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   protected onInit(): Promise<void> {
     window.addEventListener(FORM_ACTIVATION_QUERY_EVENT, this.activationQueryHandler);
     return Promise.resolve();
+  }
+
+  protected onThemeChanged(currentTheme: any): void {
+    this.siteTheme = currentTheme;
+    this.render();
+    if (this.context && this.context.propertyPane) {
+      this.context.propertyPane.refresh();
+    }
+  }
+
+  private getAppearanceMode(): string {
+    const mode = String(this.properties.appearanceMode || '');
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearance(manualValue: any, semanticName: string, paletteName: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this.siteTheme || {};
+    return String(theme.semanticColors && theme.semanticColors[semanticName]
+      || theme.palette && theme.palette[paletteName] || fallback);
+  }
+
+  private resolveFontFamily(manualValue: any, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this.siteTheme || {};
+    return String(theme.fonts && theme.fonts.medium && theme.fonts.medium.fontFamily || fallback);
   }
 
   private logDiagnostic(message: string): void {
@@ -153,6 +189,10 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
       this.properties.collectionData = [];
     }
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+    if (propertyPath === 'appearanceMode' && oldValue !== newValue) {
+      this.context.propertyPane.refresh();
+      this.render();
+    }
   }
 
   private handleColorPropertyChange(propertyPath: string, oldValue: any, newValue: any): void {
@@ -354,8 +394,10 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
 
     applyOverrideCss(overrideCSS, this.context.instanceId);
 
-    this.domElement.style.setProperty('--disableColor', this.properties.disableColor);
-    this.domElement.style.setProperty('--selectedColor', this.properties.selectedColor);
+    this.domElement.style.setProperty('--disableColor', this.resolveAppearance(this.properties.disableColor,
+      'disabledBackground', 'neutralTertiary', '#393939'));
+    this.domElement.style.setProperty('--selectedColor', this.resolveAppearance(this.properties.selectedColor,
+      'primaryButtonBackground', 'themePrimary', '#8A1717'));
     const tabtype = (this.properties.TabType) ? this.properties.TabType : '1';
     this.domElement.setAttribute('data-spse-tab-type', tabtype);
     // Find the root section by traversing the DOM tree up until it finds an element with the CanvasSection class
@@ -444,7 +486,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
         EnableDiagnostics: this.properties.enableDiagnostics !== false,
         OnSelectedTabChanged: (selectedIndex: number): void => this.publishFormActivation(selectedIndex, ctrlZones as HTMLElement[]),
         GlobalFontSettings: {
-          fontFamily: this.properties.fontFamily || 'Segoe UI',
+          fontFamily: this.resolveFontFamily(this.properties.fontFamily, 'Segoe UI') as any,
           fontStyle: this.properties.fontStyle || 'normal',
           isBold: this.properties.isBold || false,
           fontSize: globalFontSize,
@@ -452,14 +494,18 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
           tabWidth: globalTabWidth,
           autoTabWidth: this.properties.autoTabWidth || false,
           tabShape: this.properties.tabShape || 'rounded',
-          tabTextColor: this.properties.tabTextColor || '#ffffff',
-          tabBorderColor: this.properties.tabBorderColor || '#000000',
+          tabTextColor: this.resolveAppearance(this.properties.tabTextColor,
+            'primaryButtonText', 'white', '#ffffff'),
+          tabBorderColor: this.resolveAppearance(this.properties.tabBorderColor,
+            'variantBorder', 'neutralPrimary', '#000000'),
           tabBorderWidth: this.parseNumberSetting(this.properties.tabBorderWidth, 0, 0, 20),
           tabBorderStyle: this.properties.tabBorderStyle || 'solid',
           tabCornerRadius: this.parseNumberSetting(this.properties.tabCornerRadius, 10, 0, 40),
-          tabLineColor: this.properties.tabLineColor || '#8A1717',
+          tabLineColor: this.resolveAppearance(this.properties.tabLineColor,
+            'primaryButtonBackground', 'themePrimary', '#8A1717'),
           tabLineWidth: this.parseNumberSetting(this.properties.tabLineWidth, 3, 0, 20),
-          webPartBorderColor: this.properties.webPartBorderColor || '#cccccc',
+          webPartBorderColor: this.resolveAppearance(this.properties.webPartBorderColor,
+            'variantBorder', 'neutralLight', '#cccccc'),
           webPartBorderWidth: this.parseNumberSetting(this.properties.webPartBorderWidth, 0, 0, 20),
           webPartBorderStyle: this.properties.webPartBorderStyle || 'solid',
           webPartCornerStyle: this.properties.webPartCornerStyle || 'square',
@@ -497,7 +543,8 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
     const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
-    return {
+    const strictTheme = this.getAppearanceMode() === 'siteTheme';
+    const configuration: any = {
       pages: [
         {
           header: {
@@ -516,6 +563,20 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
             {
               groupName: strings.BasicGroupName,
               groupFields: [
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ],
+                  selectedKey: this.getAppearanceMode()
+                }),
+                PropertyPaneLabel('siteThemeAppearanceHelp', {
+                  text: strictTheme
+                    ? 'Theme-controlled colors and font family are disabled while Site theme only is selected.'
+                    : 'Choose how configurable colors and font family use the SharePoint site theme.'
+                }),
                 PropertyFieldCollectionData('tabs', {
                   key: 'tabsListField',
                   label: strings.Tabs,
@@ -792,6 +853,19 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
         }
       ]
     };
+    if (strictTheme) {
+      const controlledProperties = [
+        'fontFamily', 'selectedColor', 'disableColor', 'tabTextColor',
+        'tabBorderColor', 'tabLineColor', 'webPartBorderColor'
+      ];
+      configuration.pages.forEach((page: any) => page.groups.forEach((group: any) =>
+        group.groupFields.forEach((field: any) => {
+          if (controlledProperties.indexOf(String(field.targetProperty || '')) >= 0) {
+            field.properties.disabled = true;
+          }
+        })));
+    }
+    return configuration;
   }
 
   private parseNumberSetting(value: number | string | undefined, fallback: number, min: number, max: number): number {

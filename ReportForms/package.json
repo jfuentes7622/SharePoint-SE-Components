@@ -1,6 +1,6 @@
 {
   "name": "report-forms",
-  "version": "1.0.55",
+  "version": "1.0.56",
   "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "main": "lib/index.js",

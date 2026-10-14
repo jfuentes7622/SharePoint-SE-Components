@@ -14,6 +14,7 @@ export interface IDynamicDataSourceMetadataCompat {
     instanceId?: string;
 }
 export interface IGridControlWebPartProps {
+    appearanceMode?: 'manual' | 'siteTheme' | 'siteThemeOverrides';
     forceFullWidth?: boolean;
     description: string;
     instanceName?: string;
@@ -126,6 +127,7 @@ export interface IDropdownOption {
     text: string;
 }
 export default class GridControlWebPart extends BaseClientSideWebPart<IGridControlWebPartProps> {
+    private _currentTheme;
     private _lists;
     private _versioningEnabledByListName;
     private _sitePages;
@@ -164,6 +166,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     getPropertyDefinitions(): ReadonlyArray<IDynamicDataPropertyDefinitionCompat>;
     getPropertyValue(propertyId: string): any;
     render(): void;
+    protected onThemeChanged(currentTheme: any): void;
     protected onInit(): Promise<void>;
     protected onPropertyPaneConfigurationStart(): void;
     protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void;
@@ -190,6 +193,11 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private unregisterSearchSources();
     protected readonly dataVersion: Version;
     protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration;
+    private getAppearanceMode();
+    private getThemeColor(semanticName, paletteName);
+    private getThemeFontFamily();
+    private resolveAppearanceValue(manualValue, themeValue, fallback, inheritIsEmpty?);
+    private applyThemePropertyPaneState(configuration);
     private getWebPartVersion();
     private openGridDesigner();
     private closeGridDesigner();

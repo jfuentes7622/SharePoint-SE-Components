@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 web part that renders SharePoint list items as collapsible accordion sections.
 
+## October 14, 2026 release
+
+- npm version: `1.0.4`
+- SharePoint solution and feature version: `1.0.0.22`
+- Package: `sharepoint/solution/sps-accordion.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover header, content, close-bar colors, and the shared font family without clearing saved manual values.
+
 ## Features
 
 - Map list columns to accordion headers and HTML body content.
@@ -14,6 +23,7 @@ SPFx 1.5.1 web part that renders SharePoint list items as collapsible accordion 
 
 | Property | Description |
 |---|---|
+| `appearanceMode` | Manual styling, site theme only, or site theme with non-empty manual color/font-family overrides. |
 | `listName` | SharePoint list containing accordion items. |
 | `itemName` | Column used as each section header. |
 | `itemContent` | Column used as each section body. |

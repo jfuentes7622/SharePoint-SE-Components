@@ -34,6 +34,7 @@ export type TileHoverTransition = 'solid' | 'fade' | 'slide-top' | 'slide-bottom
 export type TileLayout = 'stacked' | 'columns' | 'flow';
 
 export interface ITilesWebPartProps {
+  appearanceMode?: string;
   collectionData: ITileInfo[];
   title: string;
 
@@ -85,10 +86,45 @@ export interface ITilesWebPartProps {
 }
 
 export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartProps> {
+  private _siteTheme: any;
 
   public constructor() {
     super();
     this.onPropertyPaneFieldChanged = this.onPropertyPaneFieldChanged.bind(this);
+  }
+
+  protected onThemeChanged(currentTheme: any): void {
+    this._siteTheme = currentTheme;
+    this.render();
+    if (this.context && this.context.propertyPane) {
+      this.context.propertyPane.refresh();
+    }
+  }
+
+  private getAppearanceMode(): string {
+    const mode = String(this.properties.appearanceMode || '');
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearance(manualValue: any, semanticName: string, paletteName: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this._siteTheme || {};
+    return String(theme.semanticColors && theme.semanticColors[semanticName]
+      || theme.palette && theme.palette[paletteName] || fallback);
+  }
+
+  private resolveFontFamily(manualValue: any, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this._siteTheme || {};
+    return String(theme.fonts && theme.fonts.medium && theme.fonts.medium.fontFamily || fallback);
   }
 
   public render(): void {
@@ -103,13 +139,16 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
         displayMode: this.displayMode,
         // appearance
         tileShape: this.properties.tileShape || 'rounded',
-        backgroundColor: this.properties.backgroundColor || '#8A1717',
-        textColor: this.properties.textColor || '#FAFAFA',
-        hoverColor: this.properties.hoverColor || '#6a1010',
+        backgroundColor: this.resolveAppearance(this.properties.backgroundColor,
+          'primaryButtonBackground', 'themePrimary', '#8A1717'),
+        textColor: this.resolveAppearance(this.properties.textColor,
+          'primaryButtonText', 'white', '#FAFAFA'),
+        hoverColor: this.resolveAppearance(this.properties.hoverColor,
+          'primaryButtonBackgroundHovered', 'themeDarkAlt', '#6a1010'),
         hoverSameAsBackground: this.properties.hoverSameAsBackground !== false,
         hoverTransition: this.properties.hoverTransition || 'fade',
         // typography
-        fontFamily: this.properties.fontFamily || 'inherit',
+        fontFamily: this.resolveFontFamily(this.properties.fontFamily, 'inherit'),
         fontStyle: this.properties.fontStyle || 'normal',
         fontBold: this.properties.fontBold,
         fontSize: this.properties.fontSize || 14,
@@ -119,15 +158,18 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
         tileLayout: this.properties.tileLayout || 'columns',
         columnCount: this.properties.columnCount || 3,
         tileGap: typeof this.properties.tileGap === 'number' ? this.properties.tileGap : 16,
-        webPartBackgroundColor: this.properties.webPartBackgroundColor || '#ffffff',
-        webPartBorderColor: this.properties.webPartBorderColor || '#d2d0ce',
+        webPartBackgroundColor: this.resolveAppearance(this.properties.webPartBackgroundColor,
+          'bodyBackground', 'white', '#ffffff'),
+        webPartBorderColor: this.resolveAppearance(this.properties.webPartBorderColor,
+          'variantBorder', 'neutralLight', '#d2d0ce'),
         webPartBorderWidth: typeof this.properties.webPartBorderWidth === 'number' ? this.properties.webPartBorderWidth : 0,
         webPartBorderStyle: this.properties.webPartBorderStyle || 'solid',
         webPartCornerRadius: typeof this.properties.webPartCornerRadius === 'number' ? this.properties.webPartCornerRadius : 0,
         webPartPadding: typeof this.properties.webPartPadding === 'number' ? this.properties.webPartPadding : 0,
         showTitle: this.properties.showTitle === true,
-        titleTextColor: this.properties.titleTextColor || '#323130',
-        titleFontFamily: this.properties.titleFontFamily || 'inherit',
+        titleTextColor: this.resolveAppearance(this.properties.titleTextColor,
+          'bodyText', 'neutralPrimary', '#323130'),
+        titleFontFamily: this.resolveFontFamily(this.properties.titleFontFamily, 'inherit'),
         titleFontSize: typeof this.properties.titleFontSize === 'number' ? this.properties.titleFontSize : 20,
         titleFontStyle: this.properties.titleFontStyle || 'normal',
         titleFontBold: this.properties.titleFontBold !== false,
@@ -159,8 +201,10 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
-    if (propertyPath === 'hoverSameAsBackground' || propertyPath === 'tileLayout') {
+    if (propertyPath === 'hoverSameAsBackground' || propertyPath === 'tileLayout'
+      || propertyPath === 'appearanceMode') {
       this.context.propertyPane.refresh();
+      this.render();
     }
   }
 
@@ -265,6 +309,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
   // }
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    const strictTheme = this.getAppearanceMode() === 'siteTheme';
     const fontFamilyOptions: IPropertyPaneDropdownOption[] = [
       { key: 'inherit', text: strings.fontFamilyInherit },
       { key: 'Segoe UI, sans-serif', text: 'Segoe UI' },
@@ -296,7 +341,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
 
     const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
 
-    return {
+    const configuration: any = {
       pages: [
         {
           header: {
@@ -315,12 +360,26 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
             {
               groupName: strings.webPartAppearanceGroup,
               groupFields: [
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ],
+                  selectedKey: this.getAppearanceMode()
+                }),
+                PropertyPaneLabel('siteThemeAppearanceHelp', {
+                  text: strictTheme
+                    ? 'Theme-controlled colors and font families are disabled while Site theme only is selected.'
+                    : 'Choose how configurable colors and font families use the SharePoint site theme.'
+                }),
                 PropertyFieldColorPicker('webPartBackgroundColor', {
                   label: strings.webPartBackgroundColorLabel,
                   selectedColor: this.properties.webPartBackgroundColor || '#ffffff',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Inline,
                   iconName: 'Precipitation',
@@ -331,7 +390,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                   selectedColor: this.properties.webPartBorderColor || '#d2d0ce',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Inline,
                   iconName: 'Precipitation',
@@ -383,7 +442,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                   selectedColor: this.properties.titleTextColor || '#323130',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Inline,
                   iconName: 'Precipitation',
@@ -392,7 +451,8 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                 PropertyPaneDropdown('titleFontFamily', {
                   label: strings.titleFontFamilyLabel,
                   options: fontFamilyOptions,
-                  selectedKey: this.properties.titleFontFamily || 'inherit'
+                  selectedKey: this.properties.titleFontFamily || 'inherit',
+                  disabled: strictTheme
                 }),
                 PropertyPaneSlider('titleFontSize', {
                   label: strings.titleFontSizeLabel,
@@ -558,7 +618,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                   selectedColor: this.properties.backgroundColor || '#8A1717',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Inline,
                   iconName: 'Precipitation',
@@ -569,7 +629,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                   selectedColor: this.properties.textColor || '#FAFAFA',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Inline,
                   iconName: 'Precipitation',
@@ -585,7 +645,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                   selectedColor: this.properties.hoverColor || '#6a1010',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Inline,
                   iconName: 'Precipitation',
@@ -606,7 +666,8 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                 PropertyPaneDropdown('fontFamily', {
                   label: strings.fontFamilyLabel,
                   options: fontFamilyOptions,
-                  selectedKey: this.properties.fontFamily || 'inherit'
+                  selectedKey: this.properties.fontFamily || 'inherit',
+                  disabled: strictTheme
                 }),
                 PropertyPaneDropdown('fontStyle', {
                   label: strings.fontStyleLabel,
@@ -695,5 +756,6 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
         }
       ]
     };
+    return configuration;
   }
 }

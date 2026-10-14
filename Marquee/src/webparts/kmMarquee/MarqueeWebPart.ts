@@ -37,6 +37,7 @@ function escapeODataText(value: string): string {
 }
 
 export interface IKmMarqueeWebPartProps {
+  appearanceMode?: string;
   description: string;
   dMode: DisplayMode;
   spfxContext: WebPartContext;
@@ -61,9 +62,44 @@ export interface IKmMarqueeWebPartProps {
 }
 
 export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWebPartProps> {
+  private _siteTheme: any;
   private _lists: IDropdownOption[] = [];
   private _views: Array<IDropdownOption & { isDefault?: boolean }> = [];
   private _listFields: IDropdownOption[] = [];
+
+  protected onThemeChanged(currentTheme: any): void {
+    this._siteTheme = currentTheme;
+    this.render();
+    if (this.context && this.context.propertyPane) {
+      this.context.propertyPane.refresh();
+    }
+  }
+
+  private getAppearanceMode(): string {
+    const mode = String(this.properties.appearanceMode || '');
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearance(manualValue: any, semanticName: string, paletteName: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this._siteTheme || {};
+    return String(theme.semanticColors && theme.semanticColors[semanticName]
+      || theme.palette && theme.palette[paletteName] || fallback);
+  }
+
+  private resolveFontFamily(manualValue: any, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this._siteTheme || {};
+    return String(theme.fonts && theme.fonts.medium && theme.fonts.medium.fontFamily || fallback);
+  }
 
   public render(): void {
     this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
@@ -74,10 +110,12 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
         description: this.properties.description,
         dMode: this.displayMode,
         spfxContext:this.context,
-        marqueeBackColor: this.properties.marqueeBackColor || '#333333',
-        marqueeTextColor: this.properties.marqueeTextColor || '#fcfcfc',
+        marqueeBackColor: this.resolveAppearance(this.properties.marqueeBackColor,
+          'bodyBackground', 'white', '#333333'),
+        marqueeTextColor: this.resolveAppearance(this.properties.marqueeTextColor,
+          'bodyText', 'neutralPrimary', '#fcfcfc'),
         marqueeActive: this.properties.marqueeActive,
-        fontFamily: this.properties.fontFamily || '"Segoe UI", sans-serif',
+        fontFamily: this.resolveFontFamily(this.properties.fontFamily, '"Segoe UI", sans-serif'),
         fontSize: this.properties.fontSize || '13px',
         fontStyle: this.properties.fontStyle || 'normal',
         fontBold: this.properties.fontBold !== false,
@@ -134,6 +172,12 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    if (propertyPath === 'appearanceMode' && oldValue !== newValue) {
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
     if (propertyPath === 'listName' && oldValue !== newValue) {
       this.properties.viewId = '';
       this.properties.messageField = '';
@@ -376,6 +420,7 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
     const viewOptions: IPropertyPaneDropdownOption[] = this._views.map((view) => {
       return { key: view.key, text: view.text };
     });
+    const strictTheme = this.getAppearanceMode() === 'siteTheme';
 
     const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
 
@@ -443,10 +488,25 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
             {
               groupName: strings.FontGroupName,
               groupFields: [
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ],
+                  selectedKey: this.getAppearanceMode()
+                }),
+                PropertyPaneLabel('siteThemeAppearanceHelp', {
+                  text: strictTheme
+                    ? 'Theme-controlled colors and font family are disabled while Site theme only is selected.'
+                    : 'Choose how configurable colors and font family use the SharePoint site theme.'
+                }),
                 PropertyPaneDropdown('fontFamily', {
                   label: strings.FontFamilyFieldLabel,
                   options: fontFamilyOptions,
-                  selectedKey: this.properties.fontFamily || '"Segoe UI", sans-serif'
+                  selectedKey: this.properties.fontFamily || '"Segoe UI", sans-serif',
+                  disabled: strictTheme
                 }),
                 PropertyPaneDropdown('fontSize', {
                   label: strings.FontSizeFieldLabel,
@@ -478,7 +538,7 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
                   selectedColor: this.properties.marqueeBackColor || '#333333',
                   onPropertyChange: this.handleColorPropertyChange.bind(this),
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictTheme,
                   style: PropertyFieldColorPickerStyle.Inline,
                   key: 'marqueeBackColorField'
                 }),
@@ -487,7 +547,7 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
                   selectedColor: this.properties.marqueeTextColor || '#fcfcfc',
                   onPropertyChange: this.handleColorPropertyChange.bind(this),
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictTheme,
                   style: PropertyFieldColorPickerStyle.Inline,
                   key: 'marqueeTextColorField'
                 }),

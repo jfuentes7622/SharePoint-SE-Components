@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 scrolling-announcement web part for SharePoint Server Subscription Edition. The marquee is injected into the configured SharePoint page header area so it can span beyond the web part canvas.
 
+## October 14, 2026 release
+
+- npm version: `2.0.4`
+- SharePoint solution and feature version: `2.1.0.25`
+- Package: `sharepoint/solution/sps-marquee.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover marquee background, text, and font family while preserving speed, direction, height, and timing.
+
 ## Features
 
 - Display a static announcement or cycle through messages from a SharePoint list.

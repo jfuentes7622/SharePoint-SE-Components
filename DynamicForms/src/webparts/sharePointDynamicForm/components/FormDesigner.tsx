@@ -309,14 +309,21 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
 
   private async getWithAcceptFallback(url: string): Promise<any> {
     this.logDiagnostic('REST request: GET ' + url);
-    var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store',
+        Pragma: 'no-cache'
+      }
+    });
     this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
       this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=verbose'
+          Accept: 'application/json;odata=verbose',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
@@ -326,7 +333,9 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=minimalmetadata'
+          Accept: 'application/json;odata=minimalmetadata',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
@@ -336,7 +345,9 @@ export class FormDesigner extends React.Component<FormDesignerProps, FormDesigne
       this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=nometadata'
+          Accept: 'application/json;odata=nometadata',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);

@@ -72,6 +72,7 @@ const picturePickerModule: any = require('sp-client-custom-fields/lib/PropertyFi
 const PropertyFieldPicturePickerHost: any = picturePickerModule.default || picturePickerModule;
 
 export interface IContactsWebPartProps {
+  appearanceMode?: string;
   overridecss: string;
   directorate: string;
   division: string;
@@ -131,6 +132,7 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
   private divsDropdownDisabled: boolean = true;
   private provisionListStatus: string = '';
   private isProvisioningList: boolean = false;
+  private currentTheme: any;
 
   private logDiagnostic(message: string): void {
     if (this.properties.enableDiagnostics === false) {
@@ -178,16 +180,16 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
     applyOverrideCss(this.properties.overridecss || '', this.context.instanceId);
     this.logDiagnostic('render() called');
 
-    this.domElement.style.setProperty('--PersonnelPanelHeaderBackColor', (this.properties.PersonnelPanelHeaderBackColor !== undefined ? this.properties.PersonnelPanelHeaderBackColor : "#8A1717"));
-    this.domElement.style.setProperty('--PersonnelPanelHeaderTextColor', (this.properties.PersonnelPanelHeaderTextColor !== undefined ? this.properties.PersonnelPanelHeaderTextColor : "#FAFAFA"));
-    this.domElement.style.setProperty('--PersonnelPanelHeaderFontFamily', (this.properties.headerFontFamily || 'Segoe UI'));
+    this.domElement.style.setProperty('--PersonnelPanelHeaderBackColor', this.resolveAppearanceValue(this.properties.PersonnelPanelHeaderBackColor, 'primaryButtonBackground', '#8A1717'));
+    this.domElement.style.setProperty('--PersonnelPanelHeaderTextColor', this.resolveAppearanceValue(this.properties.PersonnelPanelHeaderTextColor, 'primaryButtonText', '#FAFAFA'));
+    this.domElement.style.setProperty('--PersonnelPanelHeaderFontFamily', this.resolveFontFamily(this.properties.headerFontFamily, 'Segoe UI'));
     this.domElement.style.setProperty('--PersonnelPanelHeaderFontStyle', (this.properties.headerFontStyle || 'normal'));
     this.domElement.style.setProperty('--PersonnelPanelHeaderFontWeight', (this.properties.headerFontBold ? 'bold' : 'normal'));
     this.domElement.style.setProperty('--PersonnelPanelHeaderTextAlign', (this.properties.headerAlignment || 'left'));
     this.domElement.style.setProperty('--PersonnelPanelHeaderTopRadius', (this.properties.headerTopCorners === 'squared' ? '0' : '8px'));
-    this.domElement.style.setProperty('--PersonnelTileTitleColor', (this.properties.tileTitleColor || 'rgb(51, 51, 51)'));
-    this.domElement.style.setProperty('--PersonnelTileInfoBackgroundColor', (this.properties.tileInfoBackgroundColor || 'transparent'));
-    this.domElement.style.setProperty('--PersonnelTileTitleFontFamily', (this.properties.titleFontFamily || 'Segoe UI'));
+    this.domElement.style.setProperty('--PersonnelTileTitleColor', this.resolveAppearanceValue(this.properties.tileTitleColor, 'bodyText', 'rgb(51, 51, 51)'));
+    this.domElement.style.setProperty('--PersonnelTileInfoBackgroundColor', this.resolveAppearanceValue(this.properties.tileInfoBackgroundColor, 'bodyBackground', 'transparent'));
+    this.domElement.style.setProperty('--PersonnelTileTitleFontFamily', this.resolveFontFamily(this.properties.titleFontFamily, 'Segoe UI'));
     this.domElement.style.setProperty('--PersonnelTileTitleFontStyle', (this.properties.titleFontStyle || 'normal'));
     this.domElement.style.setProperty('--PersonnelTileTitleFontWeight', (this.properties.titleFontBold === false ? 'normal' : 'bold'));
 
@@ -221,6 +223,42 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
 
     );
     ReactDom.render(element, this.domElement);
+  }
+
+  protected onThemeChanged(currentTheme: any): void {
+    this.currentTheme = currentTheme;
+    this.render();
+  }
+
+  private getAppearanceMode(): string {
+    const mode = this.properties.appearanceMode;
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearanceValue(manualValue: string, semanticSlot: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const semanticColors = this.currentTheme && this.currentTheme.semanticColors;
+    const themeValue = semanticColors ? String(semanticColors[semanticSlot] || '') : '';
+    if (mode === 'manual') {
+      return String(manualValue || '').trim() || fallback;
+    }
+    if (mode === 'siteThemeOverrides' && String(manualValue || '').trim()) {
+      return manualValue;
+    }
+    return themeValue || fallback;
+  }
+
+  private resolveFontFamily(manualValue: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const fonts = this.currentTheme && this.currentTheme.fonts;
+    const themeValue = fonts && fonts.medium ? String(fonts.medium.fontFamily || '') : '';
+    if (mode === 'manual') {
+      return String(manualValue || '').trim() || fallback;
+    }
+    if (mode === 'siteThemeOverrides' && String(manualValue || '').trim()) {
+      return manualValue;
+    }
+    return themeValue || fallback;
   }
 
   private getNormalizedCustomList(): IRecord[] {
@@ -342,6 +380,10 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
 
     if (propertyPath === 'propertyCheckbox') {
       this.context.propertyPane.refresh();
+    }
+    if (propertyPath === 'appearanceMode') {
+      this.context.propertyPane.refresh();
+      this.render();
     }
 
     if (propertyPath === 'listSourceMode' && oldValue !== newValue) {
@@ -730,6 +772,7 @@ public onInit(): Promise<void> {
     private columnOptions: IPropertyPaneDropdownOption[] = [];
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    const strictSiteTheme = this.getAppearanceMode() === 'siteTheme';
     let customListControl: any = [];
     let splist: any;
     let directorateControl: any = [];
@@ -864,6 +907,7 @@ public onInit(): Promise<void> {
       style: PropertyFieldColorPickerStyle.Full,
       iconName: 'HeaderBackColor',
       properties: this.properties,
+      disabled: strictSiteTheme,
       key: 'PersonnelPanelHeaderBackColorField'
     });
     colorTextControl = PropertyFieldColorPicker('PersonnelPanelHeaderTextColor', {
@@ -873,6 +917,7 @@ public onInit(): Promise<void> {
       style: PropertyFieldColorPickerStyle.Full,
       iconName: 'HeaderTextColor',
       properties: this.properties,
+      disabled: strictSiteTheme,
       key: 'PersonnelPanelHeaderTextColorField'
     });
     imgWidthControl = PropertyPaneTextField('imageWidth', {
@@ -882,7 +927,8 @@ public onInit(): Promise<void> {
     const headerFontFamilyControl = PropertyPaneDropdown('headerFontFamily', {
       label: 'Header Font Family',
       options: fontFamilyOptions,
-      selectedKey: this.properties.headerFontFamily || 'Segoe UI'
+      selectedKey: this.properties.headerFontFamily || 'Segoe UI',
+      disabled: strictSiteTheme
     });
     const headerFontStyleControl = PropertyPaneDropdown('headerFontStyle', {
       label: 'Header Font Style',
@@ -911,6 +957,7 @@ public onInit(): Promise<void> {
       style: PropertyFieldColorPickerStyle.Full,
       iconName: 'Font',
       properties: this.properties,
+      disabled: strictSiteTheme,
       key: 'tileTitleColorField'
     });
     const tileInfoBackgroundColorControl = PropertyFieldColorPicker('tileInfoBackgroundColor', {
@@ -921,12 +968,14 @@ public onInit(): Promise<void> {
       style: PropertyFieldColorPickerStyle.Full,
       iconName: 'Color',
       properties: this.properties,
+      disabled: strictSiteTheme,
       key: 'tileInfoBackgroundColorField'
     });
     const titleFontFamilyControl = PropertyPaneDropdown('titleFontFamily', {
       label: 'Title Font Family',
       options: fontFamilyOptions,
-      selectedKey: this.properties.titleFontFamily || 'Segoe UI'
+      selectedKey: this.properties.titleFontFamily || 'Segoe UI',
+      disabled: strictSiteTheme
     });
     const titleFontStyleControl = PropertyPaneDropdown('titleFontStyle', {
       label: 'Title Font Style',
@@ -1060,6 +1109,20 @@ infoControl = PropertyPaneLabel('webPartInfoId', {
         groupFields: [
           PropertyPaneLabel('propertyPaneVersionInfo', {
             text: ' '
+          })
+        ]
+      },
+      {
+        groupName: 'Appearance mode',
+        groupFields: [
+          PropertyPaneDropdown('appearanceMode', {
+            label: 'Appearance mode',
+            selectedKey: this.getAppearanceMode(),
+            options: [
+              { key: 'manual', text: 'Manual styling' },
+              { key: 'siteTheme', text: 'Site theme only' },
+              { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+            ]
           })
         ]
       },

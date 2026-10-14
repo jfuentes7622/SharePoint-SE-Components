@@ -31,6 +31,7 @@ var FORM_ACTIVATION_QUERY_EVENT = 'spse:form-activation-query';
 var STANDALONE_ACTIVATION_DELAY = 500;
 
 export interface ISharePointDynamicFormWebPartProps {
+  appearanceMode?: 'manual' | 'siteTheme' | 'siteThemeOverrides';
   instanceName?: string;
   forceFullWidth?: boolean;
   fixedWidth?: number;
@@ -294,6 +295,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   private static readonly CALENDAR_ALIAS: string = 'CalendarWebPart';
 
   private _isDarkTheme: boolean = false;
+  private _currentTheme: any;
   private _lists: IDropdownOption[] = [];
   private _listFields: IDropdownOption[] = [];
   private _filterFields: IDropdownOption[] = [];
@@ -462,11 +464,11 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         cancelRedirectUrl: this.properties.cancelRedirectUrl,
         submitRedirectUrl: this.properties.submitRedirectUrl,
         onSubmitMessage: this.properties.onSubmitMessage,
-        buttonTextColor: normalizeColorValue(this.properties.buttonTextColor, '#000000'),
-        buttonBackgroundColor: normalizeColorValue(this.properties.buttonBackgroundColor, '#f0f0f0'),
-        buttonBorderColor: normalizeColorValue(this.properties.buttonBorderColor, '#f0f0f0'),
+        buttonTextColor: this.resolveAppearanceColor(this.properties.buttonTextColor, this.getThemeColor('buttonText', 'neutralPrimary'), '#000000'),
+        buttonBackgroundColor: this.resolveAppearanceColor(this.properties.buttonBackgroundColor, this.getThemeColor('buttonBackground', 'neutralLighter'), '#f0f0f0'),
+        buttonBorderColor: this.resolveAppearanceColor(this.properties.buttonBorderColor, this.getThemeColor('buttonBorder', 'neutralTertiaryAlt'), '#f0f0f0'),
         buttonBorderWidth: toPositiveNumber(this.properties.buttonBorderWidth, 1),
-        buttonFontFamily: this.properties.buttonFontFamily,
+        buttonFontFamily: this.resolveAppearanceFont(this.properties.buttonFontFamily),
         buttonFontSize: toPositiveNumber(this.properties.buttonFontSize, 14),
         buttonFontStyle: this.properties.buttonFontStyle,
         buttonFontBold: this.properties.buttonFontBold,
@@ -1548,12 +1550,19 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   }
 
   private async getWithAcceptFallback(url: string): Promise<any> {
-    var response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    var response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store',
+        Pragma: 'no-cache'
+      }
+    });
 
     if (!response.ok) {
       response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=verbose'
+          Accept: 'application/json;odata=verbose',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
     }
@@ -1561,7 +1570,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     if (!response.ok) {
       response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=minimalmetadata'
+          Accept: 'application/json;odata=minimalmetadata',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
     }
@@ -1569,7 +1580,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     if (!response.ok) {
       response = await this.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=nometadata'
+          Accept: 'application/json;odata=nometadata',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
     }
@@ -1586,6 +1599,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       return;
     }
 
+    this._currentTheme = currentTheme;
     this._isDarkTheme = !!currentTheme.isInverted;
     const {
       semanticColors
@@ -1595,6 +1609,10 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       this.domElement.style.setProperty('--bodyText', semanticColors.bodyText || null);
       this.domElement.style.setProperty('--link', semanticColors.link || null);
       this.domElement.style.setProperty('--linkHovered', semanticColors.linkHovered || null);
+    }
+
+    if (this.domElement) {
+      this.render();
     }
   }
 
@@ -2903,7 +2921,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
       // Keep fallback option when JSON is invalid.
     }
 
-    return {
+    var configuration: IPropertyPaneConfiguration = {
       pages: [
         {
           header: {
@@ -2921,6 +2939,20 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
               groupFields: [
                 PropertyPaneLabel('propertyPaneVersionInfo', {
                   text: ' '
+                })
+              ]
+            },
+            {
+              groupName: 'Appearance',
+              groupFields: [
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ],
+                  selectedKey: this.getAppearanceMode()
                 })
               ]
             },
@@ -3624,6 +3656,77 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         },
       ].filter((_page, pageIndex) => pageIndex === 0 || pageIndex === 2)
     };
+    this.applyThemePropertyPaneState(configuration);
+    return configuration;
+  }
+
+  private getAppearanceMode(): string {
+    return this.properties.appearanceMode === 'siteTheme' || this.properties.appearanceMode === 'siteThemeOverrides'
+      ? this.properties.appearanceMode : 'manual';
+  }
+
+  private getThemeColor(semanticName: string, paletteName: string): string {
+    var semanticColors = this._currentTheme && this._currentTheme.semanticColors;
+    var palette = this._currentTheme && this._currentTheme.palette;
+    return String((semanticColors && semanticColors[semanticName]) || (palette && palette[paletteName]) || '');
+  }
+
+  private resolveAppearanceColor(manualValue: any, themeValue: string, fallback: string): string {
+    var manual = normalizeColorValue(manualValue, '');
+    var mode = this.getAppearanceMode();
+    if (mode === 'siteTheme') {
+      return themeValue || fallback;
+    }
+    if (mode === 'siteThemeOverrides') {
+      return manual || themeValue || fallback;
+    }
+    return manual || fallback;
+  }
+
+  private resolveAppearanceFont(manualValue: any): string {
+    var manual = String(manualValue || '').trim();
+    if (manual.toLowerCase() === 'inherit') {
+      manual = '';
+    }
+    var fonts = this._currentTheme && this._currentTheme.fonts;
+    var themeFont = String((fonts && fonts.medium && fonts.medium.fontFamily) || '');
+    var mode = this.getAppearanceMode();
+    if (mode === 'siteTheme') {
+      return themeFont || 'inherit';
+    }
+    if (mode === 'siteThemeOverrides') {
+      return manual || themeFont || 'inherit';
+    }
+    return String(manualValue || '').trim() || 'inherit';
+  }
+
+  private applyThemePropertyPaneState(configuration: IPropertyPaneConfiguration): void {
+    if (this.getAppearanceMode() !== 'siteTheme') {
+      return;
+    }
+    var controlledProperties = ['buttonTextColor', 'buttonBackgroundColor', 'buttonBorderColor', 'buttonFontFamily'];
+    configuration.pages.forEach(function(page: any, pageIndex: number) {
+      (page.groups || []).forEach(function(group: any, groupIndex: number) {
+        var affected = false;
+        group.groupFields = (group.groupFields || []).filter(function(field: any) {
+          var propertyName = String(field && field.targetProperty || '');
+          if (controlledProperties.indexOf(propertyName) < 0) {
+            return true;
+          }
+          affected = true;
+          if (propertyName === 'buttonFontFamily' && field.properties) {
+            field.properties.disabled = true;
+            return true;
+          }
+          return false;
+        });
+        if (affected) {
+          group.groupFields.unshift(PropertyPaneLabel('siteThemeNotice' + String(pageIndex) + String(groupIndex), {
+            text: 'Button colors and font family are controlled by the site theme.'
+          }));
+        }
+      });
+    });
   }
 
   private getWebPartVersion(): string {

@@ -975,7 +975,12 @@ var GridControl = (function (_super) {
                 switch (_a.label) {
                     case 0:
                         this.logDiagnostic('REST request: GET ' + url);
-                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1)];
+                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                headers: {
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
+                                }
+                            })];
                     case 1:
                         response = _a.sent();
                         this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
@@ -983,7 +988,9 @@ var GridControl = (function (_super) {
                         this.logDiagnostic('REST retry (verbose): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
-                                    Accept: 'application/json;odata=verbose'
+                                    Accept: 'application/json;odata=verbose',
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
                                 }
                             })];
                     case 2:
@@ -996,7 +1003,9 @@ var GridControl = (function (_super) {
                         this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
-                                    Accept: 'application/json;odata=minimalmetadata'
+                                    Accept: 'application/json;odata=minimalmetadata',
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
                                 }
                             })];
                     case 4:
@@ -1009,7 +1018,9 @@ var GridControl = (function (_super) {
                         this.logDiagnostic('REST retry (nometadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
-                                    Accept: 'application/json;odata=nometadata'
+                                    Accept: 'application/json;odata=nometadata',
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
                                 }
                             })];
                     case 6:

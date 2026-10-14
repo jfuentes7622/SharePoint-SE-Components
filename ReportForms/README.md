@@ -2,6 +2,16 @@
 
 Report Forms is a read-only SharePoint Framework web part for displaying a single SharePoint list item with a configurable form-style layout. It is based on DynamicForms' field renderer and visual layout designer, but it does not create or update list items.
 
+## October 14, 2026 release
+
+- npm version: `1.0.56`
+- SharePoint solution and feature version: `1.0.0.83`
+- Package: `sharepoint/solution/sps-report-forms.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides** for report buttons.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Choice and MultiChoice controls now refresh their options from the current SharePoint column metadata.
+- SharePoint metadata requests bypass reusable browser responses so refreshed pages receive current field definitions.
+
 ## Compatibility
 
 - SharePoint Server Subscription Edition

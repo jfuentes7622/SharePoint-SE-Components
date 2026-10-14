@@ -249,8 +249,8 @@ var GridControlWebPart = (function (_super) {
             linkTargetIdParam: this.properties.linkTargetIdParam || 'itemid',
             includeReturnUrlParam: this.properties.includeReturnUrlParam === true,
             enableDiagnostics: this.properties.enableDiagnostics !== false,
-            bodyTextColor: this.properties.bodyTextColor || '',
-            bodyFontFamily: this.properties.bodyFontFamily || '',
+            bodyTextColor: this.resolveAppearanceValue(this.properties.bodyTextColor, this.getThemeColor('bodyText', 'neutralPrimary'), ''),
+            bodyFontFamily: this.resolveAppearanceValue(this.properties.bodyFontFamily, this.getThemeFontFamily(), '', true),
             bodyFontSize: this.properties.bodyFontSize || '14px',
             bodyFontStyle: this.properties.bodyFontStyle || 'normal',
             bodyFontBold: this.properties.bodyFontBold === true,
@@ -263,19 +263,19 @@ var GridControlWebPart = (function (_super) {
                 ? parseInt(String(this.properties.timeMinuteIncrement || '5'), 10) : 5,
             timeCustomFormat: this.properties.timeCustomFormat || '',
             timeCustomFormatCase: this.properties.timeCustomFormatCase || 'default',
-            selectedTextColor: this.properties.selectedTextColor || '',
-            selectedBackgroundColor: this.properties.selectedBackgroundColor || '',
+            selectedTextColor: this.resolveAppearanceValue(this.properties.selectedTextColor, this.getThemeColor('primaryButtonText', 'white'), ''),
+            selectedBackgroundColor: this.resolveAppearanceValue(this.properties.selectedBackgroundColor, this.getThemeColor('primaryButtonBackground', 'themePrimary'), ''),
             selectedFontStyle: this.properties.selectedFontStyle || 'normal',
             selectedFontBold: this.properties.selectedFontBold === true,
-            headerTextColor: this.properties.headerTextColor || '',
-            headerBackgroundColor: this.properties.headerBackgroundColor || '',
-            headerFontFamily: this.properties.headerFontFamily || '',
+            headerTextColor: this.resolveAppearanceValue(this.properties.headerTextColor, this.getThemeColor('bodyText', 'neutralPrimary'), ''),
+            headerBackgroundColor: this.resolveAppearanceValue(this.properties.headerBackgroundColor, this.getThemeColor('bodyBackgroundChecked', 'neutralLighter'), ''),
+            headerFontFamily: this.resolveAppearanceValue(this.properties.headerFontFamily, this.getThemeFontFamily(), '', true),
             headerFontSize: this.properties.headerFontSize || '14px',
             headerFontStyle: this.properties.headerFontStyle || 'normal',
             headerFontBold: this.properties.headerFontBold === true,
             headerTextAlign: this.properties.headerTextAlign || 'left',
-            tableBackgroundColor: this.properties.tableBackgroundColor || '#ffffff',
-            tableBorderColor: this.properties.tableBorderColor || '#cccccc',
+            tableBackgroundColor: this.resolveAppearanceValue(this.properties.tableBackgroundColor, this.getThemeColor('bodyBackground', 'white'), '#ffffff'),
+            tableBorderColor: this.resolveAppearanceValue(this.properties.tableBorderColor, this.getThemeColor('bodyDivider', 'neutralLight'), '#cccccc'),
             tableBorderWidth: this.properties.tableBorderWidth || '1px',
             tableCornerStyle: this.properties.tableCornerStyle || 'square',
             tableCornerRadius: typeof this.properties.tableCornerRadius === 'number' ? this.properties.tableCornerRadius : 0,
@@ -283,17 +283,17 @@ var GridControlWebPart = (function (_super) {
             cornerStyle: this.properties.cornerStyle || 'square',
             cornerRadius: typeof this.properties.cornerRadius === 'number' ? this.properties.cornerRadius : 12,
             alternateRowShading: this.properties.alternateRowShading === true,
-            alternateRowShadingColor: this.properties.alternateRowShadingColor || '#f9f9f9',
-            buttonTextColor: this.properties.buttonTextColor || '#000000',
-            buttonBackgroundColor: this.properties.buttonBackgroundColor || '#f0f0f0',
-            buttonFontFamily: this.properties.buttonFontFamily || 'inherit',
+            alternateRowShadingColor: this.resolveAppearanceValue(this.properties.alternateRowShadingColor, this.getThemeColor('listItemBackgroundHovered', 'neutralLighterAlt'), '#f9f9f9'),
+            buttonTextColor: this.resolveAppearanceValue(this.properties.buttonTextColor, this.getThemeColor('buttonText', 'neutralPrimary'), '#000000'),
+            buttonBackgroundColor: this.resolveAppearanceValue(this.properties.buttonBackgroundColor, this.getThemeColor('buttonBackground', 'neutralLighter'), '#f0f0f0'),
+            buttonFontFamily: this.resolveAppearanceValue(this.properties.buttonFontFamily, this.getThemeFontFamily(), 'inherit', true),
             buttonFontSize: this.properties.buttonFontSize || '14px',
             buttonFontStyle: this.properties.buttonFontStyle || 'normal',
             buttonFontBold: this.properties.buttonFontBold === true,
             buttonCornerStyle: this.properties.buttonCornerStyle || 'square',
             buttonCornerRadius: typeof this.properties.buttonCornerRadius === 'number' ? this.properties.buttonCornerRadius : 4,
-            webpartBackgroundColor: this.properties.webpartBackgroundColor || 'transparent',
-            webpartBorderColor: this.properties.webpartBorderColor || '#ccc',
+            webpartBackgroundColor: this.resolveAppearanceValue(this.properties.webpartBackgroundColor, this.getThemeColor('bodyBackground', 'white'), 'transparent'),
+            webpartBorderColor: this.resolveAppearanceValue(this.properties.webpartBorderColor, this.getThemeColor('bodyDivider', 'neutralLight'), '#ccc'),
             webpartBorderWidth: this.properties.webpartBorderWidth || 0,
             filterJson: this.properties.filterJson || '',
             externalFilterJson: this._externalSearchFilterJson,
@@ -303,6 +303,12 @@ var GridControlWebPart = (function (_super) {
             onFilteredCountChange: function (count) { return _this.handleFilteredCountChange(count); }
         });
         ReactDom.render(element, this.domElement);
+    };
+    GridControlWebPart.prototype.onThemeChanged = function (currentTheme) {
+        this._currentTheme = currentTheme;
+        if (this.domElement) {
+            this.render();
+        }
     };
     GridControlWebPart.prototype.onInit = function () {
         var _this = this;
@@ -953,7 +959,7 @@ var GridControlWebPart = (function (_super) {
             conditionalStyleConditionOptions = [{ key: '', text: strings.PropConditionalStyleExistingNone }];
             conditionalStyleRuleSummaryText = strings.PropConditionalStyleSummaryInvalid;
         }
-        return {
+        var configuration = {
             pages: [
                 {
                     header: {
@@ -965,6 +971,20 @@ var GridControlWebPart = (function (_super) {
                             groupFields: [
                                 sp_webpart_base_1.PropertyPaneLabel('propertyPaneVersionInfo', {
                                     text: ' '
+                                })
+                            ]
+                        },
+                        {
+                            groupName: 'Appearance',
+                            groupFields: [
+                                sp_webpart_base_1.PropertyPaneDropdown('appearanceMode', {
+                                    label: 'Appearance mode',
+                                    options: [
+                                        { key: 'manual', text: 'Manual styling' },
+                                        { key: 'siteTheme', text: 'Site theme only' },
+                                        { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                                    ],
+                                    selectedKey: this.getAppearanceMode()
                                 })
                             ]
                         },
@@ -1969,6 +1989,68 @@ var GridControlWebPart = (function (_super) {
                 }
             ]
         };
+        this.applyThemePropertyPaneState(configuration);
+        return configuration;
+    };
+    GridControlWebPart.prototype.getAppearanceMode = function () {
+        return this.properties.appearanceMode === 'siteTheme' || this.properties.appearanceMode === 'siteThemeOverrides'
+            ? this.properties.appearanceMode : 'manual';
+    };
+    GridControlWebPart.prototype.getThemeColor = function (semanticName, paletteName) {
+        var semanticColors = this._currentTheme && this._currentTheme.semanticColors;
+        var palette = this._currentTheme && this._currentTheme.palette;
+        return String((semanticColors && semanticColors[semanticName]) || (palette && palette[paletteName]) || '');
+    };
+    GridControlWebPart.prototype.getThemeFontFamily = function () {
+        var fonts = this._currentTheme && this._currentTheme.fonts;
+        return String((fonts && fonts.medium && fonts.medium.fontFamily) || '');
+    };
+    GridControlWebPart.prototype.resolveAppearanceValue = function (manualValue, themeValue, fallback, inheritIsEmpty) {
+        var manual = String(manualValue || '').trim();
+        if (inheritIsEmpty === true && manual.toLowerCase() === 'inherit') {
+            manual = '';
+        }
+        var mode = this.getAppearanceMode();
+        if (mode === 'siteTheme') {
+            return themeValue || fallback;
+        }
+        if (mode === 'siteThemeOverrides') {
+            return manual || themeValue || fallback;
+        }
+        return String(manualValue || '').trim() || fallback;
+    };
+    GridControlWebPart.prototype.applyThemePropertyPaneState = function (configuration) {
+        if (this.getAppearanceMode() !== 'siteTheme') {
+            return;
+        }
+        var controlledProperties = [
+            'bodyTextColor', 'bodyFontFamily', 'selectedTextColor', 'selectedBackgroundColor',
+            'headerTextColor', 'headerBackgroundColor', 'headerFontFamily', 'tableBackgroundColor',
+            'tableBorderColor', 'alternateRowShadingColor', 'buttonTextColor', 'buttonBackgroundColor',
+            'buttonFontFamily', 'webpartBackgroundColor', 'webpartBorderColor'
+        ];
+        configuration.pages.forEach(function (page, pageIndex) {
+            (page.groups || []).forEach(function (group, groupIndex) {
+                var affected = false;
+                group.groupFields = (group.groupFields || []).filter(function (field) {
+                    var propertyName = String(field && field.targetProperty || '');
+                    if (controlledProperties.indexOf(propertyName) < 0) {
+                        return true;
+                    }
+                    affected = true;
+                    if (/FontFamily$/.test(propertyName) && field.properties) {
+                        field.properties.disabled = true;
+                        return true;
+                    }
+                    return false;
+                });
+                if (affected) {
+                    group.groupFields.unshift(sp_webpart_base_1.PropertyPaneLabel('siteThemeNotice' + String(pageIndex) + String(groupIndex), {
+                        text: 'These colors and fonts are controlled by the site theme.'
+                    }));
+                }
+            });
+        });
     };
     GridControlWebPart.prototype.getWebPartVersion = function () {
         var solutionVersion = packageSolutionConfig && packageSolutionConfig.solution
@@ -2559,13 +2641,20 @@ var GridControlWebPart = (function (_super) {
             var response;
             return __generator(this, function (_a) {
                 switch (_a.label) {
-                    case 0: return [4 /*yield*/, this.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1)];
+                    case 0: return [4 /*yield*/, this.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                            headers: {
+                                'Cache-Control': 'no-cache, no-store',
+                                Pragma: 'no-cache'
+                            }
+                        })];
                     case 1:
                         response = _a.sent();
                         if (!!response.ok) return [3 /*break*/, 3];
                         return [4 /*yield*/, this.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
-                                    Accept: 'application/json;odata=verbose'
+                                    Accept: 'application/json;odata=verbose',
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
                                 }
                             })];
                     case 2:
@@ -2575,7 +2664,9 @@ var GridControlWebPart = (function (_super) {
                         if (!!response.ok) return [3 /*break*/, 5];
                         return [4 /*yield*/, this.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
-                                    Accept: 'application/json;odata=nometadata'
+                                    Accept: 'application/json;odata=nometadata',
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
                                 }
                             })];
                     case 4:

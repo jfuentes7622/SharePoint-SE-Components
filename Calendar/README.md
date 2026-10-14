@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCalendar library.
 
+## October 14, 2026 release
+
+- npm version: `1.1.8`
+- SharePoint solution and feature version: `1.1.0.39`
+- Package: `sharepoint/solution/sps-calendar.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover global calendar surfaces, text, borders, selected states, and font families. Conditional event styling remains unchanged.
+
 ## Features
 
 - Combine events from multiple visible SharePoint Events lists.

@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 web part that displays a responsive collection of navigation tiles.
 
+## October 14, 2026 release
+
+- npm version: `2.0.3`
+- SharePoint solution and feature version: `2.1.0.18`
+- Package: `sharepoint/solution/sps-tiles.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover web-part, title, and tile surfaces, text, borders, and font families. Per-tile color and image overrides remain intact.
+
 ## Features
 
 - Configure title, description, URL, and link target for each tile.

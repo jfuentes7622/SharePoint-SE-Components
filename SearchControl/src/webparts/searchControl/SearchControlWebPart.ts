@@ -29,6 +29,7 @@ interface IDynamicDataSourceCompat {
 }
 
 export interface ISearchControlWebPartProps {
+  appearanceMode?: string;
   title: string;
   targetInstanceId: string;
   searchExecutionMode: string;
@@ -91,6 +92,7 @@ interface ITarget {
 }
 
 export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchControlWebPartProps> {
+  private _siteTheme: any;
   private _mode: string = 'simple';
   private _simpleField: string = '*';
   private _simpleValue: string = '';
@@ -118,6 +120,47 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
   private _statusIsError: boolean = false;
   private _dynamicDataSourceManager: any;
   private _dynamicDataProvider: any;
+
+  protected onThemeChanged(currentTheme: any): void {
+    this._siteTheme = currentTheme;
+    this.render();
+    if (this.context && this.context.propertyPane) {
+      this.context.propertyPane.refresh();
+    }
+  }
+
+  private getAppearanceMode(): string {
+    var mode = String(this.properties.appearanceMode || '');
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private getThemeValue(semanticName: string, paletteName: string, fallback: string): string {
+    var theme = this._siteTheme || {};
+    return String(theme.semanticColors && theme.semanticColors[semanticName]
+      || theme.palette && theme.palette[paletteName] || fallback);
+  }
+
+  private resolveAppearance(manualValue: any, semanticName: string, paletteName: string, fallback: string): string {
+    var mode = this.getAppearanceMode();
+    var manual = String(manualValue || '').trim();
+    if (mode === 'manual') {
+      return manual || fallback;
+    }
+    if (mode === 'siteThemeOverrides' && manual) {
+      return manual;
+    }
+    return this.getThemeValue(semanticName, paletteName, fallback);
+  }
+
+  private resolveFontFamily(manualValue: any, fallback: string): string {
+    var mode = this.getAppearanceMode();
+    var manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    var theme = this._siteTheme || {};
+    return String(theme.fonts && theme.fonts.medium && theme.fonts.medium.fontFamily || fallback);
+  }
 
   protected onInit(): Promise<void> {
     this._mode = this.properties.defaultMode === 'advanced' ? 'advanced' : 'simple';
@@ -315,11 +358,14 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
 
     var root = document.createElement('div');
     root.className = 'sc-root';
-    root.style.backgroundColor = this.properties.surfaceBackgroundColor || '#ffffff';
-    root.style.color = this.properties.surfaceTextColor || '#201f1e';
-    root.style.border = String(this.properties.borderWidth === undefined ? 1 : this.properties.borderWidth) + 'px solid ' + (this.properties.borderColor || '#d2d0ce');
+    root.style.backgroundColor = this.resolveAppearance(this.properties.surfaceBackgroundColor,
+      'bodyBackground', 'white', '#ffffff');
+    root.style.color = this.resolveAppearance(this.properties.surfaceTextColor,
+      'bodyText', 'neutralPrimary', '#201f1e');
+    root.style.border = String(this.properties.borderWidth === undefined ? 1 : this.properties.borderWidth)
+      + 'px solid ' + this.resolveAppearance(this.properties.borderColor, 'variantBorder', 'neutralLight', '#d2d0ce');
     root.style.borderRadius = String(this.properties.cornerRadius === undefined ? 4 : this.properties.cornerRadius) + 'px';
-    root.style.fontFamily = this.properties.fontFamily || 'Segoe UI';
+    root.style.fontFamily = this.resolveFontFamily(this.properties.fontFamily, 'Segoe UI');
     root.style.fontSize = String(this.properties.fontSize || 14) + 'px';
     this.domElement.appendChild(root);
 
@@ -887,8 +933,10 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
       button.appendChild(content);
     }
     if (primary) {
-      button.style.backgroundColor = this.properties.accentColor || '#0078d4';
-      button.style.borderColor = this.properties.accentColor || '#0078d4';
+      var accentColor = this.resolveAppearance(this.properties.accentColor,
+        'primaryButtonBackground', 'themePrimary', '#0078d4');
+      button.style.backgroundColor = accentColor;
+      button.style.borderColor = accentColor;
     }
     button.onclick = action;
     return button;
@@ -1032,7 +1080,10 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
-    if (propertyPath === 'targetInstanceId' && oldValue !== newValue) {
+    if (propertyPath === 'appearanceMode' && oldValue !== newValue) {
+      this.context.propertyPane.refresh();
+      this.render();
+    } else if (propertyPath === 'targetInstanceId' && oldValue !== newValue) {
       if (oldValue && this._searchState.filterJson) {
         this._searchState = {
           targetInstanceId: oldValue,
@@ -1089,7 +1140,8 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
       })
       : [];
 
-    return {
+    var strictTheme = this.getAppearanceMode() === 'siteTheme';
+    var configuration: any = {
       pages: [{
         header: { description: '' },
         groups: [{
@@ -1162,13 +1214,28 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
         }, {
           groupName: 'Appearance',
           groupFields: [
+            PropertyPaneDropdown('appearanceMode', {
+              label: 'Appearance mode',
+              options: [
+                { key: 'manual', text: 'Manual styling' },
+                { key: 'siteTheme', text: 'Site theme only' },
+                { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+              ],
+              selectedKey: this.getAppearanceMode()
+            }),
+            PropertyPaneLabel('siteThemeAppearanceHelp', {
+              text: strictTheme
+                ? 'Theme-controlled colors and font family are disabled while Site theme only is selected.'
+                : 'Choose how configurable colors and font family use the SharePoint site theme.'
+            }),
             PropertyFieldColorPicker('surfaceBackgroundColor', {
               label: 'Background color',
               selectedColor: this.properties.surfaceBackgroundColor || '#ffffff',
               onPropertyChange: this.handleColorPropertyChange.bind(this),
               properties: this.properties,
               style: PropertyFieldColorPickerStyle.Inline,
-              key: 'surfaceBackgroundColorField'
+              key: 'surfaceBackgroundColorField',
+              disabled: strictTheme
             }),
             PropertyFieldColorPicker('surfaceTextColor', {
               label: 'Text color',
@@ -1176,7 +1243,8 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
               onPropertyChange: this.handleColorPropertyChange.bind(this),
               properties: this.properties,
               style: PropertyFieldColorPickerStyle.Inline,
-              key: 'surfaceTextColorField'
+              key: 'surfaceTextColorField',
+              disabled: strictTheme
             }),
             PropertyFieldColorPicker('accentColor', {
               label: 'Accent color',
@@ -1184,7 +1252,8 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
               onPropertyChange: this.handleColorPropertyChange.bind(this),
               properties: this.properties,
               style: PropertyFieldColorPickerStyle.Inline,
-              key: 'accentColorField'
+              key: 'accentColorField',
+              disabled: strictTheme
             }),
             PropertyFieldColorPicker('borderColor', {
               label: 'Border color',
@@ -1192,11 +1261,12 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
               onPropertyChange: this.handleColorPropertyChange.bind(this),
               properties: this.properties,
               style: PropertyFieldColorPickerStyle.Inline,
-              key: 'borderColorField'
+              key: 'borderColorField',
+              disabled: strictTheme
             }),
             PropertyPaneSlider('borderWidth', { label: 'Border width', min: 0, max: 8, step: 1 }),
             PropertyPaneSlider('cornerRadius', { label: 'Corner radius', min: 0, max: 24, step: 1 }),
-            PropertyPaneTextField('fontFamily', { label: 'Font family' }),
+            PropertyPaneTextField('fontFamily', { label: 'Font family', disabled: strictTheme }),
             PropertyPaneSlider('fontSize', { label: 'Font size', min: 10, max: 30, step: 1 })
           ]
         }, {
@@ -1214,5 +1284,6 @@ export default class SearchControlWebPart extends BaseClientSideWebPart<ISearchC
         }]
       }]
     };
+    return configuration;
   }
 }

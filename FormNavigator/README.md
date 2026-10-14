@@ -2,6 +2,15 @@
 
 Grouped, direct navigation for multiple SPS Dynamic Forms and SPS Report Forms web parts on the same SharePoint page.
 
+## October 14, 2026 release
+
+- npm version: `1.0.4`
+- SharePoint solution and feature version: `1.0.0.4`
+- Package: `sharepoint/solution/sps-form-navigator.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover navigator surfaces, nodes, categories, active/completed/disabled states, borders, and the shared font family.
+
 ## Usage
 
 1. Deploy SPS Dynamic Forms 1.0.0.96 or later and/or SPS Report Forms 1.0.0.65 or later, then deploy this package.
@@ -29,6 +38,8 @@ Drag collection rows to set category display order and global form workflow orde
 When enabled, dirty-form confirmation prevents accidental loss of unsaved input. Status indicators show current, complete, available, locked, and error states.
 
 ## Appearance
+
+Appearance mode supports manual styling, strict SharePoint site-theme colors/fonts, or site-theme colors/fonts with non-empty manual overrides. Strict site-theme mode disables the controlled color and font-family fields without clearing saved values.
 
 The property pane configures vertical, horizontal-category, or tree layout; surface/category/form colors; active, complete, locked, and error colors; typography; bold settings; padding; category/form gaps; tree indentation; borders; and corner radius.
 

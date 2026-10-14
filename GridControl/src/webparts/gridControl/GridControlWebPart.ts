@@ -39,6 +39,7 @@ export interface IDynamicDataSourceMetadataCompat {
 }
 
 export interface IGridControlWebPartProps {
+  appearanceMode?: 'manual' | 'siteTheme' | 'siteThemeOverrides';
   forceFullWidth?: boolean;
   description: string;
   instanceName?: string;
@@ -189,6 +190,7 @@ function normalizeStringCollection(value: any): string[] {
 }
 
 export default class GridControlWebPart extends BaseClientSideWebPart<IGridControlWebPartProps> {
+  private _currentTheme: any;
   private _lists: IDropdownOption[] = [];
   private _versioningEnabledByListName: { [listName: string]: boolean } = {};
   private _sitePages: IDropdownOption[] = [];
@@ -351,8 +353,8 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       linkTargetIdParam: this.properties.linkTargetIdParam || 'itemid',
       includeReturnUrlParam: this.properties.includeReturnUrlParam === true,
       enableDiagnostics: this.properties.enableDiagnostics !== false,
-      bodyTextColor: this.properties.bodyTextColor || '',
-      bodyFontFamily: this.properties.bodyFontFamily || '',
+      bodyTextColor: this.resolveAppearanceValue(this.properties.bodyTextColor, this.getThemeColor('bodyText', 'neutralPrimary'), ''),
+      bodyFontFamily: this.resolveAppearanceValue(this.properties.bodyFontFamily, this.getThemeFontFamily(), '', true),
       bodyFontSize: this.properties.bodyFontSize || '14px',
       bodyFontStyle: this.properties.bodyFontStyle || 'normal',
       bodyFontBold: this.properties.bodyFontBold === true,
@@ -365,19 +367,19 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         ? parseInt(String(this.properties.timeMinuteIncrement || '5'), 10) : 5,
       timeCustomFormat: this.properties.timeCustomFormat || '',
       timeCustomFormatCase: this.properties.timeCustomFormatCase || 'default',
-      selectedTextColor: this.properties.selectedTextColor || '',
-      selectedBackgroundColor: this.properties.selectedBackgroundColor || '',
+      selectedTextColor: this.resolveAppearanceValue(this.properties.selectedTextColor, this.getThemeColor('primaryButtonText', 'white'), ''),
+      selectedBackgroundColor: this.resolveAppearanceValue(this.properties.selectedBackgroundColor, this.getThemeColor('primaryButtonBackground', 'themePrimary'), ''),
       selectedFontStyle: this.properties.selectedFontStyle || 'normal',
       selectedFontBold: this.properties.selectedFontBold === true,
-      headerTextColor: this.properties.headerTextColor || '',
-      headerBackgroundColor: this.properties.headerBackgroundColor || '',
-      headerFontFamily: this.properties.headerFontFamily || '',
+      headerTextColor: this.resolveAppearanceValue(this.properties.headerTextColor, this.getThemeColor('bodyText', 'neutralPrimary'), ''),
+      headerBackgroundColor: this.resolveAppearanceValue(this.properties.headerBackgroundColor, this.getThemeColor('bodyBackgroundChecked', 'neutralLighter'), ''),
+      headerFontFamily: this.resolveAppearanceValue(this.properties.headerFontFamily, this.getThemeFontFamily(), '', true),
       headerFontSize: this.properties.headerFontSize || '14px',
       headerFontStyle: this.properties.headerFontStyle || 'normal',
       headerFontBold: this.properties.headerFontBold === true,
       headerTextAlign: this.properties.headerTextAlign || 'left',
-      tableBackgroundColor: this.properties.tableBackgroundColor || '#ffffff',
-      tableBorderColor: this.properties.tableBorderColor || '#cccccc',
+      tableBackgroundColor: this.resolveAppearanceValue(this.properties.tableBackgroundColor, this.getThemeColor('bodyBackground', 'white'), '#ffffff'),
+      tableBorderColor: this.resolveAppearanceValue(this.properties.tableBorderColor, this.getThemeColor('bodyDivider', 'neutralLight'), '#cccccc'),
       tableBorderWidth: this.properties.tableBorderWidth || '1px',
       tableCornerStyle: this.properties.tableCornerStyle || 'square',
       tableCornerRadius: typeof this.properties.tableCornerRadius === 'number' ? this.properties.tableCornerRadius : 0,
@@ -385,17 +387,17 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       cornerStyle: this.properties.cornerStyle || 'square',
       cornerRadius: typeof this.properties.cornerRadius === 'number' ? this.properties.cornerRadius : 12,
       alternateRowShading: this.properties.alternateRowShading === true,
-      alternateRowShadingColor: this.properties.alternateRowShadingColor || '#f9f9f9',
-      buttonTextColor: this.properties.buttonTextColor || '#000000',
-      buttonBackgroundColor: this.properties.buttonBackgroundColor || '#f0f0f0',
-      buttonFontFamily: this.properties.buttonFontFamily || 'inherit',
+      alternateRowShadingColor: this.resolveAppearanceValue(this.properties.alternateRowShadingColor, this.getThemeColor('listItemBackgroundHovered', 'neutralLighterAlt'), '#f9f9f9'),
+      buttonTextColor: this.resolveAppearanceValue(this.properties.buttonTextColor, this.getThemeColor('buttonText', 'neutralPrimary'), '#000000'),
+      buttonBackgroundColor: this.resolveAppearanceValue(this.properties.buttonBackgroundColor, this.getThemeColor('buttonBackground', 'neutralLighter'), '#f0f0f0'),
+      buttonFontFamily: this.resolveAppearanceValue(this.properties.buttonFontFamily, this.getThemeFontFamily(), 'inherit', true),
       buttonFontSize: this.properties.buttonFontSize || '14px',
       buttonFontStyle: this.properties.buttonFontStyle || 'normal',
       buttonFontBold: this.properties.buttonFontBold === true,
       buttonCornerStyle: this.properties.buttonCornerStyle || 'square',
       buttonCornerRadius: typeof this.properties.buttonCornerRadius === 'number' ? this.properties.buttonCornerRadius : 4,
-      webpartBackgroundColor: this.properties.webpartBackgroundColor || 'transparent',
-      webpartBorderColor: this.properties.webpartBorderColor || '#ccc',
+      webpartBackgroundColor: this.resolveAppearanceValue(this.properties.webpartBackgroundColor, this.getThemeColor('bodyBackground', 'white'), 'transparent'),
+      webpartBorderColor: this.resolveAppearanceValue(this.properties.webpartBorderColor, this.getThemeColor('bodyDivider', 'neutralLight'), '#ccc'),
       webpartBorderWidth: this.properties.webpartBorderWidth || 0,
       filterJson: this.properties.filterJson || '',
       externalFilterJson: this._externalSearchFilterJson,
@@ -406,6 +408,13 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     });
 
     ReactDom.render(element, this.domElement);
+  }
+
+  protected onThemeChanged(currentTheme: any): void {
+    this._currentTheme = currentTheme;
+    if (this.domElement) {
+      this.render();
+    }
   }
 
   protected onInit(): Promise<void> {
@@ -1023,7 +1032,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       conditionalStyleRuleSummaryText = strings.PropConditionalStyleSummaryInvalid;
     }
 
-    return {
+    var configuration: IPropertyPaneConfiguration = {
       pages: [
         {
           header: {
@@ -1035,6 +1044,20 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
               groupFields: [
                 PropertyPaneLabel('propertyPaneVersionInfo', {
                   text: ' '
+                })
+              ]
+            },
+            {
+              groupName: 'Appearance',
+              groupFields: [
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ],
+                  selectedKey: this.getAppearanceMode()
                 })
               ]
             },
@@ -2048,6 +2071,73 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         }
       ]
     };
+    this.applyThemePropertyPaneState(configuration);
+    return configuration;
+  }
+
+  private getAppearanceMode(): string {
+    return this.properties.appearanceMode === 'siteTheme' || this.properties.appearanceMode === 'siteThemeOverrides'
+      ? this.properties.appearanceMode : 'manual';
+  }
+
+  private getThemeColor(semanticName: string, paletteName: string): string {
+    var semanticColors = this._currentTheme && this._currentTheme.semanticColors;
+    var palette = this._currentTheme && this._currentTheme.palette;
+    return String((semanticColors && semanticColors[semanticName]) || (palette && palette[paletteName]) || '');
+  }
+
+  private getThemeFontFamily(): string {
+    var fonts = this._currentTheme && this._currentTheme.fonts;
+    return String((fonts && fonts.medium && fonts.medium.fontFamily) || '');
+  }
+
+  private resolveAppearanceValue(manualValue: any, themeValue: string, fallback: string, inheritIsEmpty?: boolean): string {
+    var manual = String(manualValue || '').trim();
+    if (inheritIsEmpty === true && manual.toLowerCase() === 'inherit') {
+      manual = '';
+    }
+    var mode = this.getAppearanceMode();
+    if (mode === 'siteTheme') {
+      return themeValue || fallback;
+    }
+    if (mode === 'siteThemeOverrides') {
+      return manual || themeValue || fallback;
+    }
+    return String(manualValue || '').trim() || fallback;
+  }
+
+  private applyThemePropertyPaneState(configuration: IPropertyPaneConfiguration): void {
+    if (this.getAppearanceMode() !== 'siteTheme') {
+      return;
+    }
+    var controlledProperties = [
+      'bodyTextColor', 'bodyFontFamily', 'selectedTextColor', 'selectedBackgroundColor',
+      'headerTextColor', 'headerBackgroundColor', 'headerFontFamily', 'tableBackgroundColor',
+      'tableBorderColor', 'alternateRowShadingColor', 'buttonTextColor', 'buttonBackgroundColor',
+      'buttonFontFamily', 'webpartBackgroundColor', 'webpartBorderColor'
+    ];
+    configuration.pages.forEach(function(page: any, pageIndex: number) {
+      (page.groups || []).forEach(function(group: any, groupIndex: number) {
+        var affected = false;
+        group.groupFields = (group.groupFields || []).filter(function(field: any) {
+          var propertyName = String(field && field.targetProperty || '');
+          if (controlledProperties.indexOf(propertyName) < 0) {
+            return true;
+          }
+          affected = true;
+          if (/FontFamily$/.test(propertyName) && field.properties) {
+            field.properties.disabled = true;
+            return true;
+          }
+          return false;
+        });
+        if (affected) {
+          group.groupFields.unshift(PropertyPaneLabel('siteThemeNotice' + String(pageIndex) + String(groupIndex), {
+            text: 'These colors and fonts are controlled by the site theme.'
+          }));
+        }
+      });
+    });
   }
 
   private getWebPartVersion(): string {
@@ -2702,7 +2792,13 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
   private async getJsonWithAcceptFallback(url: string): Promise<any> {
     var response = await this.context.spHttpClient.get(
       url,
-      SPHttpClient.configurations.v1
+      SPHttpClient.configurations.v1,
+      {
+        headers: {
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
+        }
+      }
     );
 
     if (!response.ok) {
@@ -2711,7 +2807,9 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         SPHttpClient.configurations.v1,
         {
           headers: {
-            Accept: 'application/json;odata=verbose'
+            Accept: 'application/json;odata=verbose',
+            'Cache-Control': 'no-cache, no-store',
+            Pragma: 'no-cache'
           }
         }
       );
@@ -2723,7 +2821,9 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
         SPHttpClient.configurations.v1,
         {
           headers: {
-            Accept: 'application/json;odata=nometadata'
+            Accept: 'application/json;odata=nometadata',
+            'Cache-Control': 'no-cache, no-store',
+            Pragma: 'no-cache'
           }
         }
       );

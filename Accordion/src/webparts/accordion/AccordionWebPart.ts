@@ -32,6 +32,7 @@ import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface IAccordionWebPartProps {
+  appearanceMode?: string;
     listName: string;
   itemName: string;
   itemContent: string;
@@ -72,6 +73,7 @@ private contents: IPropertyPaneDropdownOption[];
 private contentsDropDownDisabled: boolean=true;
 private options: IPropertyPaneDropdownOption[];
 private optionsDropDownDisabled: boolean=true;
+private currentTheme: any;
 
   public constructor() {
     super();
@@ -92,24 +94,24 @@ private optionsDropDownDisabled: boolean=true;
         itemContent: this.properties.itemContent,
         optionChoice: this.properties.optionChoice,
         spfxContext:this.context,
-        headerBackgroundColor: this.properties.headerBackgroundColor || '#f0f0f0',
-        headerTextColor: this.properties.headerTextColor || '#000000',
+        headerBackgroundColor: this.resolveAppearanceValue(this.properties.headerBackgroundColor, 'primaryButtonBackground', '#f0f0f0'),
+        headerTextColor: this.resolveAppearanceValue(this.properties.headerTextColor, 'primaryButtonText', '#000000'),
         headerFontBold: this.properties.headerFontBold || false,
         headerFontSize: Math.max(10, Number(this.properties.headerFontSize) || 16),
-        contentBackgroundColor: this.properties.contentBackgroundColor || '#ffffff',
-        contentTextColor: this.properties.contentTextColor || '#000000',
+        contentBackgroundColor: this.resolveAppearanceValue(this.properties.contentBackgroundColor, 'bodyBackground', '#ffffff'),
+        contentTextColor: this.resolveAppearanceValue(this.properties.contentTextColor, 'bodyText', '#000000'),
         contentFontBold: this.properties.contentFontBold || false,
         contentFontSize: Math.max(10, Number(this.properties.contentFontSize) || 16),
         cornerStyle: this.properties.cornerStyle || 'square',
         cornerRadius: Math.max(0, Number(this.properties.cornerRadius) || 0),
         showCloseBar: this.properties.showCloseBar !== false,
         closeBarText: this.properties.closeBarText || 'Close others \u00d7',
-        closeBarBackgroundColor: this.properties.closeBarBackgroundColor || '#333333',
-        closeBarTextColor: this.properties.closeBarTextColor || '#ffffff',
+        closeBarBackgroundColor: this.resolveAppearanceValue(this.properties.closeBarBackgroundColor, 'primaryButtonBackground', '#333333'),
+        closeBarTextColor: this.resolveAppearanceValue(this.properties.closeBarTextColor, 'primaryButtonText', '#ffffff'),
         closeBarFontSize: Math.max(10, Number(this.properties.closeBarFontSize) || 12),
         closeBarFontBold: this.properties.closeBarFontBold === true,
         closeBarAlignment: this.properties.closeBarAlignment || 'right',
-        fontFamily: this.properties.fontFamily || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+        fontFamily: this.resolveFontFamily(this.properties.fontFamily, "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"),
         fontStyle: this.properties.fontStyle || 'normal',
         overrideCssUrl: this.properties.overrideCssUrl || '',
         enableDiagnostics: this.properties.enableDiagnostics !== false
@@ -117,6 +119,42 @@ private optionsDropDownDisabled: boolean=true;
     );
 
     ReactDom.render(element, this.domElement);
+  }
+
+  protected onThemeChanged(currentTheme: any): void {
+    this.currentTheme = currentTheme;
+    this.render();
+  }
+
+  private getAppearanceMode(): string {
+    const mode = this.properties.appearanceMode;
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearanceValue(manualValue: string, semanticSlot: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const semanticColors = this.currentTheme && this.currentTheme.semanticColors;
+    const themeValue = semanticColors ? String(semanticColors[semanticSlot] || '') : '';
+    if (mode === 'manual') {
+      return String(manualValue || '').trim() || fallback;
+    }
+    if (mode === 'siteThemeOverrides' && String(manualValue || '').trim()) {
+      return manualValue;
+    }
+    return themeValue || fallback;
+  }
+
+  private resolveFontFamily(manualValue: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const fonts = this.currentTheme && this.currentTheme.fonts;
+    const themeValue = fonts && fonts.medium ? String(fonts.medium.fontFamily || '') : '';
+    if (mode === 'manual') {
+      return String(manualValue || '').trim() || fallback;
+    }
+    if (mode === 'siteThemeOverrides' && String(manualValue || '').trim()) {
+      return manualValue;
+    }
+    return themeValue || fallback;
   }
 
   protected onPropertyPaneConfigurationStart():void {
@@ -371,6 +409,7 @@ public serialize(): any {
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
     const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
+    const strictSiteTheme = this.getAppearanceMode() === 'siteTheme';
     return {
       pages: [
         {
@@ -383,6 +422,20 @@ public serialize(): any {
               groupFields: [
                 PropertyPaneLabel('propertyPaneVersionInfo', {
                   text: ' '
+                })
+              ]
+            },
+            {
+              groupName: 'Appearance mode',
+              groupFields: [
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  selectedKey: this.getAppearanceMode(),
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ]
                 })
               ]
             },
@@ -419,7 +472,7 @@ public serialize(): any {
                   selectedColor: this.properties.headerBackgroundColor || '#f0f0f0',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   isHidden: false,
                   alphaSliderHidden: true,
                   style: PropertyFieldColorPickerStyle.Inline,
@@ -430,7 +483,7 @@ public serialize(): any {
                   selectedColor: this.properties.headerTextColor || '#000000',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   isHidden: false,
                   alphaSliderHidden: true,
                   style: PropertyFieldColorPickerStyle.Inline,
@@ -461,7 +514,7 @@ public serialize(): any {
                   selectedColor: this.properties.contentBackgroundColor || '#ffffff',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   isHidden: false,
                   alphaSliderHidden: true,
                   style: PropertyFieldColorPickerStyle.Inline,
@@ -472,7 +525,7 @@ public serialize(): any {
                   selectedColor: this.properties.contentTextColor || '#000000',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   isHidden: false,
                   alphaSliderHidden: true,
                   style: PropertyFieldColorPickerStyle.Inline,
@@ -533,7 +586,7 @@ public serialize(): any {
                   selectedColor: this.properties.closeBarBackgroundColor || '#333333',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   isHidden: false,
                   alphaSliderHidden: true,
                   style: PropertyFieldColorPickerStyle.Inline,
@@ -544,7 +597,7 @@ public serialize(): any {
                   selectedColor: this.properties.closeBarTextColor || '#ffffff',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   isHidden: false,
                   alphaSliderHidden: true,
                   style: PropertyFieldColorPickerStyle.Inline,
@@ -576,7 +629,9 @@ public serialize(): any {
             {
               groupName: "Font Settings",
               groupFields: [
-                PropertyFieldDropdownWithCallout('fontFamily', {
+                strictSiteTheme ? PropertyPaneLabel('siteThemeFontFamilyInfo', {
+                  text: 'Font Family is controlled by the SharePoint site theme.'
+                }) : PropertyFieldDropdownWithCallout('fontFamily', {
                   key: 'fontFamily',
                   label: 'Font Family',
                   selectedKey: this.properties.fontFamily,

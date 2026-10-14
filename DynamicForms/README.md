@@ -1,5 +1,15 @@
 # SharePoint Dynamic Form
 
+## October 14, 2026 release
+
+- npm version: `1.0.46`
+- SharePoint solution and feature version: `1.0.0.112`
+- Package: `sharepoint/solution/sps-dynamic-form.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides** for form buttons.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Choice and MultiChoice controls now refresh their options from the current SharePoint column metadata, avoiding stale saved choice lists.
+- SharePoint metadata requests bypass reusable browser responses so refreshed pages receive current field definitions.
+
 <!-- 
   Keywords: SharePoint, SPFx, Dynamic Form, Form Builder, Web Part, React, SharePoint Framework, 
   Form Engine, Visual Designer, No-code Form, SharePoint Online, TypeScript

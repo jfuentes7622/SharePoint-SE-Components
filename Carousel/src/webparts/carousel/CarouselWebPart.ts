@@ -38,6 +38,7 @@ import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/sp
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface ICarouselWebPartProps {
+  appearanceMode?: string;
   forceFullWidth?: boolean;
   carouselWidth: number;
   carouselHeight: number;
@@ -101,6 +102,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
   private _siteLists: string[] = [];
   private _columnOptions: IPropertyPaneDropdownOption[] = [];
   private _viewOptions: IPropertyPaneDropdownOption[] = [];
+  private currentTheme: any;
 
   public constructor() {
     super();
@@ -122,7 +124,9 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
 
     this.logDiagnostic('render() called');
-    const webPartBackgroundColor = this.getVisibleBackgroundColor(this.properties.webPartBackgroundColor, '#ffffff');
+    const webPartBackgroundColor = this.getAppearanceMode() === 'manual'
+      ? this.getVisibleBackgroundColor(this.properties.webPartBackgroundColor, '#ffffff')
+      : this.resolveAppearanceValue(this.properties.webPartBackgroundColor, 'bodyBackground', '#ffffff');
     this.domElement.style.backgroundColor = 'transparent';
     this._recordSvc = this.GetNewRecSvc();
 
@@ -161,42 +165,42 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
         slideLinkField: this.properties.slideLinkField || '',
         imageIsCircle: this.properties.imageIsCircle,
         webPartBackgroundColor: webPartBackgroundColor,
-        webPartBorderColor: this.properties.webPartBorderColor || '#d2d0ce',
+        webPartBorderColor: this.resolveAppearanceValue(this.properties.webPartBorderColor, 'variantBorder', '#d2d0ce'),
         webPartBorderWidth: this.properties.webPartBorderWidth || 0,
         webPartBorderStyle: this.properties.webPartBorderStyle || 'solid',
         webPartCornerRadius: this.properties.webPartCornerRadius || 0,
         webPartPadding: this.properties.webPartPadding || 0,
         showTitle: this.properties.showTitle === true,
         title: this.properties.title || '',
-        titleTextColor: this.properties.titleTextColor || '#323130',
-        titleFontFamily: this.properties.titleFontFamily || 'inherit',
+        titleTextColor: this.resolveAppearanceValue(this.properties.titleTextColor, 'bodyText', '#323130'),
+        titleFontFamily: this.resolveFontFamily(this.properties.titleFontFamily, 'inherit'),
         titleFontSize: this.properties.titleFontSize || 20,
         titleFontStyle: this.properties.titleFontStyle || 'normal',
         titleFontBold: this.properties.titleFontBold !== false,
         titleAlignment: this.properties.titleAlignment || 'center',
         titleBottomSpacing: this.properties.titleBottomSpacing || 0,
         showSlideTitle: this.properties.showSlideTitle !== false,
-        slideTitleColor: this.properties.slideTitleColor || '#ffffff',
-        slideTitleFontFamily: this.properties.slideTitleFontFamily || 'inherit',
+        slideTitleColor: this.resolveAppearanceValue(this.properties.slideTitleColor, 'bodyText', '#ffffff'),
+        slideTitleFontFamily: this.resolveFontFamily(this.properties.slideTitleFontFamily, 'inherit'),
         slideTitleFontSize: this.properties.slideTitleFontSize || 22,
         slideTitleFontStyle: this.properties.slideTitleFontStyle || 'normal',
         slideTitleFontBold: this.properties.slideTitleFontBold !== false,
         slideTitleAlignment: this.properties.slideTitleAlignment || 'left',
         showSlideDescription: this.properties.showSlideDescription !== false,
-        slideDescriptionColor: this.properties.slideDescriptionColor || '#ffffff',
-        slideDescriptionFontFamily: this.properties.slideDescriptionFontFamily || 'inherit',
+        slideDescriptionColor: this.resolveAppearanceValue(this.properties.slideDescriptionColor, 'bodyText', '#ffffff'),
+        slideDescriptionFontFamily: this.resolveFontFamily(this.properties.slideDescriptionFontFamily, 'inherit'),
         slideDescriptionFontSize: this.properties.slideDescriptionFontSize || 14,
         slideDescriptionFontStyle: this.properties.slideDescriptionFontStyle || 'normal',
         slideDescriptionFontBold: this.properties.slideDescriptionFontBold === true,
         slideDescriptionAlignment: this.properties.slideDescriptionAlignment || 'left',
         showSlideLink: this.properties.showSlideLink !== false,
-        slideLinkColor: this.properties.slideLinkColor || '#ffffff',
-        slideLinkFontFamily: this.properties.slideLinkFontFamily || 'inherit',
+        slideLinkColor: this.resolveAppearanceValue(this.properties.slideLinkColor, 'link', '#ffffff'),
+        slideLinkFontFamily: this.resolveFontFamily(this.properties.slideLinkFontFamily, 'inherit'),
         slideLinkFontSize: this.properties.slideLinkFontSize || 14,
         slideLinkFontStyle: this.properties.slideLinkFontStyle || 'normal',
         slideLinkFontBold: this.properties.slideLinkFontBold !== false,
         slideLinkAlignment: this.properties.slideLinkAlignment || 'left',
-        slideCaptionBackgroundColor: this.properties.slideCaptionBackgroundColor || 'rgba(0,0,0,0.65)',
+        slideCaptionBackgroundColor: this.resolveAppearanceValue(this.properties.slideCaptionBackgroundColor, 'bodyBackground', 'rgba(0,0,0,0.65)'),
         slideCaptionPadding: this.properties.slideCaptionPadding || 12,
         enableDiagnostics: this.properties.enableDiagnostics !== false,
         spfxContext:this.context,
@@ -352,6 +356,9 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
       this.resolveColumnMappings();
       this.context.propertyPane.refresh();
     }
+    if (propertyPath === 'appearanceMode') {
+      this.context.propertyPane.refresh();
+    }
     this.render();
   }
 
@@ -378,8 +385,45 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
       : value;
   }
 
+  protected onThemeChanged(currentTheme: any): void {
+    this.currentTheme = currentTheme;
+    this.render();
+  }
+
+  private getAppearanceMode(): string {
+    const mode = this.properties.appearanceMode;
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearanceValue(manualValue: string, semanticSlot: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const semanticColors = this.currentTheme && this.currentTheme.semanticColors;
+    const themeValue = semanticColors ? String(semanticColors[semanticSlot] || '') : '';
+    if (mode === 'manual') {
+      return String(manualValue || '').trim() || fallback;
+    }
+    if (mode === 'siteThemeOverrides' && String(manualValue || '').trim()) {
+      return manualValue;
+    }
+    return themeValue || fallback;
+  }
+
+  private resolveFontFamily(manualValue: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const fonts = this.currentTheme && this.currentTheme.fonts;
+    const themeValue = fonts && fonts.medium ? String(fonts.medium.fontFamily || '') : '';
+    if (mode === 'manual') {
+      return String(manualValue || '').trim() || fallback;
+    }
+    if (mode === 'siteThemeOverrides' && String(manualValue || '').trim()) {
+      return manualValue;
+    }
+    return themeValue || fallback;
+  }
+
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
     const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
+    const strictSiteTheme = this.getAppearanceMode() === 'siteTheme';
     const fontOptions: IPropertyPaneDropdownOption[] = [
       { key: 'inherit', text: 'Page default' },
       { key: 'Segoe UI', text: 'Segoe UI' },
@@ -402,6 +446,20 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
               groupFields: [
                 PropertyPaneLabel('propertyPaneVersionInfo', {
                   text: ' '
+                })
+              ]
+            },
+            {
+              groupName: 'Appearance mode',
+              groupFields: [
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  selectedKey: this.getAppearanceMode(),
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ]
                 })
               ]
             },
@@ -467,7 +525,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                   selectedColor: this.getVisibleBackgroundColor(this.properties.webPartBackgroundColor, '#ffffff'),
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'Color',
@@ -478,7 +536,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                   selectedColor: this.properties.webPartBorderColor || '#d2d0ce',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'Color',
@@ -520,7 +578,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                   selectedColor: this.properties.titleTextColor || '#323130',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   alphaSliderHidden: true,
                   style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'FontColor',
@@ -528,7 +586,8 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                 }),
                 PropertyPaneDropdown('titleFontFamily', {
                   label: 'Title Font', options: fontOptions,
-                  selectedKey: this.properties.titleFontFamily || 'inherit'
+                  selectedKey: this.properties.titleFontFamily || 'inherit',
+                  disabled: strictSiteTheme
                 }),
                 PropertyPaneSlider('titleFontSize', {
                   label: 'Title Font Size', min: 10, max: 72, step: 1,
@@ -569,7 +628,7 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                   selectedColor: this.properties.slideCaptionBackgroundColor || 'rgba(0,0,0,0.65)',
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   properties: this.properties,
-                  disabled: false,
+                  disabled: strictSiteTheme,
                   alphaSliderHidden: false,
                   style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'Color',
@@ -590,12 +649,13 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                 PropertyFieldColorPicker('slideTitleColor', {
                   label: 'Slide Title Color', selectedColor: this.properties.slideTitleColor || '#ffffff',
                   onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties,
-                  disabled: false, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Full,
+                  disabled: strictSiteTheme, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'FontColor', key: 'slideTitleColorField'
                 }),
                 PropertyPaneDropdown('slideTitleFontFamily', {
                   label: 'Slide Title Font', options: fontOptions,
-                  selectedKey: this.properties.slideTitleFontFamily || 'inherit'
+                  selectedKey: this.properties.slideTitleFontFamily || 'inherit',
+                  disabled: strictSiteTheme
                 }),
                 PropertyPaneSlider('slideTitleFontSize', {
                   label: 'Slide Title Font Size', min: 10, max: 72, step: 1,
@@ -623,12 +683,13 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                 PropertyFieldColorPicker('slideDescriptionColor', {
                   label: 'Description Color', selectedColor: this.properties.slideDescriptionColor || '#ffffff',
                   onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties,
-                  disabled: false, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Full,
+                  disabled: strictSiteTheme, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'FontColor', key: 'slideDescriptionColorField'
                 }),
                 PropertyPaneDropdown('slideDescriptionFontFamily', {
                   label: 'Description Font', options: fontOptions,
-                  selectedKey: this.properties.slideDescriptionFontFamily || 'inherit'
+                  selectedKey: this.properties.slideDescriptionFontFamily || 'inherit',
+                  disabled: strictSiteTheme
                 }),
                 PropertyPaneSlider('slideDescriptionFontSize', {
                   label: 'Description Font Size', min: 10, max: 48, step: 1,
@@ -656,12 +717,13 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
                 PropertyFieldColorPicker('slideLinkColor', {
                   label: 'Link Color', selectedColor: this.properties.slideLinkColor || '#ffffff',
                   onPropertyChange: this.onPropertyPaneFieldChanged, properties: this.properties,
-                  disabled: false, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Full,
+                  disabled: strictSiteTheme, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'FontColor', key: 'slideLinkColorField'
                 }),
                 PropertyPaneDropdown('slideLinkFontFamily', {
                   label: 'Link Font', options: fontOptions,
-                  selectedKey: this.properties.slideLinkFontFamily || 'inherit'
+                  selectedKey: this.properties.slideLinkFontFamily || 'inherit',
+                  disabled: strictSiteTheme
                 }),
                 PropertyPaneSlider('slideLinkFontSize', {
                   label: 'Link Font Size', min: 10, max: 48, step: 1,

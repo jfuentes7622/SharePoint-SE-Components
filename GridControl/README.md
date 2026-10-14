@@ -2,6 +2,16 @@
 
 SPFx 1.5.1 editable SharePoint grid for SharePoint Server Subscription Edition.
 
+## October 14, 2026 release
+
+- npm version: `1.0.87`
+- SharePoint solution and feature version: `1.0.0.87`
+- Package: `sharepoint/solution/sps-grid-control.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover table and web-part surfaces, text, headers, selected states, buttons, borders, alternate rows, and font families.
+- SharePoint metadata requests now bypass reusable browser responses so refreshed pages receive current field definitions and Choice options.
+
 GridControl starts with the ListControl display, filtering, styling, and dynamic-data baseline, then adds inline row creation and editing. For a standard list, select **+ Add row** to insert a draft row. For a document library, select **Add document** and choose the file before entering its metadata. Use the row-level **Edit** button for an existing row. **Save** validates and creates or updates the SharePoint item; **Cancel** discards the draft.
 
 ## Purpose

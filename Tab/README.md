@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 web part for grouping modern SharePoint page sections or individual web parts into a tabbed interface.
 
+## October 14, 2026 release
+
+- npm version: `2.0.6`
+- SharePoint solution and feature version: `3.1.0.36`
+- Package: `sharepoint/solution/sps-tabs.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover active and inactive tabs, text, borders, the tab strip, outer surfaces, and font family while preserving tab dimensions and layout.
+
 ## Features
 
 - Build and reorder tabs in a property-pane collection editor.

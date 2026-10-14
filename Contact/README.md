@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 personnel directory web part for SharePoint Server Subscription Edition.
 
+## October 14, 2026 release
+
+- npm version: `0.0.5`
+- SharePoint solution and feature version: `3.1.0.20`
+- Package: `sharepoint/solution/sps-contacts.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover headers, contact surfaces, text, borders, and font families without changing contact data or layout.
+
 ## Features
 
 - Load contacts from a SharePoint list or maintain inline contact entries in the property pane.
@@ -23,6 +32,8 @@ To create a compatible list on demand, enter a name under **New Contact List Nam
 Disable **Use Existing List** to enter contact records directly in the property-pane collection editor.
 
 ## Appearance
+
+Appearance mode supports manual styling, strict SharePoint site-theme colors/fonts, or site-theme colors/fonts with non-empty manual overrides. Strict site-theme mode disables the controlled color and font-family fields without clearing saved values.
 
 | Property | Description |
 |---|---|

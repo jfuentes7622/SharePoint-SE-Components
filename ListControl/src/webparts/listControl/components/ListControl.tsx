@@ -736,6 +736,11 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return;
     }
 
+    if (prevProps.viewColumns !== this.props.viewColumns || prevProps.groupingJson !== this.props.groupingJson) {
+      this.setState({ currentPage: 0 }, () => this.loadRows());
+      return;
+    }
+
     if (prevState.selectedViewId !== this.state.selectedViewId) {
       if (this.state.currentPage !== 0) {
         this.setState({ currentPage: 0 });
@@ -1104,14 +1109,21 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
   private async getJsonWithFallback(url: string): Promise<any> {
     this.logDiagnostic('REST request: GET ' + url);
-    var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store',
+        Pragma: 'no-cache'
+      }
+    });
     this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
       this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=verbose'
+          Accept: 'application/json;odata=verbose',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
@@ -1122,7 +1134,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=minimalmetadata'
+          Accept: 'application/json;odata=minimalmetadata',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
@@ -1133,7 +1147,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=nometadata'
+          Accept: 'application/json;odata=nometadata',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
@@ -2170,6 +2186,22 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       var baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
       var selectedViewId = this.state.selectedViewId;
       var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
+      if (selectedViewId === this.props.defaultViewId && this.props.viewColumns) {
+        var configuredFieldNames = this.props.viewColumns.map(function(column: IListControlColumnConfiguration) {
+          return String(column.fieldName || '');
+        }).filter(function(fieldName: string) {
+          return !!fieldName;
+        });
+        configuredFieldNames.forEach(function(fieldName: string) {
+          var normalizedFieldName = fieldName.toLowerCase();
+          var alreadyIncluded = viewFieldNames.some(function(existingFieldName: string) {
+            return String(existingFieldName || '').toLowerCase() === normalizedFieldName;
+          });
+          if (!alreadyIncluded) {
+            viewFieldNames.push(fieldName);
+          }
+        });
+      }
       var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, viewFieldNames);
       var runtimeFilterFieldNames = this.getRuntimeFilterFieldNames();
       this._pagingRuntimeFilterFieldNames = runtimeFilterFieldNames.slice(0);

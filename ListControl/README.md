@@ -2,6 +2,17 @@
 
 SPFx 1.5.1 list control web part for SharePoint Server Subscription Edition.
 
+## October 14, 2026 release
+
+- npm version: `1.0.109`
+- SharePoint solution and feature version: `1.0.0.109`
+- Package: `sharepoint/solution/SPS-list-control.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover table and web-part surfaces, text, headers, selected states, buttons, borders, alternate rows, and font families.
+- Configured columns are now requested even when they are outside the selected SharePoint view, and field metadata reloads when saved columns or grouping changes.
+- SharePoint metadata requests bypass reusable browser responses so refreshed pages receive current field definitions and Choice options.
+
 ## Purpose
 
 - Connect to a SharePoint list

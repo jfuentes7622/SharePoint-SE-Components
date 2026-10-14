@@ -22,6 +22,7 @@ import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface ILinkButtonWebPartProps {
+  appearanceMode?: string;
   description: string;
   Link: string;
   linkTarget: string;
@@ -54,6 +55,7 @@ export interface ILinkButtonWebPartProps {
 require ('./button.css');
 
 export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButtonWebPartProps> {
+  private _siteTheme: any;
 
   public constructor() {
     super();
@@ -65,6 +67,40 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
     return super.onInit().then(() => {
       this.logDiagnostic('onInit completed.');
     });
+  }
+
+  protected onThemeChanged(currentTheme: any): void {
+    this._siteTheme = currentTheme;
+    this.render();
+    if (this.context && this.context.propertyPane) {
+      this.context.propertyPane.refresh();
+    }
+  }
+
+  private getAppearanceMode(): string {
+    const mode = String(this.properties.appearanceMode || '');
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearance(manualValue: any, semanticName: string, paletteName: string, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this._siteTheme || {};
+    return String(theme.semanticColors && theme.semanticColors[semanticName]
+      || theme.palette && theme.palette[paletteName] || fallback);
+  }
+
+  private resolveFontFamily(manualValue: any, fallback: string): string {
+    const mode = this.getAppearanceMode();
+    const manual = String(manualValue || '').trim();
+    if (mode === 'manual' || (mode === 'siteThemeOverrides' && manual)) {
+      return manual || fallback;
+    }
+    const theme = this._siteTheme || {};
+    return String(theme.fonts && theme.fonts.medium && theme.fonts.medium.fontFamily || fallback);
   }
 
   private logDiagnostic(message: string): void {
@@ -170,7 +206,10 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
-    if (propertyPath === 'showIcon' || propertyPath === 'buttonShape' || propertyPath === 'imageDisplayMode') {
+    if (propertyPath === 'appearanceMode' && oldValue !== newValue) {
+      this.context.propertyPane.refresh();
+      this.render();
+    } else if (propertyPath === 'showIcon' || propertyPath === 'buttonShape' || propertyPath === 'imageDisplayMode') {
       this.context.propertyPane.refresh();
     }
   }
@@ -214,12 +253,15 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
 
       // Typed as `any`: TS 2.4.2 cannot narrow the fontWeight ternary to the CSSProperties literal union.
       const buttonStyle: any = {
-        backgroundColor: this.properties.buttonBackgroundColor || '#8A1717',
-        color: this.properties.buttonFontColor || '#ffffff',
+        backgroundColor: this.resolveAppearance(this.properties.buttonBackgroundColor,
+          'primaryButtonBackground', 'themePrimary', '#8A1717'),
+        color: this.resolveAppearance(this.properties.buttonFontColor,
+          'primaryButtonText', 'white', '#ffffff'),
         height: this.toCssPixels(this.properties.buttonHeight, 50),
         width: this.toCssPixels(this.properties.buttonWidth, 200),
         fontSize: this.toCssPixels(this.properties.fontSize, 20),
-        fontFamily: this.properties.fontFamily || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+        fontFamily: this.resolveFontFamily(this.properties.fontFamily,
+          "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"),
         fontStyle: this.properties.fontStyle || 'normal',
         fontWeight: this.properties.fontWeight || (this.properties.fontBold ? '700' : '400'),
         textDecoration: this.properties.textDecoration || 'none',
@@ -316,6 +358,7 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
     this.logDiagnostic('Property pane opened.');
     const fullVersionLabel = 'Version: ' + this.getWebPartVersion();
+    const strictTheme = this.getAppearanceMode() === 'siteTheme';
     return {
       pages: [
         {
@@ -362,6 +405,20 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                     { key: '3', text: 'Right' }
                   ]
                 }),
+                PropertyPaneDropdown('appearanceMode', {
+                  label: 'Appearance mode',
+                  options: [
+                    { key: 'manual', text: 'Manual styling' },
+                    { key: 'siteTheme', text: 'Site theme only' },
+                    { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+                  ],
+                  selectedKey: this.getAppearanceMode()
+                }),
+                PropertyPaneLabel('siteThemeAppearanceHelp', {
+                  text: strictTheme
+                    ? 'Theme-controlled colors and font family are disabled while Site theme only is selected.'
+                    : 'Choose how configurable colors and font family use the SharePoint site theme.'
+                }),
                 PropertyPaneDropdown('buttonShape', {
                   label: 'Button Shape',
                   options: [
@@ -388,7 +445,8 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                   style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'BackgroundColor',
                   properties: this.properties,
-                  key: 'buttonBackgroundColorField'
+                  key: 'buttonBackgroundColorField',
+                  disabled: strictTheme
                 }),
                 PropertyFieldColorPicker('buttonFontColor', {
                   label: 'Button Font Color',
@@ -398,7 +456,8 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                   style: PropertyFieldColorPickerStyle.Full,
                   iconName: 'FontColor',
                   properties: this.properties,
-                  key: 'buttonFontColorField'
+                  key: 'buttonFontColorField',
+                  disabled: strictTheme
                 }),
                 PropertyPaneOverrideCss('overrideCssUrl', this.properties.overrideCssUrl || '', this.context, (newValue: string): void => {
                   const oldValue = this.properties.overrideCssUrl || '';
@@ -408,6 +467,7 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
                 }),
                 PropertyPaneDropdown('fontFamily', {
                   label: 'Font Family',
+                  disabled: strictTheme,
                   options: [
                     { key: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", text: 'Segoe UI' },
                     { key: 'Arial, Helvetica, sans-serif', text: 'Arial' },

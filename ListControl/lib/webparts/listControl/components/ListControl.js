@@ -526,6 +526,10 @@ var ListControl = (function (_super) {
             });
             return;
         }
+        if (prevProps.viewColumns !== this.props.viewColumns || prevProps.groupingJson !== this.props.groupingJson) {
+            this.setState({ currentPage: 0 }, function () { return _this.loadRows(); });
+            return;
+        }
         if (prevState.selectedViewId !== this.state.selectedViewId) {
             if (this.state.currentPage !== 0) {
                 this.setState({ currentPage: 0 });
@@ -837,7 +841,12 @@ var ListControl = (function (_super) {
                 switch (_a.label) {
                     case 0:
                         this.logDiagnostic('REST request: GET ' + url);
-                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1)];
+                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                headers: {
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
+                                }
+                            })];
                     case 1:
                         response = _a.sent();
                         this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
@@ -845,7 +854,9 @@ var ListControl = (function (_super) {
                         this.logDiagnostic('REST retry (verbose): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
-                                    Accept: 'application/json;odata=verbose'
+                                    Accept: 'application/json;odata=verbose',
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
                                 }
                             })];
                     case 2:
@@ -858,7 +869,9 @@ var ListControl = (function (_super) {
                         this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
-                                    Accept: 'application/json;odata=minimalmetadata'
+                                    Accept: 'application/json;odata=minimalmetadata',
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
                                 }
                             })];
                     case 4:
@@ -871,7 +884,9 @@ var ListControl = (function (_super) {
                         this.logDiagnostic('REST retry (nometadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
-                                    Accept: 'application/json;odata=nometadata'
+                                    Accept: 'application/json;odata=nometadata',
+                                    'Cache-Control': 'no-cache, no-store',
+                                    Pragma: 'no-cache'
                                 }
                             })];
                     case 6:
@@ -1935,7 +1950,7 @@ var ListControl = (function (_super) {
     ListControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, fieldTitleMap, visibleFieldNames, fieldTypeMap, fieldMetadataMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _a, error_3, loadError;
+            var requestId, baseEndpoint, selectedViewId, viewFieldNames, configuredFieldNames, selectedViewXml, runtimeFilterFieldNames, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, fieldTitleMap, visibleFieldNames, fieldTypeMap, fieldMetadataMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _a, error_3, loadError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -1954,6 +1969,22 @@ var ListControl = (function (_super) {
                         return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
                     case 2:
                         viewFieldNames = _b.sent();
+                        if (selectedViewId === this.props.defaultViewId && this.props.viewColumns) {
+                            configuredFieldNames = this.props.viewColumns.map(function (column) {
+                                return String(column.fieldName || '');
+                            }).filter(function (fieldName) {
+                                return !!fieldName;
+                            });
+                            configuredFieldNames.forEach(function (fieldName) {
+                                var normalizedFieldName = fieldName.toLowerCase();
+                                var alreadyIncluded = viewFieldNames.some(function (existingFieldName) {
+                                    return String(existingFieldName || '').toLowerCase() === normalizedFieldName;
+                                });
+                                if (!alreadyIncluded) {
+                                    viewFieldNames.push(fieldName);
+                                }
+                            });
+                        }
                         return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, viewFieldNames)];
                     case 3:
                         selectedViewXml = _b.sent();

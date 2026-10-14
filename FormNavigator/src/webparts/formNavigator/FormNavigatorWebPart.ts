@@ -28,6 +28,7 @@ export interface ICategoryConfig { id?: string; title: string; order?: number; c
 export interface IFormConfig { instanceId: string; label: string; categoryId: string; order?: number; required?: boolean; policy?: NavigationPolicy; }
 interface IFormState { instanceId: string; instanceName?: string; listName?: string; active?: boolean; itemId?: number; mode?: string; dirty?: boolean; completed?: boolean; isSubmitting?: boolean; hasErrors?: boolean; }
 export interface IFormNavigatorWebPartProps {
+  appearanceMode?: string;
   title?: string;
   categories?: ICategoryConfig[];
   forms?: IFormConfig[];
@@ -76,6 +77,7 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
   private _initializationAttempts: number = 0;
   private _initializationTimer: number = 0;
   private _activationQueryHandler: (event: Event) => void;
+  private currentTheme: any;
 
   public constructor() {
     super();
@@ -109,6 +111,34 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
   private getWebPartVersion(): string {
     const solutionVersion = packageSolutionConfig && packageSolutionConfig.solution ? String(packageSolutionConfig.solution.version || '') : '';
     return solutionVersion || (this.context.manifest ? String(this.context.manifest.version || 'Unknown') : 'Unknown');
+  }
+
+  protected onThemeChanged(currentTheme: any): void {
+    this.currentTheme = currentTheme;
+    this.render();
+  }
+
+  private getAppearanceMode(): string {
+    var mode = this.properties.appearanceMode;
+    return mode === 'siteTheme' || mode === 'siteThemeOverrides' ? mode : 'manual';
+  }
+
+  private resolveAppearanceValue(manualValue: string | undefined, semanticSlot: string, fallback: string): string {
+    var mode = this.getAppearanceMode();
+    var semanticColors = this.currentTheme && this.currentTheme.semanticColors;
+    var themeValue = semanticColors ? String(semanticColors[semanticSlot] || '') : '';
+    if (mode === 'manual') { return String(manualValue || '').trim() || fallback; }
+    if (mode === 'siteThemeOverrides' && String(manualValue || '').trim()) { return String(manualValue); }
+    return themeValue || fallback;
+  }
+
+  private resolveFontFamily(manualValue: string | undefined, fallback: string): string {
+    var mode = this.getAppearanceMode();
+    var fonts = this.currentTheme && this.currentTheme.fonts;
+    var themeValue = fonts && fonts.medium ? String(fonts.medium.fontFamily || '') : '';
+    if (mode === 'manual') { return String(manualValue || '').trim() || fallback; }
+    if (mode === 'siteThemeOverrides' && String(manualValue || '').trim()) { return String(manualValue); }
+    return themeValue || fallback;
   }
 
   private normalizeId(value: string): string { return String(value || '').replace(/[{}]/g, '').toLowerCase(); }
@@ -246,11 +276,11 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
 
   private getStatus(form: IFormConfig, forms: IFormConfig[]): { label: string; icon: string; color: string } {
     var state: IFormState = this._states[this.normalizeId(form.instanceId)] || {} as IFormState;
-    if (state.hasErrors) { return { label: strings.StatusError, icon: 'ErrorBadge', color: this.properties.errorColor || '#a80000' }; }
-    if (state.active) { return { label: strings.StatusActive, icon: 'ChevronRight', color: this.properties.activeTextColor || '#ffffff' }; }
-    if (state.completed) { return { label: strings.StatusComplete, icon: 'CompletedSolid', color: this.properties.completeColor || '#107c10' }; }
-    if (this.isLocked(form, forms)) { return { label: strings.StatusLocked, icon: 'Lock', color: this.properties.lockedColor || '#8a8886' }; }
-    return { label: strings.StatusAvailable, icon: 'CircleRing', color: this.properties.nodeTextColor || '#323130' };
+    if (state.hasErrors) { return { label: strings.StatusError, icon: 'ErrorBadge', color: this.resolveAppearanceValue(this.properties.errorColor, 'errorText', '#a80000') }; }
+    if (state.active) { return { label: strings.StatusActive, icon: 'ChevronRight', color: this.resolveAppearanceValue(this.properties.activeTextColor, 'primaryButtonText', '#ffffff') }; }
+    if (state.completed) { return { label: strings.StatusComplete, icon: 'CompletedSolid', color: this.resolveAppearanceValue(this.properties.completeColor, 'link', '#107c10') }; }
+    if (this.isLocked(form, forms)) { return { label: strings.StatusLocked, icon: 'Lock', color: this.resolveAppearanceValue(this.properties.lockedColor, 'disabledText', '#8a8886') }; }
+    return { label: strings.StatusAvailable, icon: 'CircleRing', color: this.resolveAppearanceValue(this.properties.nodeTextColor, 'bodyText', '#323130') };
   }
 
   private navigateTo(form: IFormConfig, forms: IFormConfig[]): void {
@@ -316,9 +346,12 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this.discoverForms();
     var config = this.parseConfiguration();
-    var rootStyle = 'background:' + (this.properties.surfaceBackgroundColor || '#ffffff') + ';color:' + (this.properties.surfaceTextColor || '#201f1e')
-      + ';font-family:' + (this.properties.fontFamily || 'Segoe UI') + ';font-size:' + String(this.properties.fontSize || 14) + 'px;'
-      + 'border:' + String(this.properties.borderWidth === undefined ? 1 : this.properties.borderWidth) + 'px solid ' + (this.properties.borderColor || '#d2d0ce') + ';'
+    var surfaceBackgroundColor = this.resolveAppearanceValue(this.properties.surfaceBackgroundColor, 'bodyBackground', '#ffffff');
+    var surfaceTextColor = this.resolveAppearanceValue(this.properties.surfaceTextColor, 'bodyText', '#201f1e');
+    var borderColor = this.resolveAppearanceValue(this.properties.borderColor, 'variantBorder', '#d2d0ce');
+    var rootStyle = 'background:' + surfaceBackgroundColor + ';color:' + surfaceTextColor
+      + ';font-family:' + this.resolveFontFamily(this.properties.fontFamily, 'Segoe UI') + ';font-size:' + String(this.properties.fontSize || 14) + 'px;'
+      + 'border:' + String(this.properties.borderWidth === undefined ? 1 : this.properties.borderWidth) + 'px solid ' + borderColor + ';'
       + 'border-radius:' + String(this.properties.cornerRadius || 0) + 'px;padding:12px;';
     if (!config) { this.domElement.innerHTML = '<div class="fn-root fn-error" style="' + rootStyle + '">' + this.escapeHtml(this._configurationError) + '</div>'; return; }
     if (!config.categories.length || !config.forms.length) { this.domElement.innerHTML = '<div class="fn-root" style="' + rootStyle + '"><div class="fn-empty">' + this.escapeHtml(strings.NoConfiguration) + '</div></div>'; return; }
@@ -339,9 +372,9 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
         var state: IFormState = this._states[this.normalizeId(form.instanceId)] || {} as IFormState;
         var locked = this.isLocked(form, config.forms);
         var status = this.getStatus(form, config.forms);
-        var nodeStyle = 'background:' + (state.active ? (this.properties.activeBackgroundColor || '#0078d4') : (this.properties.nodeBackgroundColor || '#ffffff'))
-          + ';color:' + (state.active ? (this.properties.activeTextColor || '#ffffff') : (this.properties.nodeTextColor || '#323130'))
-          + ';border:' + String(this.properties.borderWidth === undefined ? 1 : this.properties.borderWidth) + 'px solid ' + (this.properties.borderColor || '#d2d0ce')
+        var nodeStyle = 'background:' + (state.active ? this.resolveAppearanceValue(this.properties.activeBackgroundColor, 'primaryButtonBackground', '#0078d4') : this.resolveAppearanceValue(this.properties.nodeBackgroundColor, 'bodyBackground', '#ffffff'))
+          + ';color:' + (state.active ? this.resolveAppearanceValue(this.properties.activeTextColor, 'primaryButtonText', '#ffffff') : this.resolveAppearanceValue(this.properties.nodeTextColor, 'bodyText', '#323130'))
+          + ';border:' + String(this.properties.borderWidth === undefined ? 1 : this.properties.borderWidth) + 'px solid ' + borderColor
           + ';border-radius:' + String(this.properties.cornerRadius || 0) + 'px;padding:' + String(this.properties.nodePadding || 10) + 'px;'
           + 'font-weight:' + (this.properties.fontBold === true ? '700' : '400') + ';';
         if (this.properties.layout === 'tree') { nodeStyle += 'margin-left:' + String(this.properties.indentSize || 18) + 'px;width:calc(100% - ' + String(this.properties.indentSize || 18) + 'px);'; }
@@ -349,7 +382,7 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
           + (this.properties.showStatus === false ? '' : '<span class="fn-status" style="color:' + status.color + '"><i class="ms-Icon ms-Icon--' + status.icon + '" aria-hidden="true"></i><span class="fn-visually-hidden">' + this.escapeHtml(status.label) + '</span></span>')
           + '<span class="fn-node-label">' + this.escapeHtml(form.label) + '</span></button>');
       }
-      var categoryStyle = 'background:' + (this.properties.categoryBackgroundColor || '#f3f2f1') + ';color:' + (this.properties.categoryTextColor || '#323130')
+      var categoryStyle = 'background:' + this.resolveAppearanceValue(this.properties.categoryBackgroundColor, 'bodyStandoutBackground', '#f3f2f1') + ';color:' + this.resolveAppearanceValue(this.properties.categoryTextColor, 'bodyText', '#323130')
         + ';font-size:' + String(this.properties.categoryFontSize || 14) + 'px;font-weight:' + (this.properties.categoryFontBold === false ? '400' : '700')
         + ';padding:' + String(this.properties.nodePadding || 10) + 'px;border-radius:' + String(this.properties.cornerRadius || 0) + 'px;';
       categoryHtml.push('<section class="fn-category"><button type="button" class="fn-category-button" data-category-id="' + this.escapeHtml(category.id) + '" style="' + categoryStyle + '" aria-expanded="' + (!collapsed) + '">'
@@ -384,6 +417,10 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+    if (propertyPath === 'appearanceMode') {
+      this.context.propertyPane.refresh();
+      this.render();
+    }
     if (propertyPath === 'categories' || propertyPath === 'forms') {
       this._initializedConfiguration = '';
       this.context.propertyPane.refresh();
@@ -392,10 +429,11 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
   }
 
   private colorField(targetProperty: string, label: string): any {
-    return PropertyFieldColorPicker(targetProperty, { label: label, selectedColor: (this.properties as any)[targetProperty], onPropertyChange: this.onPropertyPaneFieldChanged.bind(this), properties: this.properties, disabled: false, alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Inline, key: targetProperty });
+    return PropertyFieldColorPicker(targetProperty, { label: label, selectedColor: (this.properties as any)[targetProperty], onPropertyChange: this.onPropertyPaneFieldChanged.bind(this), properties: this.properties, disabled: this.getAppearanceMode() === 'siteTheme', alphaSliderHidden: true, style: PropertyFieldColorPickerStyle.Inline, key: targetProperty });
   }
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    var strictSiteTheme = this.getAppearanceMode() === 'siteTheme';
     var categoryOptions = (this.properties.categories || []).filter(function(category: ICategoryConfig) {
       return !!String(category && category.title || '').trim();
     }).map(function(category: ICategoryConfig) {
@@ -404,6 +442,13 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
     });
     return { pages: [{ header: { description: strings.PropertyPaneDescription }, groups: [
       { groupName: strings.VersionGroup + ': ' + this.getWebPartVersion(), groupFields: [PropertyPaneLabel('versionInfo', { text: ' ' })] },
+      { groupName: 'Appearance mode', groupFields: [PropertyPaneDropdown('appearanceMode', {
+        label: 'Appearance mode', selectedKey: this.getAppearanceMode(), options: [
+          { key: 'manual', text: 'Manual styling' },
+          { key: 'siteTheme', text: 'Site theme only' },
+          { key: 'siteThemeOverrides', text: 'Site theme with overrides' }
+        ]
+      })] },
       { groupName: strings.DataGroup, groupFields: [
         PropertyPaneTextField('title', { label: strings.TitleLabel }),
         PropertyFieldCollectionData('categories', {
@@ -437,7 +482,7 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
       ] },
       { groupName: strings.AppearanceGroup, groupFields: [
         this.colorField('surfaceBackgroundColor', strings.SurfaceBackgroundLabel), this.colorField('surfaceTextColor', strings.SurfaceTextLabel), this.colorField('categoryBackgroundColor', strings.CategoryBackgroundLabel), this.colorField('categoryTextColor', strings.CategoryTextLabel), this.colorField('nodeBackgroundColor', strings.NodeBackgroundLabel), this.colorField('nodeTextColor', strings.NodeTextLabel),
-        PropertyPaneDropdown('fontFamily', { label: strings.FontFamilyLabel, options: [{ key: 'Segoe UI', text: 'Segoe UI' }, { key: 'Arial', text: 'Arial' }, { key: 'Calibri', text: 'Calibri' }, { key: 'Tahoma', text: 'Tahoma' }, { key: 'Verdana', text: 'Verdana' }, { key: 'Georgia', text: 'Georgia' }] }),
+        PropertyPaneDropdown('fontFamily', { label: strings.FontFamilyLabel, disabled: strictSiteTheme, options: [{ key: 'Segoe UI', text: 'Segoe UI' }, { key: 'Arial', text: 'Arial' }, { key: 'Calibri', text: 'Calibri' }, { key: 'Tahoma', text: 'Tahoma' }, { key: 'Verdana', text: 'Verdana' }, { key: 'Georgia', text: 'Georgia' }] }),
         PropertyPaneSlider('fontSize', { label: strings.FontSizeLabel, min: 10, max: 28, step: 1 }), PropertyPaneSlider('categoryFontSize', { label: strings.CategoryFontSizeLabel, min: 10, max: 32, step: 1 }),
         PropertyPaneCheckbox('fontBold', { text: strings.FontBoldLabel, checked: this.properties.fontBold === true }), PropertyPaneCheckbox('categoryFontBold', { text: strings.CategoryFontBoldLabel, checked: this.properties.categoryFontBold !== false })
       ] },

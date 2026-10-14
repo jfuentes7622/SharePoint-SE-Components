@@ -4,6 +4,12 @@ A collection of SharePoint Framework (SPFx) components, built for SharePoint SE 
 
 All web-part property panes display the deployed solution version. Components with an **Enable diagnostics logging** setting write optional lifecycle and data-loading details to the browser console; genuine failures remain visible even when diagnostic logging is disabled.
 
+## October 14, 2026 customer update
+
+Fifteen configurable web parts now support **Manual styling**, **Site theme only**, and **Site theme with overrides**. Manual styling remains the backward-compatible default. Grid Control, List Control, Dynamic Forms, and Report Forms also include metadata-freshness improvements for SharePoint columns and choice options.
+
+See [Customer Update - October 14, 2026](CUSTOMER-UPDATE-2026-10-14.md) for customer impact, versions, package names, and deployment checks.
+
 ## Components
 
 | Component | Type | Summary | Detailed guide |

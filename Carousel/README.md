@@ -2,6 +2,15 @@
 
 SPFx 1.5.1 image carousel backed by a SharePoint document or picture library.
 
+## October 14, 2026 release
+
+- npm version: `0.0.7`
+- SharePoint solution and feature version: `1.0.0.38`
+- Package: `sharepoint/solution/sps-carousel.sppkg`
+- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
+- Existing instances remain in Manual styling unless an author selects a theme mode.
+- Site theme modes cover the carousel surface, border, title, caption, links, and font families while retaining saved manual values.
+
 ## Features
 
 - Automatically play library images with pause-on-hover behavior.
@@ -14,6 +23,8 @@ SPFx 1.5.1 image carousel backed by a SharePoint document or picture library.
 - Enable diagnostic console logging.
 
 ## Configuration
+
+Appearance mode supports manual styling, strict SharePoint site-theme colors/fonts, or site-theme colors/fonts with non-empty manual overrides. Strict site-theme mode disables the controlled color and font-family fields without clearing saved values.
 
 | Property | Description | Default |
 |---|---|---|

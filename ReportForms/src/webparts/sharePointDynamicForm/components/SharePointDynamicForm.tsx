@@ -1438,14 +1438,21 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
 
   private async getWithAcceptFallback(url: string): Promise<any> {
     this.logDiagnostic('REST request: GET ' + url);
-    var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1);
+    var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store',
+        Pragma: 'no-cache'
+      }
+    });
     this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
 
     if (!response.ok) {
       this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=verbose'
+          Accept: 'application/json;odata=verbose',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
@@ -1456,7 +1463,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=minimalmetadata'
+          Accept: 'application/json;odata=minimalmetadata',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
@@ -1467,7 +1476,9 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
         headers: {
-          Accept: 'application/json;odata=nometadata'
+          Accept: 'application/json;odata=nometadata',
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (nometadata): GET ' + url + ' -> HTTP '
@@ -2813,7 +2824,7 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
       }
 
       // Build a map of field name -> metadata
-      var fieldMetaMap: { [key: string]: { description?: string; richText?: boolean } } = {};
+      var fieldMetaMap: { [key: string]: { description?: string; richText?: boolean; choices?: string[] } } = {};
       var fieldNameLookup: { [lowerInternalName: string]: boolean } = {};
       var fieldInternalNameLookup: { [lowerInternalName: string]: string } = {};
       var fieldTypeLookup: { [lowerInternalName: string]: string } = {};
@@ -2833,6 +2844,10 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
           fieldMetaMap[field.InternalName] = {
             description: field.Description || undefined,
             richText: field.TypeAsString === 'Note' && field.RichText === true,
+            choices: Array.isArray(field.Choices)
+              ? field.Choices.map(function(choice: any) { return String(choice); })
+              : (field.Choices && Array.isArray(field.Choices.results)
+                ? field.Choices.results.map(function(choice: any) { return String(choice); }) : undefined),
           };
           if (field.Description) {
             console.log('[ReportFormsWebPart] Found description for "' + field.InternalName + '": "' + field.Description + '"');
@@ -2865,6 +2880,11 @@ export class SharePointDynamicFormContainer extends React.Component<SharePointDy
                 field.config.isRichText = true;
                 console.log('[ReportFormsWebPart] Marked field "' + field.fieldName + '" as rich text note field');
               }
+            }
+
+            if ((field.type === 'dropdown' || field.type === 'multiselect') && fieldMeta.choices) {
+              field.config = field.config || {};
+              field.config.choices = fieldMeta.choices.slice(0);
             }
           });
         }

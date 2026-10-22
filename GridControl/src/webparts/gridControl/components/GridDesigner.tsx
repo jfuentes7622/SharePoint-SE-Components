@@ -317,11 +317,13 @@ export class GridDesigner extends React.Component<IGridDesignerProps, IGridDesig
     ];
     var response: any;
     for (var i = 0; i < acceptHeaders.length; i += 1) {
+      var headers: { [name: string]: string } = { 'Cache-Control': 'no-cache, no-store', Pragma: 'no-cache' };
+      if (acceptHeaders[i]) { headers.Accept = acceptHeaders[i]; }
       this.logDiagnostic('REST request: GET ' + url + (acceptHeaders[i] ? ' Accept=' + acceptHeaders[i] : ''));
       response = await this.props.context.spHttpClient.get(
         url,
         SPHttpClient.configurations.v1,
-        acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined
+        { cache: 'no-store', headers: headers }
       );
       this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
         + String(response.status) + ' ' + response.statusText);
@@ -386,6 +388,11 @@ export class GridDesigner extends React.Component<IGridDesignerProps, IGridDesig
             configuredField.sharePointType = fields[sourceIndex].type;
             configuredField.sharePointRequired = fields[sourceIndex].required;
             configuredField.sharePointDescription = fields[sourceIndex].description;
+            var sharePointType = fields[sourceIndex].type.toLowerCase();
+            if (sharePointType === 'choice' || sharePointType === 'multichoice') {
+              configuredField.config = configuredField.config || {};
+              configuredField.config.choices = fields[sourceIndex].choices.slice();
+            }
             if (fields[sourceIndex].required) {
               configuredField.required = true;
             }
@@ -938,6 +945,8 @@ export class GridDesigner extends React.Component<IGridDesignerProps, IGridDesig
       return <aside className="gd-panel gd-properties"><div className="gd-empty">Select a grid column to configure it.</div></aside>;
     }
     var config = field.config || {};
+    var sharePointType = String(field.sharePointType || '').toLowerCase();
+    var sharePointChoices = sharePointType === 'choice' || sharePointType === 'multichoice';
     var compatibleControlTypes = getCompatibleControlTypes(field.sharePointType || 'Text');
     var minLengthRule = this.getValidation(field, 'minLength');
     var maxLengthRule = this.getValidation(field, 'maxLength');
@@ -967,7 +976,7 @@ export class GridDesigner extends React.Component<IGridDesignerProps, IGridDesig
         <label>Default value<input type="text" value={field.defaultValue === undefined ? '' : String(field.defaultValue)} onChange={(ev) => this.updateSelectedField(function(next) { next.defaultValue = ev.currentTarget.value; })} /></label>
         {(field.type === 'text' || field.type === 'multiline') && <label>Maximum length<input type="number" min="0" value={config.maxLength || ''} onChange={(ev) => this.updateConfig('maxLength', parseInt(ev.currentTarget.value, 10) || undefined)} /></label>}
         {field.type === 'number' && <div className="gd-inline-fields"><label>Minimum<input type="number" value={config.min === undefined ? '' : config.min} onChange={(ev) => this.updateConfig('min', ev.currentTarget.value === '' ? undefined : Number(ev.currentTarget.value))} /></label><label>Maximum<input type="number" value={config.max === undefined ? '' : config.max} onChange={(ev) => this.updateConfig('max', ev.currentTarget.value === '' ? undefined : Number(ev.currentTarget.value))} /></label><label>Decimals<input type="number" min="0" max="10" value={config.decimals === undefined ? '' : config.decimals} onChange={(ev) => this.updateConfig('decimals', ev.currentTarget.value === '' ? undefined : Number(ev.currentTarget.value))} /></label></div>}
-        {(field.type === 'dropdown' || field.type === 'multiselect') && <label>Choices, one per line<textarea value={(config.choices || []).join('\n')} onChange={(ev) => this.updateConfig('choices', ev.currentTarget.value.split(/\r?\n/).filter(function(choice) { return !!choice.trim(); }))} /></label>}
+        {(field.type === 'dropdown' || field.type === 'multiselect') && <label>{sharePointChoices ? 'Choices (managed in SharePoint)' : 'Choices, one per line'}<textarea readOnly={sharePointChoices} value={(config.choices || []).join('\n')} onChange={(ev) => this.updateConfig('choices', ev.currentTarget.value.split(/\r?\n/).filter(function(choice) { return !!choice.trim(); }))} /></label>}
         {field.type === 'datetime' && <label>Date/time format<select value={config.displayFormat || 'dateTime'} onChange={(ev) => this.updateConfig('displayFormat', ev.currentTarget.value)}><option value="dateOnly">Date only</option><option value="dateTime">Date and time</option><option value="timeOnly">Time only</option></select></label>}
         <div className="gd-section-title">Validation</div>
         {(field.type === 'text' || field.type === 'multiline' || field.type === 'url') && (

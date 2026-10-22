@@ -842,6 +842,7 @@ var ListControl = (function (_super) {
                     case 0:
                         this.logDiagnostic('REST request: GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     'Cache-Control': 'no-cache, no-store',
                                     Pragma: 'no-cache'
@@ -853,6 +854,7 @@ var ListControl = (function (_super) {
                         if (!!response.ok) return [3 /*break*/, 3];
                         this.logDiagnostic('REST retry (verbose): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=verbose',
                                     'Cache-Control': 'no-cache, no-store',
@@ -868,6 +870,7 @@ var ListControl = (function (_super) {
                         if (!!response.ok) return [3 /*break*/, 5];
                         this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=minimalmetadata',
                                     'Cache-Control': 'no-cache, no-store',
@@ -883,6 +886,7 @@ var ListControl = (function (_super) {
                         if (!!response.ok) return [3 /*break*/, 7];
                         this.logDiagnostic('REST retry (nometadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=nometadata',
                                     'Cache-Control': 'no-cache, no-store',
@@ -1995,7 +1999,7 @@ var ListControl = (function (_super) {
                                 RenderOptions: 7
                             }
                         };
-                        requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames);
+                        requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', viewFieldNames.concat(runtimeFilterFieldNames));
                         if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
                             requestViewXml = this.applyExternalServerSearchToViewXml(requestViewXml);
                             this.logDiagnostic('Server search CAML: ' + requestViewXml);
@@ -2719,7 +2723,7 @@ var ListControl = (function (_super) {
         var existing = this.state.columnFilters[fieldKey];
         var fieldType = String(field.TypeAsString || '').toLowerCase();
         var isDateField = fieldType === 'datetime';
-        var compareDateOnly = isDateField && field.DisplayFormat === 0;
+        var compareDateOnly = isDateField && (field.DisplayFormat === 0 || !existing || existing.compareDateOnly !== false);
         var optionField = this.isLookupFilterField(field) || fieldType === 'choice'
             || fieldType === 'multichoice' || fieldType === 'boolean';
         var defaultOperator = optionField || fieldType === 'number' || fieldType === 'currency'
@@ -2806,6 +2810,18 @@ var ListControl = (function (_super) {
         var month = String(date.getMonth() + 1);
         var day = String(date.getDate());
         return String(date.getFullYear()) + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
+    };
+    ListControl.prototype.changeDateFilterMode = function (includeTime) {
+        var normalize = function (value) {
+            var date = String(value || '').substring(0, 10);
+            return date ? date + (includeTime ? 'T00:00' : '') : '';
+        };
+        this.setState({
+            activeFilterCompareDateOnly: !includeTime,
+            draftFilterValue: normalize(this.state.draftFilterValue),
+            draftFilterEndValue: normalize(this.state.draftFilterEndValue),
+            datePickerTarget: ''
+        });
     };
     ListControl.prototype.toggleDatePicker = function (target) {
         if (this.state.datePickerTarget === target) {
@@ -2998,20 +3014,28 @@ var ListControl = (function (_super) {
             if (isNaN(candidateDate.getTime())) {
                 return false;
             }
-            normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
+            normalizedCandidate = /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : formatLocalDate(candidateDate).toLowerCase();
             compareResult = this.compareComparableValues(normalizedCandidate, query);
             if (filter.endValue) {
                 return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
             }
         }
-        else if (fieldType === 'datetime' && filter.endValue) {
+        else if (fieldType === 'datetime') {
             var candidateTime = Date.parse(candidate);
             var startTime = Date.parse(query);
-            var endTime = Date.parse(String(filter.endValue));
-            if (isNaN(candidateTime) || isNaN(startTime) || isNaN(endTime)) {
+            if (isNaN(candidateTime) || isNaN(startTime)) {
                 return false;
             }
-            return candidateTime >= startTime && candidateTime <= endTime;
+            if (filter.endValue) {
+                var endTime = Date.parse(String(filter.endValue));
+                return !isNaN(endTime) && candidateTime >= startTime && candidateTime <= endTime;
+            }
+            if (filter.operator === 'eq') {
+                return candidateTime === startTime;
+            }
+            if (filter.operator === 'ne') {
+                return candidateTime !== startTime;
+            }
         }
         switch (filter.operator) {
             case 'eq':
@@ -3803,10 +3827,13 @@ var ListControl = (function (_super) {
                                                     }
                                                 } }, _this.renderCommandContent('Filter', strings.RuntimeFilterIcon))),
                                         _this.state.activeFilterFieldName === fieldKey && (React.createElement("div", { className: "lc-filter-popover", style: _this.state.filterPopoverStyle, onClick: function (ev) {
-                                                ev.preventDefault();
                                                 ev.stopPropagation();
                                             } },
                                             _this.state.activeFilterIsDate ? (React.createElement("div", null,
+                                                field.DisplayFormat !== 0 && (React.createElement("label", { className: "lc-filter-label" },
+                                                    React.createElement("input", { type: "checkbox", "aria-label": strings.RuntimeFilterIncludeTimeLabel, checked: !_this.state.activeFilterCompareDateOnly, onChange: function (ev) { return _this.changeDateFilterMode(ev.currentTarget.checked); } }),
+                                                    strings.RuntimeFilterIncludeTimeLabel)),
+                                                _this.state.activeFilterCompareDateOnly && React.createElement("div", null, strings.RuntimeFilterSingleDateHelp),
                                                 React.createElement("label", { className: "lc-filter-label" }, _this.state.activeFilterCompareDateOnly ? strings.RuntimeFilterDateLabel : strings.RuntimeFilterDateTimeLabel),
                                                 React.createElement("div", { className: "lc-date-input-row" },
                                                     _this.state.activeFilterCompareDateOnly ? (React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterValue, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } })) : _this.props.timeDisplayFormat !== '12hour' ? (React.createElement(DateTime24HourInput_1.DateTime24HourInput, { value: _this.state.draftFilterValue, minuteIncrement: _this.props.timeMinuteIncrement, ariaLabel: strings.RuntimeFilterDateTimeLabel, onChange: function (nextValue) { return _this.setState({ draftFilterValue: nextValue }); } })) : (React.createElement("input", { className: "lc-filter-input", type: "datetime-local", value: _this.state.draftFilterValue, lang: "en-US", step: String(_this.props.timeMinuteIncrement * 60), onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } })),

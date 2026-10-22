@@ -22,6 +22,7 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
   private _originalNextSibling: Node | null;
   private _configurationMarker: HTMLDivElement | null;
   private _retryHandle: number | undefined;
+  private _discoveryHandle: number | undefined;
   private _attemptCount: number;
   private _runtimeConfigRequestHandler: any;
 
@@ -34,6 +35,7 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
     this._originalNextSibling = null;
     this._configurationMarker = null;
     this._retryHandle = undefined;
+    this._discoveryHandle = undefined;
     this._attemptCount = 0;
     this._runtimeConfigRequestHandler = this.handleRuntimeConfigRequest.bind(this);
   }
@@ -72,11 +74,25 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
   }
 
   private handleRuntimeConfigRequest(event: any): void {
-    if (!this._targetHost) { return; }
     var detail = event && event.detail ? event.detail : {};
     var requestedInstanceId = String(detail.instanceId || '').toLowerCase();
-    if (requestedInstanceId && requestedInstanceId === this.getInstanceId()) {
+    if (!requestedInstanceId || requestedInstanceId !== this.getInstanceId()) {
+      return;
+    }
+    if (this._targetHost) {
       this.dispatchRuntimeConfig(true);
+      return;
+    }
+    if (this._discoveryHandle === undefined) {
+      // ListControl requests configuration during componentDidMount; move its host after that render completes.
+      this._discoveryHandle = window.setTimeout(() => {
+        this._discoveryHandle = undefined;
+        if (this.tryEmbedTarget()) {
+          this.stopDiscovery();
+        } else if (this._retryHandle === undefined) {
+          this.startDiscovery();
+        }
+      }, 0);
     }
   }
 
@@ -98,6 +114,10 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
   }
 
   private stopDiscovery(): void {
+    if (this._discoveryHandle !== undefined) {
+      window.clearTimeout(this._discoveryHandle);
+      this._discoveryHandle = undefined;
+    }
     if (this._retryHandle !== undefined) {
       window.clearInterval(this._retryHandle);
       this._retryHandle = undefined;
@@ -151,13 +171,15 @@ export class ListControlHost extends React.Component<IListControlHostProps, ILis
 
       var ancestor: HTMLElement | null = host;
       while (ancestor && ancestor !== document.body) {
-        var candidateId = String(
-          ancestor.getAttribute('data-sp-webpart-instance-id')
-          || ancestor.getAttribute('data-sp-webpart-id')
-          || ancestor.id
-          || ''
-        ).toLowerCase();
-        if (candidateId === instanceId || candidateId === sourceId || candidateId.indexOf(instanceId) >= 0) {
+        var candidateIds = [
+          ancestor.getAttribute('data-sp-webpart-instance-id'),
+          ancestor.getAttribute('data-sp-webpart-id'),
+          ancestor.id
+        ];
+        if (candidateIds.some(function(value: string): boolean {
+          var candidateId = String(value || '').toLowerCase();
+          return candidateId === instanceId || candidateId === sourceId || candidateId.indexOf(instanceId) >= 0;
+        })) {
           return host;
         }
         ancestor = ancestor.parentElement;

@@ -288,7 +288,7 @@ var GridDesigner = (function (_super) {
     };
     GridDesigner.prototype.getFieldsResponse = function (url) {
         return __awaiter(this, void 0, void 0, function () {
-            var acceptHeaders, response, i;
+            var acceptHeaders, response, i, headers;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -302,8 +302,12 @@ var GridDesigner = (function (_super) {
                         _a.label = 1;
                     case 1:
                         if (!(i < acceptHeaders.length)) return [3 /*break*/, 4];
+                        headers = { 'Cache-Control': 'no-cache, no-store', Pragma: 'no-cache' };
+                        if (acceptHeaders[i]) {
+                            headers.Accept = acceptHeaders[i];
+                        }
                         this.logDiagnostic('REST request: GET ' + url + (acceptHeaders[i] ? ' Accept=' + acceptHeaders[i] : ''));
-                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined)];
+                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, { cache: 'no-store', headers: headers })];
                     case 2:
                         response = _a.sent();
                         this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
@@ -328,7 +332,7 @@ var GridDesigner = (function (_super) {
     };
     GridDesigner.prototype.loadFields = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var fieldsEndpoint, url, response, data, sourceFields, fields, configuredFields, configuredIndex, configuredField, sourceIndex, error_1;
+            var fieldsEndpoint, url, response, data, sourceFields, fields, configuredFields, configuredIndex, configuredField, sourceIndex, sharePointType, error_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -387,6 +391,11 @@ var GridDesigner = (function (_super) {
                                     configuredField.sharePointType = fields[sourceIndex].type;
                                     configuredField.sharePointRequired = fields[sourceIndex].required;
                                     configuredField.sharePointDescription = fields[sourceIndex].description;
+                                    sharePointType = fields[sourceIndex].type.toLowerCase();
+                                    if (sharePointType === 'choice' || sharePointType === 'multichoice') {
+                                        configuredField.config = configuredField.config || {};
+                                        configuredField.config.choices = fields[sourceIndex].choices.slice();
+                                    }
                                     if (fields[sourceIndex].required) {
                                         configuredField.required = true;
                                     }
@@ -990,6 +999,8 @@ var GridDesigner = (function (_super) {
                 React.createElement("div", { className: "gd-empty" }, "Select a grid column to configure it."));
         }
         var config = field.config || {};
+        var sharePointType = String(field.sharePointType || '').toLowerCase();
+        var sharePointChoices = sharePointType === 'choice' || sharePointType === 'multichoice';
         var compatibleControlTypes = getCompatibleControlTypes(field.sharePointType || 'Text');
         var minLengthRule = this.getValidation(field, 'minLength');
         var maxLengthRule = this.getValidation(field, 'maxLength');
@@ -1053,8 +1064,8 @@ var GridDesigner = (function (_super) {
                     "Decimals",
                     React.createElement("input", { type: "number", min: "0", max: "10", value: config.decimals === undefined ? '' : config.decimals, onChange: function (ev) { return _this.updateConfig('decimals', ev.currentTarget.value === '' ? undefined : Number(ev.currentTarget.value)); } }))),
             (field.type === 'dropdown' || field.type === 'multiselect') && React.createElement("label", null,
-                "Choices, one per line",
-                React.createElement("textarea", { value: (config.choices || []).join('\n'), onChange: function (ev) { return _this.updateConfig('choices', ev.currentTarget.value.split(/\r?\n/).filter(function (choice) { return !!choice.trim(); })); } })),
+                sharePointChoices ? 'Choices (managed in SharePoint)' : 'Choices, one per line',
+                React.createElement("textarea", { readOnly: sharePointChoices, value: (config.choices || []).join('\n'), onChange: function (ev) { return _this.updateConfig('choices', ev.currentTarget.value.split(/\r?\n/).filter(function (choice) { return !!choice.trim(); })); } })),
             field.type === 'datetime' && React.createElement("label", null,
                 "Date/time format",
                 React.createElement("select", { value: config.displayFormat || 'dateTime', onChange: function (ev) { return _this.updateConfig('displayFormat', ev.currentTarget.value); } },

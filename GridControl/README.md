@@ -2,15 +2,20 @@
 
 SPFx 1.5.1 editable SharePoint grid for SharePoint Server Subscription Edition.
 
-## October 14, 2026 release
+## October 22, 2026 release
 
-- npm version: `1.0.87`
-- SharePoint solution and feature version: `1.0.0.87`
+- npm version: `1.0.90`
+- SharePoint solution and feature version: `1.0.0.90`
 - Package: `sharepoint/solution/sps-grid-control.sppkg`
 - Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
 - Existing instances remain in Manual styling unless an author selects a theme mode.
 - Site theme modes cover table and web-part surfaces, text, headers, selected states, buttons, borders, alternate rows, and font families.
 - SharePoint metadata requests now bypass reusable browser responses so refreshed pages receive current field definitions and Choice options.
+- Runtime, designer, and property-pane GET requests now use the browser's `cache: 'no-store'` option as well as cache-control headers, including every JSON-format fallback.
+- Current SharePoint Choice/MultiChoice options override old saved schema snapshots, including when all options are removed.
+- Saved grid-schema columns take precedence over the original view-column snapshot and are explicitly requested in runtime CAML, including subsequent data batches.
+- Single-date filtering preserves literal `YYYY-MM-DD` values instead of shifting them through UTC parsing. Date input clicks retain native focus and selection behavior.
+- Date-filter calendar and month-navigation symbols are drawn locally so buttons remain visible when the page omits Fabric icon glyphs. Date inputs leave room for the calendar button inside the filter popup.
 
 GridControl starts with the ListControl display, filtering, styling, and dynamic-data baseline, then adds inline row creation and editing. For a standard list, select **+ Add row** to insert a draft row. For a document library, select **Add document** and choose the file before entering its metadata. Use the row-level **Edit** button for an existing row. **Save** validates and creates or updates the SharePoint item; **Cancel** discards the draft.
 
@@ -61,12 +66,59 @@ The designer can configure:
 - Boolean `visible`, `required`, and `readOnly` values
 - `defaultValue` and `requiredMessage`
 - `gridWidth` using values such as `180px`, `20%`, or `12rem`
-- `config.placeholder`, `maxLength`, `min`, `max`, `decimals`, `choices`, and DateTime `displayFormat`
+- `config.placeholder`, `maxLength`, `min`, `max`, `decimals`, and DateTime `displayFormat`
+- Choice/MultiChoice options are displayed read-only from the current SharePoint list column; change them in SharePoint, not in the saved grid design.
 - Type-aware field validation rules and Dynamic Form-compatible advanced expressions
 
 GridControl stores the result internally as a SharePoint Dynamic Form-compatible `FormSchema`. It reads fields from `steps[].fields` and intentionally ignores form steps, containers, wizard behavior, and form layout. The stored schema remains compatible with configurations created before the visual designer was introduced; raw JSON is not exposed as a normal property-pane authoring surface.
 
 Grid Designer exposes one **Read only** setting because read-only and disabled cells have the same result in an inline grid. Legacy schemas with `disabled: true` remain supported and are normalized to read-only when opened in Grid Designer.
+
+### Refreshing list metadata and columns
+
+After changing Choice or MultiChoice options in SharePoint, refresh the control
+or reload the page. Runtime editors use the current column metadata instead
+of the `config.choices` snapshot in an older saved schema. Opening Grid Designer
+also refreshes that snapshot for display and subsequent saves. Republish is
+not required for list metadata changes.
+
+After adding a list column, add it in Grid Designer, save the grid, and publish
+the page. The saved grid design controls displayed columns; an automatically
+initialized `viewColumns` snapshot no longer removes newer schema columns.
+The selected SharePoint view's filters, sorting, and scope are preserved.
+New list fields are not automatically added to a configured layout.
+Field-metadata request failures are shown as runtime errors rather than
+silently falling back to stale saved options.
+
+From the repository root, run the shared ListControl/GridControl regression tests:
+
+```powershell
+node tests\controlMetadata.test.js
+```
+
+These tests exercise mocked SharePoint responses with jsdom, covering metadata
+refresh, saved schema precedence, configured column data, saving without
+remounting, paging, cache options, and metadata errors. Live SharePoint
+verification is still required.
+
+## Single-date filtering
+
+Open a date column's filter, enter or choose **Date**, leave **End date** blank,
+and select **Apply**. This matches that complete calendar day, regardless of
+the stored time. Entering an end date selects an inclusive range of days.
+Plain `YYYY-MM-DD` field values retain their literal date; timestamps use the
+browser's local calendar day.
+
+Run the shared ListControl/GridControl date-filter tests from the repository root:
+
+```powershell
+node tests\dateFilters.test.js
+```
+
+The tests cover single days, optional ranges, daylight-saving boundaries,
+UTC timestamps, literal dates, clearing/reopening filters, and native click
+behavior using mocked controls and jsdom. They do not replace live SharePoint
+verification.
 
 ## Editable Controls
 

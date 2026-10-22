@@ -184,11 +184,13 @@ export class ListDesigner extends React.Component<IListDesignerProps, IListDesig
     ];
     var response: any;
     for (var i = 0; i < acceptHeaders.length; i += 1) {
+      var headers: { [name: string]: string } = { 'Cache-Control': 'no-cache, no-store', Pragma: 'no-cache' };
+      if (acceptHeaders[i]) { headers.Accept = acceptHeaders[i]; }
       this.logDiagnostic('REST request: GET ' + url + (acceptHeaders[i] ? ' Accept=' + acceptHeaders[i] : ''));
       response = await this.props.context.spHttpClient.get(
         url,
         SPHttpClient.configurations.v1,
-        acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined
+        { cache: 'no-store', headers: headers }
       );
       this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '
         + String(response.status) + ' ' + response.statusText);

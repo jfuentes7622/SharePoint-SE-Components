@@ -1270,6 +1270,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   private async getJsonWithFallback(url: string): Promise<any> {
     this.logDiagnostic('REST request: GET ' + url);
     var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+      cache: 'no-store',
       headers: {
         'Cache-Control': 'no-cache, no-store',
         Pragma: 'no-cache'
@@ -1280,6 +1281,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     if (!response.ok) {
       this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        cache: 'no-store',
         headers: {
           Accept: 'application/json;odata=verbose',
           'Cache-Control': 'no-cache, no-store',
@@ -1293,6 +1295,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     if (!response.ok) {
       this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        cache: 'no-store',
         headers: {
           Accept: 'application/json;odata=minimalmetadata',
           'Cache-Control': 'no-cache, no-store',
@@ -1306,6 +1309,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
     if (!response.ok) {
       this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        cache: 'no-store',
         headers: {
           Accept: 'application/json;odata=nometadata',
           'Cache-Control': 'no-cache, no-store',
@@ -1729,11 +1733,12 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
   }
 
   private getDisplayFields(): IListFieldDefinition[] {
+    var schemaFields = this.getGridSchemaFields();
     var baseFields: IListFieldDefinition[] = this.state.fields.filter(function(field: IListFieldDefinition) {
       return field.RuntimeFilterOnly !== true;
     });
 
-    if (this.state.selectedViewId === this.props.defaultViewId && this.props.viewColumns && this.props.viewColumns.length > 0) {
+    if (schemaFields.length === 0 && this.state.selectedViewId === this.props.defaultViewId && this.props.viewColumns && this.props.viewColumns.length > 0) {
       var configuredByName: { [fieldName: string]: IListFieldDefinition } = {};
       for (var i = 0; i < baseFields.length; i += 1) {
         var field = baseFields[i];
@@ -1763,7 +1768,6 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       baseFields = configured;
     }
 
-    var schemaFields = this.getGridSchemaFields();
     if (schemaFields.length === 0) {
       return this.ensureAttachmentDisplayField(baseFields);
     }
@@ -2001,7 +2005,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         + "')/fields?$select=InternalName,Title,TypeAsString,Required,ReadOnlyField,Hidden,Description,Choices,DisplayFormat,LookupList,LookupField,AllowMultipleValues,RichText";
       var response = await this.getJsonWithFallback(endpoint);
       if (!response.ok) {
-        return {};
+        throw new Error('Unable to load field metadata. HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
       }
 
       var data = await response.json();
@@ -2036,7 +2040,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       return metadataByName;
     } catch (error) {
       this.logDiagnostic('loadGridFieldMetadata failed: ' + (error && error.message ? error.message : String(error)));
-      return {};
+      throw error;
     }
   }
 
@@ -2552,6 +2556,17 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
         }
       });
       var viewFieldNames = await this.loadSelectedViewFieldNames(selectedViewId);
+      var configuredFieldNames = schemaFields.length > 0 ? schemaFieldNames
+        : (selectedViewId === this.props.defaultViewId ? (this.props.viewColumns || []).map(function(column: IGridControlColumnConfiguration) {
+          return String(column.fieldName || '');
+        }) : []);
+      configuredFieldNames.forEach(function(fieldName: string) {
+        if (fieldName && !viewFieldNames.some(function(existingFieldName: string) {
+          return String(existingFieldName || '').toLowerCase() === fieldName.toLowerCase();
+        })) {
+          viewFieldNames.push(fieldName);
+        }
+      });
       var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, viewFieldNames);
       var runtimeFilterFieldNames = this.getRuntimeFilterFieldNames();
       this._pagingRuntimeFilterFieldNames = runtimeFilterFieldNames.slice(0);
@@ -2561,7 +2576,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
           RenderOptions: 7
         }
       };
-      var requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames);
+      var requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', viewFieldNames.concat(runtimeFilterFieldNames));
       if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
         requestViewXml = this.applyExternalServerSearchToViewXml(requestViewXml);
         this.logDiagnostic('Server search CAML: ' + requestViewXml);
@@ -2931,6 +2946,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       person: 'User'
     };
     var config = schemaField.config || {};
+    var sharePointType = String(metadata.typeAsString || '').toLowerCase();
+    var sharePointChoices = sharePointType === 'choice' || sharePointType === 'multichoice';
     var displayFormat = config.displayFormat === 'dateOnly' ? 0 : config.displayFormat === 'timeOnly' ? 2 : 1;
     var schemaControlType = String(schemaField.type || '').toLowerCase();
     var effectiveType = isCompatibleGridControlType(metadata.typeAsString, schemaControlType)
@@ -2941,7 +2958,8 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       required: metadata.required || schemaField.required === true,
       readOnly: schemaField.readOnly === true || schemaField.disabled === true || metadata.readOnly,
       description: metadata.description || schemaField.description || config.helpText,
-      choices: Array.isArray(config.choices) ? config.choices.map(function(choice: any) { return String(choice); }) : metadata.choices,
+      choices: sharePointChoices ? metadata.choices
+        : (Array.isArray(config.choices) ? config.choices.map(function(choice: any) { return String(choice); }) : metadata.choices),
       displayFormat: schemaField.type === 'datetime' ? displayFormat : metadata.displayFormat
     });
   }
@@ -4500,7 +4518,7 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
       if (isNaN(candidateDate.getTime())) {
         return false;
       }
-      normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
+      normalizedCandidate = /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : formatLocalDate(candidateDate).toLowerCase();
       compareResult = this.compareComparableValues(normalizedCandidate, query);
       if (filter.endValue) {
         return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
@@ -5526,12 +5544,12 @@ export class GridControl extends React.Component<IGridControlProps, IGridControl
                               className="lc-filter-popover"
                               style={this.state.filterPopoverStyle}
                               onClick={(ev) => {
-                                ev.preventDefault();
                                 ev.stopPropagation();
                               }}
                             >
                               {this.state.activeFilterIsDate ? (
                                 <div>
+                                  <div>{strings.RuntimeFilterSingleDateHelp}</div>
                                   <label className="lc-filter-label">{strings.RuntimeFilterDateLabel}</label>
                                   <div className="lc-date-input-row">
                                     <input className="lc-filter-input" type="text" placeholder="YYYY-MM-DD" value={this.state.draftFilterValue} onChange={(ev) => this.setState({ draftFilterValue: ev.currentTarget.value })} />

@@ -258,6 +258,7 @@ define([], function() {
     "RuntimeFilterValueLabel": "Value",
     "RuntimeFilterValuePlaceholder": "Enter a value",
     "RuntimeFilterDateLabel": "Date",
+    "RuntimeFilterSingleDateHelp": "Leave the end date blank to match this calendar date only, regardless of time.",
     "RuntimeFilterEndDateLabel": "End date (optional)",
     "RuntimeFilterApply": "Apply",
     "RuntimeFilterClear": "Clear",

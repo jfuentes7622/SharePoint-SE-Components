@@ -1,14 +1,31 @@
 # SharePoint Dynamic Form
 
-## October 14, 2026 release
+## October 22, 2026 release
 
-- npm version: `1.0.46`
-- SharePoint solution and feature version: `1.0.0.112`
+- npm version: `1.0.47`
+- SharePoint solution and feature version: `1.0.0.113`
 - Package: `sharepoint/solution/sps-dynamic-form.sppkg`
 - Adds **Manual styling**, **Site theme only**, and **Site theme with overrides** for form buttons.
 - Existing instances remain in Manual styling unless an author selects a theme mode.
 - Choice and MultiChoice controls now refresh their options from the current SharePoint column metadata, avoiding stale saved choice lists.
 - SharePoint metadata requests bypass reusable browser responses so refreshed pages receive current field definitions.
+- Embedded GridControls recover automatically when they mount after the initial 10-second discovery window. The existing mount/configuration event resumes bounded discovery without continuous polling. Host matching checks all SharePoint instance-ID attributes, and the current filter, default field/value, and read-only state are delivered after embedding.
+
+Each simultaneously embedded GridControl must be its own web-part instance.
+A control already owned by another form is not taken over. Source changes and
+unmounts cancel pending discovery and restore the control's original position.
+GridControl itself does not need updating for this recovery fix.
+
+Run the shared Report Forms/ListControl and Dynamic Forms/GridControl regression
+tests from the repository root:
+
+```powershell
+node tests\listControlHost.test.js
+```
+
+The tests use jsdom and simulated timers, including controls mounting after 30
+seconds and twelve independently linked hosts; they do not replace live
+SharePoint verification.
 
 <!-- 
   Keywords: SharePoint, SPFx, Dynamic Form, Form Builder, Web Part, React, SharePoint Framework, 

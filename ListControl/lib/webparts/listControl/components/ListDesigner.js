@@ -177,7 +177,7 @@ var ListDesigner = (function (_super) {
     };
     ListDesigner.prototype.getFieldsResponse = function (url) {
         return __awaiter(this, void 0, void 0, function () {
-            var acceptHeaders, response, i;
+            var acceptHeaders, response, i, headers;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -191,8 +191,12 @@ var ListDesigner = (function (_super) {
                         _a.label = 1;
                     case 1:
                         if (!(i < acceptHeaders.length)) return [3 /*break*/, 4];
+                        headers = { 'Cache-Control': 'no-cache, no-store', Pragma: 'no-cache' };
+                        if (acceptHeaders[i]) {
+                            headers.Accept = acceptHeaders[i];
+                        }
                         this.logDiagnostic('REST request: GET ' + url + (acceptHeaders[i] ? ' Accept=' + acceptHeaders[i] : ''));
-                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, acceptHeaders[i] ? { headers: { Accept: acceptHeaders[i] } } : undefined)];
+                        return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, { cache: 'no-store', headers: headers })];
                     case 2:
                         response = _a.sent();
                         this.logDiagnostic('REST response: GET ' + url + ' -> HTTP '

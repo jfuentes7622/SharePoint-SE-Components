@@ -75,6 +75,10 @@ export class Tiles extends React.Component<ITilesProps, {}> {
                     item={tile}
                     tileEffect={this.props.tileEffect}
                     tileShape={this.props.tileShape}
+                    tileBorderColor={this.props.tileBorderColor}
+                    tileBorderWidth={this.props.tileBorderWidth}
+                    tileBorderStyle={this.props.tileBorderStyle}
+                    tileCornerRadius={this.props.tileCornerRadius}
                     backgroundColor={this.props.backgroundColor}
                     textColor={this.props.textColor}
                     hoverColor={this.props.hoverColor}

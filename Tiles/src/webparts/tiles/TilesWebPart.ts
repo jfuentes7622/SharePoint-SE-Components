@@ -15,6 +15,7 @@ import {
   PropertyPaneDropdown,
   PropertyPaneLabel,
   PropertyPaneSlider,
+  PropertyPaneTextField,
   PropertyPaneToggle
 } from '@microsoft/sp-webpart-base';
 
@@ -32,6 +33,7 @@ export type TileShape = 'round' | 'rounded' | 'squared';
 export type TileFontStyle = 'normal' | 'italic' | 'oblique';
 export type TileHoverTransition = 'solid' | 'fade' | 'slide-top' | 'slide-bottom' | 'slide-left' | 'slide-right';
 export type TileLayout = 'stacked' | 'columns' | 'flow';
+export type TileBorderStyle = 'none' | 'solid' | 'dashed' | 'dotted' | 'double';
 
 export interface ITilesWebPartProps {
   appearanceMode?: string;
@@ -40,6 +42,10 @@ export interface ITilesWebPartProps {
 
   // --- Appearance ---
   tileShape: TileShape;
+  tileBorderColor?: string;
+  tileBorderWidth?: number;
+  tileBorderStyle?: TileBorderStyle;
+  tileCornerRadius?: number;
   backgroundColor: string;
   textColor: string;
   hoverColor: string;
@@ -139,6 +145,12 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
         displayMode: this.displayMode,
         // appearance
         tileShape: this.properties.tileShape || 'rounded',
+        tileBorderColor: this.properties.tileBorderColor
+          ? this.resolveAppearance(this.properties.tileBorderColor, 'variantBorder', 'neutralLight', '#d2d0ce')
+          : '',
+        tileBorderWidth: typeof this.properties.tileBorderWidth === 'number' ? this.properties.tileBorderWidth : 2,
+        tileBorderStyle: this.properties.tileBorderStyle || 'solid',
+        tileCornerRadius: typeof this.properties.tileCornerRadius === 'number' ? this.properties.tileCornerRadius : 10,
         backgroundColor: this.resolveAppearance(this.properties.backgroundColor,
           'primaryButtonBackground', 'themePrimary', '#8A1717'),
         textColor: this.resolveAppearance(this.properties.textColor,
@@ -180,6 +192,8 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
         enableDiagnostics: this.properties.enableDiagnostics !== false,
         fUpdateProperty: (value: string) => {
           this.properties.title = value;
+          this.render();
+          this.context.propertyPane.refresh();
         },
         fPropertyPaneOpen: this.context.propertyPane.open
       }
@@ -202,7 +216,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
     if (propertyPath === 'hoverSameAsBackground' || propertyPath === 'tileLayout'
-      || propertyPath === 'appearanceMode') {
+      || propertyPath === 'appearanceMode' || propertyPath === 'tileShape') {
       this.context.propertyPane.refresh();
       this.render();
     }
@@ -437,6 +451,10 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                   text: strings.showTitleLabel,
                   checked: this.properties.showTitle === true
                 }),
+                PropertyPaneTextField('title', {
+                  label: strings.titleField,
+                  value: this.properties.title || ''
+                }),
                 PropertyFieldColorPicker('titleTextColor', {
                   label: strings.titleTextColorLabel,
                   selectedColor: this.properties.titleTextColor || '#323130',
@@ -658,6 +676,51 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
                   selectedKey: this.properties.hoverTransition || 'fade'
                 })
               ])
+            },
+            {
+              groupName: strings.tileBorderGroup,
+              groupFields: [
+                PropertyPaneLabel('tileBorderHelp', {
+                  text: strings.tileBorderHelp
+                }),
+                PropertyFieldColorPicker('tileBorderColor', {
+                  label: strings.tileBorderColorLabel,
+                  selectedColor: this.properties.tileBorderColor || this.properties.backgroundColor || '#8A1717',
+                  onPropertyChange: this.onPropertyPaneFieldChanged,
+                  properties: this.properties,
+                  disabled: strictTheme,
+                  alphaSliderHidden: false,
+                  style: PropertyFieldColorPickerStyle.Inline,
+                  iconName: 'Precipitation',
+                  key: 'tileBorderColorPicker'
+                }),
+                PropertyPaneSlider('tileBorderWidth', {
+                  label: strings.tileBorderWidthLabel,
+                  min: 0,
+                  max: 20,
+                  step: 1,
+                  value: typeof this.properties.tileBorderWidth === 'number' ? this.properties.tileBorderWidth : 2
+                }),
+                PropertyPaneDropdown('tileBorderStyle', {
+                  label: strings.tileBorderStyleLabel,
+                  options: [
+                    { key: 'none', text: strings.tileBorderStyleNone },
+                    { key: 'solid', text: strings.tileBorderStyleSolid },
+                    { key: 'dashed', text: strings.tileBorderStyleDashed },
+                    { key: 'dotted', text: strings.tileBorderStyleDotted },
+                    { key: 'double', text: strings.tileBorderStyleDouble }
+                  ],
+                  selectedKey: this.properties.tileBorderStyle || 'solid'
+                }),
+                PropertyPaneSlider('tileCornerRadius', {
+                  label: strings.tileCornerRadiusLabel,
+                  min: 0,
+                  max: 200,
+                  step: 1,
+                  value: typeof this.properties.tileCornerRadius === 'number' ? this.properties.tileCornerRadius : 10,
+                  disabled: (this.properties.tileShape || 'rounded') !== 'rounded'
+                })
+              ]
             },
             // ── Typography ───────────────────────────────────────────
             {

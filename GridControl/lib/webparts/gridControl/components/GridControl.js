@@ -976,6 +976,7 @@ var GridControl = (function (_super) {
                     case 0:
                         this.logDiagnostic('REST request: GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     'Cache-Control': 'no-cache, no-store',
                                     Pragma: 'no-cache'
@@ -987,6 +988,7 @@ var GridControl = (function (_super) {
                         if (!!response.ok) return [3 /*break*/, 3];
                         this.logDiagnostic('REST retry (verbose): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=verbose',
                                     'Cache-Control': 'no-cache, no-store',
@@ -1002,6 +1004,7 @@ var GridControl = (function (_super) {
                         if (!!response.ok) return [3 /*break*/, 5];
                         this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=minimalmetadata',
                                     'Cache-Control': 'no-cache, no-store',
@@ -1017,6 +1020,7 @@ var GridControl = (function (_super) {
                         if (!!response.ok) return [3 /*break*/, 7];
                         this.logDiagnostic('REST retry (nometadata): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=nometadata',
                                     'Cache-Control': 'no-cache, no-store',
@@ -1508,10 +1512,11 @@ var GridControl = (function (_super) {
         });
     };
     GridControl.prototype.getDisplayFields = function () {
+        var schemaFields = this.getGridSchemaFields();
         var baseFields = this.state.fields.filter(function (field) {
             return field.RuntimeFilterOnly !== true;
         });
-        if (this.state.selectedViewId === this.props.defaultViewId && this.props.viewColumns && this.props.viewColumns.length > 0) {
+        if (schemaFields.length === 0 && this.state.selectedViewId === this.props.defaultViewId && this.props.viewColumns && this.props.viewColumns.length > 0) {
             var configuredByName = {};
             for (var i = 0; i < baseFields.length; i += 1) {
                 var field = baseFields[i];
@@ -1545,7 +1550,6 @@ var GridControl = (function (_super) {
             }
             baseFields = configured;
         }
-        var schemaFields = this.getGridSchemaFields();
         if (schemaFields.length === 0) {
             return this.ensureAttachmentDisplayField(baseFields);
         }
@@ -1805,7 +1809,7 @@ var GridControl = (function (_super) {
                     case 1:
                         response = _a.sent();
                         if (!response.ok) {
-                            return [2 /*return*/, {}];
+                            throw new Error('Unable to load field metadata. HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
                         }
                         return [4 /*yield*/, response.json()];
                     case 2:
@@ -1841,7 +1845,7 @@ var GridControl = (function (_super) {
                     case 3:
                         error_4 = _a.sent();
                         this.logDiagnostic('loadGridFieldMetadata failed: ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
-                        return [2 /*return*/, {}];
+                        throw error_4;
                     case 4: return [2 /*return*/];
                 }
             });
@@ -2360,7 +2364,7 @@ var GridControl = (function (_super) {
     GridControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, selectedViewXml, runtimeFilterFieldNames, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, isDocumentLibrary, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
+            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, configuredFieldNames, selectedViewXml, runtimeFilterFieldNames, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, isDocumentLibrary, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -2396,6 +2400,17 @@ var GridControl = (function (_super) {
                         return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
                     case 2:
                         viewFieldNames = _b.sent();
+                        configuredFieldNames = schemaFields.length > 0 ? schemaFieldNames
+                            : (selectedViewId === this.props.defaultViewId ? (this.props.viewColumns || []).map(function (column) {
+                                return String(column.fieldName || '');
+                            }) : []);
+                        configuredFieldNames.forEach(function (fieldName) {
+                            if (fieldName && !viewFieldNames.some(function (existingFieldName) {
+                                return String(existingFieldName || '').toLowerCase() === fieldName.toLowerCase();
+                            })) {
+                                viewFieldNames.push(fieldName);
+                            }
+                        });
                         return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, viewFieldNames)];
                     case 3:
                         selectedViewXml = _b.sent();
@@ -2406,7 +2421,7 @@ var GridControl = (function (_super) {
                                 RenderOptions: 7
                             }
                         };
-                        requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames);
+                        requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', viewFieldNames.concat(runtimeFilterFieldNames));
                         if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
                             requestViewXml = this.applyExternalServerSearchToViewXml(requestViewXml);
                             this.logDiagnostic('Server search CAML: ' + requestViewXml);
@@ -2834,6 +2849,8 @@ var GridControl = (function (_super) {
             person: 'User'
         };
         var config = schemaField.config || {};
+        var sharePointType = String(metadata.typeAsString || '').toLowerCase();
+        var sharePointChoices = sharePointType === 'choice' || sharePointType === 'multichoice';
         var displayFormat = config.displayFormat === 'dateOnly' ? 0 : config.displayFormat === 'timeOnly' ? 2 : 1;
         var schemaControlType = String(schemaField.type || '').toLowerCase();
         var effectiveType = isCompatibleGridControlType(metadata.typeAsString, schemaControlType)
@@ -2844,7 +2861,8 @@ var GridControl = (function (_super) {
             required: metadata.required || schemaField.required === true,
             readOnly: schemaField.readOnly === true || schemaField.disabled === true || metadata.readOnly,
             description: metadata.description || schemaField.description || config.helpText,
-            choices: Array.isArray(config.choices) ? config.choices.map(function (choice) { return String(choice); }) : metadata.choices,
+            choices: sharePointChoices ? metadata.choices
+                : (Array.isArray(config.choices) ? config.choices.map(function (choice) { return String(choice); }) : metadata.choices),
             displayFormat: schemaField.type === 'datetime' ? displayFormat : metadata.displayFormat
         });
     };
@@ -4492,7 +4510,7 @@ var GridControl = (function (_super) {
             if (isNaN(candidateDate.getTime())) {
                 return false;
             }
-            normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
+            normalizedCandidate = /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : formatLocalDate(candidateDate).toLowerCase();
             compareResult = this.compareComparableValues(normalizedCandidate, query);
             if (filter.endValue) {
                 return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
@@ -5299,10 +5317,10 @@ var GridControl = (function (_super) {
                                                         }
                                                     } }, _this.renderCommandContent('Filter', strings.RuntimeFilterIcon))),
                                             _this.state.activeFilterFieldName === fieldKey && (React.createElement("div", { className: "lc-filter-popover", style: _this.state.filterPopoverStyle, onClick: function (ev) {
-                                                    ev.preventDefault();
                                                     ev.stopPropagation();
                                                 } },
                                                 _this.state.activeFilterIsDate ? (React.createElement("div", null,
+                                                    React.createElement("div", null, strings.RuntimeFilterSingleDateHelp),
                                                     React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterDateLabel),
                                                     React.createElement("div", { className: "lc-date-input-row" },
                                                         React.createElement("input", { className: "lc-filter-input", type: "text", placeholder: "YYYY-MM-DD", value: _this.state.draftFilterValue, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); } }),

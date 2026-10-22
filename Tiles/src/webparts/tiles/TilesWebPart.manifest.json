@@ -15,6 +15,10 @@
     "properties": {
       "title": "Title",
       "tileShape": "rounded",
+      "tileBorderColor": "",
+      "tileBorderWidth": 2,
+      "tileBorderStyle": "solid",
+      "tileCornerRadius": 10,
       "backgroundColor": "#8A1717",
       "textColor": "#FAFAFA",
       "hoverColor": "#6a1010",

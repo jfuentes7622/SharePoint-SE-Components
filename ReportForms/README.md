@@ -4,14 +4,15 @@ Report Forms is a read-only SharePoint Framework web part for displaying a singl
 
 ## October 22, 2026 release
 
-- npm version: `1.0.57`
-- SharePoint solution and feature version: `1.0.0.84`
+- npm version: `1.0.58`
+- SharePoint solution and feature version: `1.0.0.85`
 - Package: `sharepoint/solution/sps-report-forms.sppkg`
 - Adds **Manual styling**, **Site theme only**, and **Site theme with overrides** for report buttons.
 - Existing instances remain in Manual styling unless an author selects a theme mode.
 - Choice and MultiChoice controls now refresh their options from the current SharePoint column metadata.
 - SharePoint metadata requests bypass reusable browser responses so refreshed pages receive current field definitions.
 - Initial theme notifications are cached without rendering until SharePoint starts the normal render lifecycle. The first render applies the cached CSS theme variables, and later theme changes still update the report.
+- Embedded ListControls recover when they mount after the initial discovery timeout, including pages with many independently linked reports.
 
 ## Compatibility
 
@@ -70,6 +71,16 @@ For a Date/Time field, choose **Custom** formatting to enter a token-based forma
 
 The ListControl remains an independently configured web part. Report Forms stores its dynamic source ID in the form schema and moves that web part into the custom field when the report is displayed. It sends the current parent value as a transient ListControl filter and republishes that configuration when the embedded control requests it after mounting. If the configured source field is unavailable on the loaded parent item but represents the same linked target used to resolve the report, Report Forms falls back to the incoming dynamic or URL value.
 
+Initial discovery checks for up to 10 seconds. If the linked ListControl mounts
+later, its existing runtime-configuration request resumes discovery automatically;
+there is no permanent timeout failure and no continuous polling after the initial
+window. Moving the control is deferred until its mount callback finishes.
+Instance matching checks all relevant SharePoint host IDs rather than letting a
+component-ID attribute mask the instance ID. Truly missing controls still show
+the missing-control message. A ListControl already embedded by another report
+is not taken over: configure a separate ListControl instance for each simultaneous
+embedding.
+
 When using several Report Forms instances, configure each instance with its own list and dynamic item mapping. Page composition provides the combined report.
 
 ## Build
@@ -86,18 +97,23 @@ Run the Print Control and Report Forms theme lifecycle regression tests from the
 
 ```powershell
 node tests\themeLifecycle.test.js
+node tests\listControlHost.test.js
 ```
 
 These tests use mocked SPFx/DOM dependencies, not a live SharePoint site.
+The shared embedding tests cover Report Forms/ListControl and Dynamic
+Forms/GridControl. They use jsdom and simulated timers to cover late mounting,
+twelve independently linked reports, filter delivery, host ID matching,
+ownership, source changes, and cleanup.
 
 ## Troubleshooting script-resource errors
 
 Errors for `e47c4f0e-0f0d-49d5-bcab-7a4d05742037_<version>/SharePointDynamicFormWebPartStrings` or `/PropertyControlStrings` occur before Report Forms reads list data. They indicate that SharePoint could not load an SPFx localization asset, not that the user lacks access to the report list.
 
-Property-pane version `1.0.0.62` and loader component version `1.0.37` identify the same outdated Report Forms package. The current package is solution `1.0.0.72` with component `1.0.47`.
+Property-pane version `1.0.0.62` and loader component version `1.0.37` identify the same outdated Report Forms package. The current package is solution `1.0.0.85` with component `1.0.58`.
 
 1. Replace `sps-report-forms.sppkg` in the tenant App Catalog and approve the replacement/deployment.
-2. Confirm the App Catalog displays solution version `1.0.0.72`.
+2. Confirm the App Catalog displays solution version `1.0.0.85`.
 3. Apply any available Report Forms update under the target site's **Site contents**.
 4. Clear site data for the SharePoint tenant, including its service worker/cache, close all tenant tabs, and retest in a new InPrivate window.
 5. In browser developer tools, inspect the failed localization `.js` request. A `404` indicates a stale manifest requesting a removed hashed filename. A `401` or `403` requires a SharePoint administrator to restore the tenant App Catalog and `ClientSideAssets` library to the organization's standard inherited/read-access configuration.

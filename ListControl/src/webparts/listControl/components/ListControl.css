@@ -239,6 +239,11 @@
   gap: 4px;
 }
 
+.lc-date-input-row > .lc-filter-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .lc-24hour-input {
   display: flex;
   flex: 1 1 auto;
@@ -266,6 +271,56 @@
   border: 1px solid #a6a6a6;
   background: #ffffff;
   cursor: pointer;
+}
+
+/* Keep compact date controls visible when the page omits Fabric icon glyphs. */
+.lc-date-picker-button .ms-Icon--Calendar {
+  position: relative;
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+
+.lc-date-picker-button .ms-Icon--Calendar::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: currentColor;
+}
+
+.lc-date-picker-button .ms-Icon--Calendar::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 2px;
+  width: 2px;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 4px 0 currentColor, 0 4px currentColor, 4px 4px currentColor;
+}
+
+.lc-date-picker-header .ms-Icon--ChevronLeft::before,
+.lc-date-picker-header .ms-Icon--ChevronRight::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+}
+
+.lc-date-picker-header .ms-Icon--ChevronLeft::before {
+  transform: rotate(45deg);
+}
+
+.lc-date-picker-header .ms-Icon--ChevronRight::before {
+  transform: rotate(225deg);
 }
 
 .lc-date-picker {

@@ -257,6 +257,7 @@ declare interface IGridControlWebPartStrings {
   RuntimeFilterValueLabel: string;
   RuntimeFilterValuePlaceholder: string;
   RuntimeFilterDateLabel: string;
+  RuntimeFilterSingleDateHelp: string;
   RuntimeFilterEndDateLabel: string;
   RuntimeFilterApply: string;
   RuntimeFilterClear: string;

@@ -1110,6 +1110,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   private async getJsonWithFallback(url: string): Promise<any> {
     this.logDiagnostic('REST request: GET ' + url);
     var response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+      cache: 'no-store',
       headers: {
         'Cache-Control': 'no-cache, no-store',
         Pragma: 'no-cache'
@@ -1120,6 +1121,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (!response.ok) {
       this.logDiagnostic('REST retry (verbose): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        cache: 'no-store',
         headers: {
           Accept: 'application/json;odata=verbose',
           'Cache-Control': 'no-cache, no-store',
@@ -1133,6 +1135,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (!response.ok) {
       this.logDiagnostic('REST retry (minimalmetadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        cache: 'no-store',
         headers: {
           Accept: 'application/json;odata=minimalmetadata',
           'Cache-Control': 'no-cache, no-store',
@@ -1146,6 +1149,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (!response.ok) {
       this.logDiagnostic('REST retry (nometadata): GET ' + url);
       response = await this.props.context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
+        cache: 'no-store',
         headers: {
           Accept: 'application/json;odata=nometadata',
           'Cache-Control': 'no-cache, no-store',
@@ -2211,7 +2215,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           RenderOptions: 7
         }
       };
-      var requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', runtimeFilterFieldNames);
+      var requestViewXml = this.addFieldsToViewXml(selectedViewXml || '<View></View>', viewFieldNames.concat(runtimeFilterFieldNames));
       if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
         requestViewXml = this.applyExternalServerSearchToViewXml(requestViewXml);
         this.logDiagnostic('Server search CAML: ' + requestViewXml);
@@ -2869,7 +2873,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var existing = this.state.columnFilters[fieldKey];
     var fieldType = String(field.TypeAsString || '').toLowerCase();
     var isDateField = fieldType === 'datetime';
-    var compareDateOnly = isDateField && field.DisplayFormat === 0;
+    var compareDateOnly = isDateField && (field.DisplayFormat === 0 || !existing || existing.compareDateOnly !== false);
     var optionField = this.isLookupFilterField(field) || fieldType === 'choice'
       || fieldType === 'multichoice' || fieldType === 'boolean';
     var defaultOperator: FilterOperator = optionField || fieldType === 'number' || fieldType === 'currency'
@@ -2955,6 +2959,19 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var month = String(date.getMonth() + 1);
     var day = String(date.getDate());
     return String(date.getFullYear()) + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
+  }
+
+  private changeDateFilterMode(includeTime: boolean): void {
+    var normalize = (value: string): string => {
+      var date = String(value || '').substring(0, 10);
+      return date ? date + (includeTime ? 'T00:00' : '') : '';
+    };
+    this.setState({
+      activeFilterCompareDateOnly: !includeTime,
+      draftFilterValue: normalize(this.state.draftFilterValue),
+      draftFilterEndValue: normalize(this.state.draftFilterEndValue),
+      datePickerTarget: ''
+    });
   }
 
   private toggleDatePicker(target: 'start' | 'end'): void {
@@ -3156,19 +3173,23 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       if (isNaN(candidateDate.getTime())) {
         return false;
       }
-      normalizedCandidate = formatLocalDate(candidateDate).toLowerCase();
+      normalizedCandidate = /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : formatLocalDate(candidateDate).toLowerCase();
       compareResult = this.compareComparableValues(normalizedCandidate, query);
       if (filter.endValue) {
         return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
       }
-    } else if (fieldType === 'datetime' && filter.endValue) {
+    } else if (fieldType === 'datetime') {
       var candidateTime = Date.parse(candidate);
       var startTime = Date.parse(query);
-      var endTime = Date.parse(String(filter.endValue));
-      if (isNaN(candidateTime) || isNaN(startTime) || isNaN(endTime)) {
+      if (isNaN(candidateTime) || isNaN(startTime)) {
         return false;
       }
-      return candidateTime >= startTime && candidateTime <= endTime;
+      if (filter.endValue) {
+        var endTime = Date.parse(String(filter.endValue));
+        return !isNaN(endTime) && candidateTime >= startTime && candidateTime <= endTime;
+      }
+      if (filter.operator === 'eq') { return candidateTime === startTime; }
+      if (filter.operator === 'ne') { return candidateTime !== startTime; }
     }
 
     switch (filter.operator) {
@@ -4200,12 +4221,18 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                               className="lc-filter-popover"
                               style={this.state.filterPopoverStyle}
                               onClick={(ev) => {
-                                ev.preventDefault();
                                 ev.stopPropagation();
                               }}
                             >
                               {this.state.activeFilterIsDate ? (
                                 <div>
+                                  {field.DisplayFormat !== 0 && (
+                                    <label className="lc-filter-label">
+                                      <input type="checkbox" aria-label={strings.RuntimeFilterIncludeTimeLabel} checked={!this.state.activeFilterCompareDateOnly} onChange={(ev) => this.changeDateFilterMode(ev.currentTarget.checked)} />
+                                      {strings.RuntimeFilterIncludeTimeLabel}
+                                    </label>
+                                  )}
+                                  {this.state.activeFilterCompareDateOnly && <div>{strings.RuntimeFilterSingleDateHelp}</div>}
                                   <label className="lc-filter-label">{this.state.activeFilterCompareDateOnly ? strings.RuntimeFilterDateLabel : strings.RuntimeFilterDateTimeLabel}</label>
                                   <div className="lc-date-input-row">
                                     {this.state.activeFilterCompareDateOnly ? (

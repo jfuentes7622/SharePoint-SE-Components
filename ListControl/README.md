@@ -2,16 +2,20 @@
 
 SPFx 1.5.1 list control web part for SharePoint Server Subscription Edition.
 
-## October 14, 2026 release
+## October 22, 2026 release
 
-- npm version: `1.0.109`
-- SharePoint solution and feature version: `1.0.0.109`
+- npm version: `1.0.112`
+- SharePoint solution and feature version: `1.0.0.112`
 - Package: `sharepoint/solution/SPS-list-control.sppkg`
 - Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
 - Existing instances remain in Manual styling unless an author selects a theme mode.
 - Site theme modes cover table and web-part surfaces, text, headers, selected states, buttons, borders, alternate rows, and font families.
 - Configured columns are now requested even when they are outside the selected SharePoint view, and field metadata reloads when saved columns or grouping changes.
 - SharePoint metadata requests bypass reusable browser responses so refreshed pages receive current field definitions and Choice options.
+- Runtime, designer, and property-pane GET requests now use the browser's `cache: 'no-store'` option as well as cache-control headers, including every JSON-format fallback.
+- Configured columns are included in the runtime CAML request even when no explicit SharePoint view is selected; the same request definition is retained for subsequent data batches.
+- Date filters default to a single calendar day, including Date and Time columns. An optional end date selects an inclusive range; **Include time** preserves precise date/time filtering for Date and Time columns.
+- Date-filter calendar and month-navigation symbols are drawn locally so buttons remain visible when the page omits Fabric icon glyphs. Date inputs leave room for the calendar button inside the filter popup.
 
 ## Purpose
 
@@ -50,16 +54,61 @@ Use Move up and Move down in the collection editor to control display order. Cha
 
 If the collection is empty, ListControl falls back to the selected SharePoint view's fields and order.
 
+### Refreshing list metadata
+
+After changing Choice or MultiChoice options in SharePoint, refresh the control
+or reload the page. Filter options are read from the current list field
+definitions, including when choices are removed. Republish is not required
+for list metadata changes.
+
+After adding a list column, select it in List Designer, save the design, and
+publish the page. The runtime requests the configured column's data rather than
+relying on the original SharePoint view to include it. New list fields are not
+automatically added to an intentionally configured column layout.
+
+From the repository root, run the shared runtime/designer regression tests:
+
+```powershell
+node tests\controlMetadata.test.js
+```
+
+These tests exercise mocked SharePoint responses with jsdom, covering metadata
+refresh, configured column data, saving without remounting, paging, and cache
+options. Live SharePoint verification is still required.
+
 Lookup values are normalized to their SharePoint display text. Object or JSON-shaped values containing `lookupValue`/`LookupValue` are shown as the readable lookup label rather than raw JSON.
 
 Person/User columns, including **Modified By** (`Editor`) and **Created By** (`Author`), prefer the SharePoint display name or title across uppercase and lowercase response variants. Strict JSON, HTML-encoded JSON, and SharePoint Server's single-quoted serialized person payloads are normalized before display. Account name, email, and numeric ID are used only when no display label is available, preventing expanded user metadata from appearing in cells, sorting, grouping, or filters.
+
+## Single-date filtering
+
+Open a date column's filter, enter or choose **Date**, leave **End date** blank,
+and select **Apply**. This matches that complete calendar day, regardless of
+the stored time. Entering an end date selects an inclusive range of days.
+Plain `YYYY-MM-DD` field values retain their literal date instead of being
+shifted by UTC parsing; timestamps use the browser's local calendar day.
+
+For Date and Time columns, select **Include time** to use precise date/time
+inputs instead. Existing precise filters retain that mode when reopened.
+Filter input clicks no longer cancel native input focus or selection behavior.
+
+Run the shared date-filter tests from the repository root:
+
+```powershell
+node tests\dateFilters.test.js
+```
+
+The tests cover single days, optional ranges, daylight-saving boundaries,
+UTC timestamps, literal dates, clearing/reopening filters, and native click
+behavior using mocked controls and jsdom. They do not replace live SharePoint
+verification.
 
 ## Display And Actions
 
 - `pageSize` controls client-side pagination; `0` or blank uses Automatic (50), and the maximum is 100 rows per page.
 - SharePoint rows are cached progressively using paged batches (500 by default, configurable from 100 to 2000). The next batch is prefetched near the cache boundary, page totals show `+` while more rows exist, and client-only filtering, sorting, or grouping completes the cache before totals become final.
 - The interactive column header follows page scrolling while the list is visible, stops at the bottom of the table, and keeps open filter dialogs anchored to their header buttons; horizontal scrolling remains synchronized with the columns.
-- Column filters use field-aware editors: choice and Boolean columns show fixed options, lookup and person columns load selectable values when opened, numeric columns use numeric inputs and comparison operators, and date/date-time columns use appropriate range inputs.
+- Column filters use field-aware editors: choice and Boolean columns show fixed options, lookup and person columns load selectable values when opened, numeric columns use numeric inputs and comparison operators, and date/date-time columns support single-day matching and optional ranges.
 - Date-time filter inputs use the global time format and minute increment. Time defaults to a 24-hour clock with 5-minute increments; supported increments are 1, 5, 10, and 15 minutes.
 - When the table is wider than its viewport, left/right navigation arrows appear on hover or keyboard focus and move with the visible portion of the list.
 - Group headers remain left-aligned at their configured nesting level when expanded or collapsed, independent of SharePoint host table-cell alignment styles.

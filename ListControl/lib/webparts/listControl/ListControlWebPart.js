@@ -2580,6 +2580,7 @@ var ListControlWebPart = (function (_super) {
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0: return [4 /*yield*/, this.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                            cache: 'no-store',
                             headers: {
                                 'Cache-Control': 'no-cache, no-store',
                                 Pragma: 'no-cache'
@@ -2589,6 +2590,7 @@ var ListControlWebPart = (function (_super) {
                         response = _a.sent();
                         if (!!response.ok) return [3 /*break*/, 3];
                         return [4 /*yield*/, this.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=verbose',
                                     'Cache-Control': 'no-cache, no-store',
@@ -2601,6 +2603,7 @@ var ListControlWebPart = (function (_super) {
                     case 3:
                         if (!!response.ok) return [3 /*break*/, 5];
                         return [4 /*yield*/, this.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
+                                cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=nometadata',
                                     'Cache-Control': 'no-cache, no-store',

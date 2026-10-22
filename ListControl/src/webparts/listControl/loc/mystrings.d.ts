@@ -252,6 +252,8 @@ declare interface IListControlWebPartStrings {
   RuntimeFilterOptionsLoadFailed: string;
   RuntimeFilterDateTimeLabel: string;
   RuntimeFilterEndDateTimeLabel: string;
+  RuntimeFilterIncludeTimeLabel: string;
+  RuntimeFilterSingleDateHelp: string;
   RuntimeFilterDateLabel: string;
   RuntimeFilterEndDateLabel: string;
   RuntimeFilterApply: string;

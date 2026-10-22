@@ -2728,6 +2728,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       url,
       SPHttpClient.configurations.v1,
       {
+        cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store',
           Pragma: 'no-cache'
@@ -2740,6 +2741,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
         url,
         SPHttpClient.configurations.v1,
         {
+          cache: 'no-store',
           headers: {
             Accept: 'application/json;odata=verbose',
             'Cache-Control': 'no-cache, no-store',
@@ -2754,6 +2756,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
         url,
         SPHttpClient.configurations.v1,
         {
+          cache: 'no-store',
           headers: {
             Accept: 'application/json;odata=nometadata',
             'Cache-Control': 'no-cache, no-store',

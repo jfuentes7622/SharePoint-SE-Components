@@ -70,6 +70,17 @@ declare interface ITilesWebPartStrings {
   tileShapeSquared: string;
   tileShapeRounded: string;
   tileShapeRound: string;
+  tileBorderGroup: string;
+  tileBorderHelp: string;
+  tileBorderColorLabel: string;
+  tileBorderWidthLabel: string;
+  tileBorderStyleLabel: string;
+  tileCornerRadiusLabel: string;
+  tileBorderStyleNone: string;
+  tileBorderStyleSolid: string;
+  tileBorderStyleDashed: string;
+  tileBorderStyleDotted: string;
+  tileBorderStyleDouble: string;
   backgroundColorLabel: string;
   textColorLabel: string;
   hoverColorLabel: string;

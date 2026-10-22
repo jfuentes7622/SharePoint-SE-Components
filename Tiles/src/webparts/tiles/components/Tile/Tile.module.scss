@@ -11,7 +11,7 @@ $fallback-text:  #FAFAFA;
 
   .tileLink {
     background-color: var(--tile-bg, #{$fallback-bg});
-    border: 2px solid var(--tile-bg, #{$fallback-bg});
+    border: var(--tile-border-width, 2px) var(--tile-border-style, solid) var(--tile-border-color, var(--tile-bg, #{$fallback-bg}));
     border-radius: var(--border-radius, 10px);
     box-sizing: border-box;
     color: var(--text-color, #{$fallback-text});
@@ -287,4 +287,3 @@ $fallback-text:  #FAFAFA;
 .tileContentLeft {
   order: 2;
 }
-

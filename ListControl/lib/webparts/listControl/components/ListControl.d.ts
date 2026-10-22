@@ -280,6 +280,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private updateActiveFilterPosition();
     private closeFilter();
     private getIsoDate(date);
+    private changeDateFilterMode(includeTime);
     private toggleDatePicker(target);
     private changeDatePickerMonth(offset);
     private selectFilterDate(value);

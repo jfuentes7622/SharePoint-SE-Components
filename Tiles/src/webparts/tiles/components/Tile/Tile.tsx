@@ -50,7 +50,7 @@ export class Tile extends React.Component<ITileProps, {}> {
 
     const shapeMap: { [key: string]: string } = {
       round:   '9999px',
-      rounded: '10px',
+      rounded: `${Math.max(0, Math.min(200, typeof p.tileCornerRadius === 'number' ? p.tileCornerRadius : 10))}px`,
       squared: '0px'
     };
     const borderRadius = shapeMap[p.tileShape || 'rounded'];
@@ -64,6 +64,9 @@ export class Tile extends React.Component<ITileProps, {}> {
       '--hover-bg':      hoverBg,
       '--text-color':    textColor,
       '--border-radius': borderRadius,
+      '--tile-border-color': p.tileBorderColor || tileBg,
+      '--tile-border-width': `${Math.max(0, Math.min(20, typeof p.tileBorderWidth === 'number' ? p.tileBorderWidth : 2))}px`,
+      '--tile-border-style': p.tileBorderStyle || 'solid',
       '--font-family':   fontFamily,
       '--font-style':    fontStyle,
       '--font-weight':   String(fontWeight),

@@ -91,6 +91,7 @@ var ListControlWebPart = (function (_super) {
     __extends(ListControlWebPart, _super);
     function ListControlWebPart() {
         var _this = _super.call(this) || this;
+        _this._hasRenderedOnce = false;
         _this._lists = [];
         _this._sitePages = [];
         _this._views = [];
@@ -200,6 +201,16 @@ var ListControlWebPart = (function (_super) {
         throw new Error('Bad property id');
     };
     ListControlWebPart.prototype.render = function () {
+        try {
+            this.renderContent();
+            this._hasRenderedOnce = true;
+        }
+        catch (error) {
+            console.error('[ListControlWebPart] Render failed.', error);
+            throw error;
+        }
+    };
+    ListControlWebPart.prototype.renderContent = function () {
         var _this = this;
         this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
         overrideCss_1.applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
@@ -301,11 +312,20 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.onThemeChanged = function (currentTheme) {
         this._currentTheme = currentTheme;
-        if (this.domElement) {
-            this.render();
+        // The initial theme can arrive before onInit and the properties are ready.
+        if (!this._hasRenderedOnce) {
+            return;
         }
+        this.render();
     };
     ListControlWebPart.prototype.onInit = function () {
+        var _this = this;
+        return Promise.resolve().then(function () { return _this.initializeControl(); }).catch(function (error) {
+            console.error('[ListControlWebPart] Initialization failed.', error);
+            throw error;
+        });
+    };
+    ListControlWebPart.prototype.initializeControl = function () {
         var _this = this;
         this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
         this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');

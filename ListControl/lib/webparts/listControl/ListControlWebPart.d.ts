@@ -125,6 +125,7 @@ export interface IDropdownOption {
 }
 export default class ListControlWebPart extends BaseClientSideWebPart<IListControlWebPartProps> {
     private _currentTheme;
+    private _hasRenderedOnce;
     private _lists;
     private _sitePages;
     private _views;
@@ -161,8 +162,10 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     getPropertyDefinitions(): ReadonlyArray<IDynamicDataPropertyDefinitionCompat>;
     getPropertyValue(propertyId: string): any;
     render(): void;
+    private renderContent();
     protected onThemeChanged(currentTheme: any): void;
     protected onInit(): Promise<void>;
+    private initializeControl();
     protected onPropertyPaneConfigurationStart(): void;
     protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void;
     private loadListFields(listName);

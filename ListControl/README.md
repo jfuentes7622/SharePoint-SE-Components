@@ -4,8 +4,8 @@ SPFx 1.5.1 list control web part for SharePoint Server Subscription Edition.
 
 ## October 22, 2026 release
 
-- npm version: `1.0.112`
-- SharePoint solution and feature version: `1.0.0.112`
+- npm version: `1.0.113`
+- SharePoint solution and feature version: `1.0.0.113`
 - Package: `sharepoint/solution/SPS-list-control.sppkg`
 - Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
 - Existing instances remain in Manual styling unless an author selects a theme mode.
@@ -16,6 +16,7 @@ SPFx 1.5.1 list control web part for SharePoint Server Subscription Edition.
 - Configured columns are included in the runtime CAML request even when no explicit SharePoint view is selected; the same request definition is retained for subsequent data batches.
 - Date filters default to a single calendar day, including Date and Time columns. An optional end date selects an inclusive range; **Include time** preserves precise date/time filtering for Date and Time columns.
 - Date-filter calendar and month-navigation symbols are drawn locally so buttons remain visible when the page omits Fabric icon glyphs. Date inputs leave room for the calendar button inside the filter popup.
+- Caches early theme callbacks without mounting the control before initialization. Theme updates render normally after the first successful runtime or designer render. Initialization and render failures log the original error even when diagnostic logging is disabled.
 
 ## Purpose
 
@@ -26,6 +27,26 @@ SPFx 1.5.1 list control web part for SharePoint Server Subscription Edition.
 - Apply preset filters and conditional row or column styling
 - Publish selected item ID and selected mode via Dynamic Data
 - Support `New`, `Edit`, `View`, and `Delete` actions
+
+## Startup when embedded in Report Forms
+
+SharePoint can supply the initial theme before web-part properties are available.
+ListControl caches that theme and waits for SharePoint's first normal render
+instead of trying to mount during the callback. Otherwise startup can fail before
+`onInit`, leaving Report Forms unable to find the linked ListControl.
+
+This fixes startup in ListControl itself; it does not change Report Forms'
+embedding ownership or readiness-event behavior. If rendering still fails, the
+browser console reports `[ListControlWebPart] Render failed.` with the original
+error object. Rejected initialization also reports
+`[ListControlWebPart] Initialization failed.`, including synchronous failures such
+as Dynamic Data registration errors. Both messages are independent of the
+**Enable diagnostic console logging** setting. Errors remain rejected or rethrown
+so SharePoint still reports failure rather than treating the control as loaded.
+
+From the repository root, run `node tests\themeLifecycle.test.js` and
+`node tests\listControlHost.test.js` to verify startup lifecycle and embedding
+regressions. Live SharePoint initialization and embedding still require validation.
 
 ## Conditional Formatting Timer
 

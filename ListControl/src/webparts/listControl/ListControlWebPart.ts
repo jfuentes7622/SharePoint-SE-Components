@@ -188,6 +188,7 @@ function normalizeStringCollection(value: any): string[] {
 
 export default class ListControlWebPart extends BaseClientSideWebPart<IListControlWebPartProps> {
   private _currentTheme: any;
+  private _hasRenderedOnce: boolean = false;
   private _lists: IDropdownOption[] = [];
   private _sitePages: IDropdownOption[] = [];
   private _views: IListControlViewOption[] = [];
@@ -301,6 +302,16 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
   }
 
   public render(): void {
+    try {
+      this.renderContent();
+      this._hasRenderedOnce = true;
+    } catch (error) {
+      console.error('[ListControlWebPart] Render failed.', error);
+      throw error;
+    }
+  }
+
+  private renderContent(): void {
     this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
@@ -404,12 +415,21 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
 
   protected onThemeChanged(currentTheme: any): void {
     this._currentTheme = currentTheme;
-    if (this.domElement) {
-      this.render();
+    // The initial theme can arrive before onInit and the properties are ready.
+    if (!this._hasRenderedOnce) {
+      return;
     }
+    this.render();
   }
 
   protected onInit(): Promise<void> {
+    return Promise.resolve().then(() => this.initializeControl()).catch((error) => {
+      console.error('[ListControlWebPart] Initialization failed.', error);
+      throw error;
+    });
+  }
+
+  private initializeControl(): Promise<void> {
     this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
     this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
     this.initializeDynamicDataSource();

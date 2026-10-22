@@ -1,0 +1,8 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "version": "1.5.1",
+    "libraryName": "event-registration",
+    "libraryId": "59b53dee-ec53-4970-b692-db195dc2b8b9",
+    "environment": "onprem"
+  }
+}

@@ -2,14 +2,13 @@
 
 SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCalendar library.
 
-## October 14, 2026 release
+## October 21, 2026 release
 
-- npm version: `1.1.8`
-- SharePoint solution and feature version: `1.1.0.39`
+- npm version: `1.1.9`
+- SharePoint solution and feature version: `1.1.0.40`
 - Package: `sharepoint/solution/sps-calendar.sppkg`
-- Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
-- Existing instances remain in Manual styling unless an author selects a theme mode.
-- Site theme modes cover global calendar surfaces, text, borders, selected states, and font families. Conditional event styling remains unchanged.
+- Adds optional Event Registration links and registration-focused Dynamic Data properties.
+- Existing instances keep registration disabled.
 
 ## Features
 
@@ -24,6 +23,7 @@ SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCale
 - Open an event's default SharePoint display form or a custom page URL.
 - Open an animated in-place event details panel with configurable fields and ordering.
 - Publish the selected event ID and `view` mode for Dynamic Form connections.
+- Publish scalar session and multi-source event identities for Event Registration connections.
 - Enable diagnostic console logging for list and event loading.
 - Reuse a rolling three-month event cache so nearby date navigation avoids redundant SharePoint requests.
 - Recalculate the FullCalendar layout after SharePoint finishes sizing the page canvas and whenever its host width changes.
@@ -49,6 +49,11 @@ SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCale
 | `linkTargetPageUrl` | Legacy custom target page for single-list configurations. | Empty |
 | `linkTargetIdParam` | Query parameter used for the selected item ID on custom pages. | `itemid` |
 | `includeReturnUrlParam` | Adds the current URL in a `return` parameter. | Disabled |
+| `enableRegistration` | Shows a Register action in the event details panel. | Disabled |
+| `registrationPageUrl` | Site-relative or absolute Event Registration page URL. | Empty |
+| `registrationSessionIdParam` | Query parameter receiving the selected Calendar SharePoint item ID. | `sessionid` |
+| `registrationEventIdParam` | Query parameter receiving the parent Event lookup ID when available. | `eventid` |
+| `includeRegistrationReturnUrl` | Adds the current URL in a `return` parameter. | Enabled |
 | `conditionalStyleJson` | Data-driven event appearance rules. | Empty |
 | `enableDiagnostics` | Writes calendar lifecycle and data-loading details to the browser console. | Enabled |
 
@@ -63,6 +68,18 @@ Each data source can define its own event background with the collection's color
 Event details use SharePoint field metadata when displaying values. Rich-text multiline columns render their sanitized HTML formatting, while plain-text columns remain literal text; choosing the collection's **Text** format also forces literal text.
 
 Recurring events automatically include a **Repeats** information row in the details panel. It describes the same daily, weekly, monthly, or yearly rule used to expand the event, including its interval, selected weekdays, occurrence count, or end date when available. One-time events do not show this row.
+
+## Event Registration integration
+
+In the **Registration** property-pane group, enable registration and configure the Event Registration page URL. The URL can be absolute or site-relative. Parameter names are normalized to lowercase and must be distinct, valid query names other than reserved `id`.
+
+The details-panel **Register** action sends:
+
+- `sessionid` (configurable): the selected Calendar SharePoint item ID.
+- `eventid` (configurable): the parent Event lookup ID from `EventId` or `EventLookupId`, when available; otherwise this parameter is omitted.
+- `return`: the current page URL when **Include the current page as the return parameter** is enabled.
+
+For Dynamic Data consumers, Calendar continues to publish `selectedItemId` and `selectedMode` unchanged. It additionally publishes scalar `selectedSessionId` (the selected SharePoint item ID) and `selectedEventKey` (the stable source-and-item key used to distinguish identical item IDs across multiple Calendar sources). Calendar does not publish mutable event objects.
 
 The current user needs read access to the selected Events list. Calendar reads the item fields so filters and style rules can use standard or custom field internal names.
 

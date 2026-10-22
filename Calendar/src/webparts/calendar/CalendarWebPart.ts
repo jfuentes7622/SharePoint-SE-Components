@@ -96,6 +96,11 @@ export interface ICalendarWebPartProps {
   linkTargetPageUrl: string;
   linkTargetIdParam: string;
   includeReturnUrlParam: boolean;
+  enableRegistration?: boolean;
+  registrationPageUrl?: string;
+  registrationSessionIdParam?: string;
+  registrationEventIdParam?: string;
+  includeRegistrationReturnUrl?: boolean;
   calendarBackgroundColor: string;
   webPartBorderColor: string;
   webPartBorderWidth: number;
@@ -211,6 +216,8 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   private _filterDesignerMessage: string = '';
   private _selectedItemId: number = 0;
   private _selectedMode: string = 'view';
+  private _selectedEventKey: string = '';
+  private _selectedSessionId: number = 0;
   private _dynamicDataSourceManager: any;
   private _conditionalStyleJsonValidationMessage: string = '';
   private _conditionalStyleDesignerMessage: string = '';
@@ -351,6 +358,16 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         id: 'selectedMode',
         title: 'Selected Mode',
         description: 'The desired form mode for the selected event.'
+      },
+      {
+        id: 'selectedEventKey',
+        title: 'Selected Event Key',
+        description: 'The stable data-source and item identity of the selected calendar event.'
+      },
+      {
+        id: 'selectedSessionId',
+        title: 'Selected Session ID',
+        description: 'The SharePoint item ID of the selected registration session.'
       }
     ];
   }
@@ -362,6 +379,14 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
 
     if (propertyId === 'selectedMode') {
       return this._selectedMode;
+    }
+
+    if (propertyId === 'selectedEventKey') {
+      return this._selectedEventKey;
+    }
+
+    if (propertyId === 'selectedSessionId') {
+      return this._selectedSessionId;
     }
 
     throw new Error('Bad property id');
@@ -431,6 +456,13 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         linkTargetPageUrl: this.properties.linkTargetPageUrl || '',
         linkTargetIdParam: this.properties.linkTargetIdParam || 'itemid',
         includeReturnUrlParam: this.properties.includeReturnUrlParam === true,
+        enableRegistration: this.properties.enableRegistration === true,
+        registrationPageUrl: this.properties.registrationPageUrl || '',
+        registrationSessionIdParam: this.normalizeRegistrationParameterName(
+          this.properties.registrationSessionIdParam, 'sessionid'),
+        registrationEventIdParam: this.normalizeRegistrationParameterName(
+          this.properties.registrationEventIdParam, 'eventid'),
+        includeRegistrationReturnUrl: this.properties.includeRegistrationReturnUrl !== false,
         calendarBackgroundColor: resolved.calendarBackgroundColor,
         webPartBorderColor: resolved.webPartBorderColor,
         webPartBorderWidth: typeof this.properties.webPartBorderWidth === 'number' ? this.properties.webPartBorderWidth : 0,
@@ -526,7 +558,8 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         detailsCloseButtonCornerRadius: typeof this.properties.detailsCloseButtonCornerRadius === 'number'
           ? this.properties.detailsCloseButtonCornerRadius : 2,
         enableDiagnostics: this.properties.enableDiagnostics !== false,
-        onEventSelectionChange: (itemId: number, mode: string) => this.handleEventSelectionChange(itemId, mode),
+        onEventSelectionChange: (itemId: number, mode: string, selectedEventKey?: string, selectedSessionId?: number) =>
+          this.handleEventSelectionChange(itemId, mode, selectedEventKey, selectedSessionId),
         fUpdateProperty: (value: string) => {
           this.properties.title = value;
         },
@@ -540,6 +573,10 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   protected onInit(): Promise<void> {
     this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
     this.initializeDynamicDataSource();
+    this.properties.registrationSessionIdParam = this.normalizeRegistrationParameterName(
+      this.properties.registrationSessionIdParam, 'sessionid');
+    this.properties.registrationEventIdParam = this.normalizeRegistrationParameterName(
+      this.properties.registrationEventIdParam, 'eventid');
     if (!Array.isArray(this.properties.eventDetailsFields) && String(this.properties.eventDetailsFieldsJson || '').trim()) {
       try {
         var legacyDetailFields = JSON.parse(this.properties.eventDetailsFieldsJson);
@@ -596,6 +633,17 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
       this.context.propertyPane.refresh();
       this.render();
       return;
+    }
+    if (propertyPath === 'enableRegistration' && oldValue !== newValue) {
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
+    if (propertyPath === 'registrationSessionIdParam' || propertyPath === 'registrationEventIdParam') {
+      var defaultParameterName = propertyPath === 'registrationSessionIdParam' ? 'sessionid' : 'eventid';
+      newValue = this.normalizeRegistrationParameterName(newValue, defaultParameterName);
+      (this.properties as any)[propertyPath] = newValue;
     }
     if (propertyPath === 'listName' && oldValue !== newValue) {
       this.properties.swimlaneFieldName = '';
@@ -1122,12 +1170,51 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
     }
   }
 
-  private handleEventSelectionChange(itemId: number, mode: string): void {
+  private handleEventSelectionChange(itemId: number, mode: string, selectedEventKey?: string,
+    selectedSessionId?: number): void {
     this._selectedItemId = itemId > 0 ? itemId : 0;
     this._selectedMode = mode || 'view';
+    this._selectedEventKey = this._selectedItemId > 0 ? String(selectedEventKey || '') : '';
+    this._selectedSessionId = this._selectedItemId > 0
+      ? (typeof selectedSessionId === 'number' && selectedSessionId > 0 ? selectedSessionId : this._selectedItemId)
+      : 0;
     this.logDiagnostic('Event selection changed. itemId=' + String(this._selectedItemId));
     this.notifyDynamicData('selectedItemId');
     this.notifyDynamicData('selectedMode');
+    this.notifyDynamicData('selectedEventKey');
+    this.notifyDynamicData('selectedSessionId');
+  }
+
+  private normalizeRegistrationParameterName(value: any, defaultValue: string): string {
+    var normalized = String(value || '').trim().replace(/^[?&]+/, '').toLowerCase();
+    return normalized || defaultValue;
+  }
+
+  private validateRegistrationPageUrl(value: string): string {
+    if (this.properties.enableRegistration === true && !String(value || '').trim()) {
+      return strings.RegistrationPageUrlRequired;
+    }
+    return '';
+  }
+
+  private validateRegistrationParameterName(value: string, otherPropertyName: string): string {
+    var normalized = String(value || '').trim().replace(/^[?&]+/, '').toLowerCase();
+    if (!normalized) {
+      return strings.RegistrationParameterRequired;
+    }
+    if (!/^[a-z_][a-z0-9_.-]*$/i.test(normalized)) {
+      return strings.RegistrationParameterInvalid;
+    }
+    if (normalized === 'id') {
+      return strings.RegistrationParameterIdCollision;
+    }
+    var otherValue = this.normalizeRegistrationParameterName(
+      (this.properties as any)[otherPropertyName],
+      otherPropertyName === 'registrationSessionIdParam' ? 'sessionid' : 'eventid');
+    if (normalized === otherValue) {
+      return strings.RegistrationParameterDuplicate;
+    }
+    return '';
   }
 
   private getWebPartVersion(): string {
@@ -1847,6 +1934,40 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
                   checked: this.properties.includeReturnUrlParam === true,
                   disabled: this.properties.showLinkToItem !== true
                 })
+              ]
+            },
+            {
+              groupName: strings.RegistrationGroupName,
+              groupFields: [
+                PropertyPaneCheckbox('enableRegistration', {
+                  text: strings.EnableRegistrationLabel,
+                  checked: this.properties.enableRegistration === true
+                }),
+                ...(this.properties.enableRegistration === true ? [
+                  PropertyPaneTextField('registrationPageUrl', {
+                    label: strings.RegistrationPageUrlLabel,
+                    placeholder: strings.RegistrationPageUrlPlaceholder,
+                    onGetErrorMessage: this.validateRegistrationPageUrl.bind(this)
+                  }),
+                  PropertyPaneTextField('registrationSessionIdParam', {
+                    label: strings.RegistrationSessionIdParamLabel,
+                    value: this.normalizeRegistrationParameterName(
+                      this.properties.registrationSessionIdParam, 'sessionid'),
+                    onGetErrorMessage: (value: string) =>
+                      this.validateRegistrationParameterName(value, 'registrationEventIdParam')
+                  }),
+                  PropertyPaneTextField('registrationEventIdParam', {
+                    label: strings.RegistrationEventIdParamLabel,
+                    value: this.normalizeRegistrationParameterName(
+                      this.properties.registrationEventIdParam, 'eventid'),
+                    onGetErrorMessage: (value: string) =>
+                      this.validateRegistrationParameterName(value, 'registrationSessionIdParam')
+                  }),
+                  PropertyPaneCheckbox('includeRegistrationReturnUrl', {
+                    text: strings.IncludeRegistrationReturnUrlLabel,
+                    checked: this.properties.includeRegistrationReturnUrl !== false
+                  })
+                ] : [])
               ]
             },
             {

@@ -20,6 +20,7 @@ See [Customer Update - October 14, 2026](CUSTOMER-UPDATE-2026-10-14.md) for cust
 | [Carousel](#carousel) | Web Part | Auto-playing image carousel from a library | [Carousel/README.md](Carousel/README.md) |
 | [Contact](#contact) | Web Part | Filterable staff/contact directory cards | [Contact/README.md](Contact/README.md) |
 | [Dynamic Forms](#sharepointdform-dynamic-forms) | Web Part | No-code list form designer and runtime | [DynamicForms/README.md](DynamicForms/README.md) |
+| [Event Registration](EventRegistration/README.md) | Web Part | Event and series registration with capacity, waitlists, and organizer tools | [EventRegistration/README.md](EventRegistration/README.md) |
 | [Form Navigator](#form-navigator) | Web Part | Grouped direct navigation across Dynamic Forms and Report Forms | [FormNavigator/README.md](FormNavigator/README.md) |
 | [Full Width Control](#full-width-control) | Web Part | Expands the containing page section | [FullWidthControl/README.md](FullWidthControl/README.md) |
 | [GridControl](#gridcontrol) | Web Part | Designer-configured editable list grid | [GridControl/README.md](GridControl/README.md) |

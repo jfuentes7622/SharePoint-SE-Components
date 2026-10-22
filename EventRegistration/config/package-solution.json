@@ -1,0 +1,21 @@
+{
+  "$schema": "https://dev.office.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "SPS Event Registration",
+    "id": "59b53dee-ec53-4970-b692-db195dc2b8b9",
+    "version": "1.0.0.1",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true,
+    "features": [
+      {
+        "title": "SPS Event Registration Feature",
+        "description": "Activates the Event Registration client-side web part.",
+        "id": "7714eb82-8b7e-4a66-a8c3-1dc4edde8d60",
+        "version": "1.0.0.1"
+      }
+    ]
+  },
+  "paths": {
+    "zippedPackage": "solution/sps-event-registration.sppkg"
+  }
+}

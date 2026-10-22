@@ -2,15 +2,16 @@
 
 Report Forms is a read-only SharePoint Framework web part for displaying a single SharePoint list item with a configurable form-style layout. It is based on DynamicForms' field renderer and visual layout designer, but it does not create or update list items.
 
-## October 14, 2026 release
+## October 22, 2026 release
 
-- npm version: `1.0.56`
-- SharePoint solution and feature version: `1.0.0.83`
+- npm version: `1.0.57`
+- SharePoint solution and feature version: `1.0.0.84`
 - Package: `sharepoint/solution/sps-report-forms.sppkg`
 - Adds **Manual styling**, **Site theme only**, and **Site theme with overrides** for report buttons.
 - Existing instances remain in Manual styling unless an author selects a theme mode.
 - Choice and MultiChoice controls now refresh their options from the current SharePoint column metadata.
 - SharePoint metadata requests bypass reusable browser responses so refreshed pages receive current field definitions.
+- Initial theme notifications are cached without rendering until SharePoint starts the normal render lifecycle. The first render applies the cached CSS theme variables, and later theme changes still update the report.
 
 ## Compatibility
 
@@ -80,6 +81,14 @@ npx gulp package-solution --ship
 ```
 
 The deployable package is generated at `sharepoint/solution/sps-report-forms.sppkg`.
+
+Run the Print Control and Report Forms theme lifecycle regression tests from the repository root:
+
+```powershell
+node tests\themeLifecycle.test.js
+```
+
+These tests use mocked SPFx/DOM dependencies, not a live SharePoint site.
 
 ## Troubleshooting script-resource errors
 

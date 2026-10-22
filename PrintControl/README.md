@@ -2,14 +2,15 @@
 
 SPFx 1.5.1 web part that prints the SharePoint page content area without the site header, navigation, or page chrome.
 
-## October 14, 2026 release
+## October 22, 2026 release
 
-- npm version: `0.0.11`
-- SharePoint solution and feature version: `1.0.0.17`
+- npm version: `0.0.12`
+- SharePoint solution and feature version: `1.0.0.18`
 - Package: `sharepoint/solution/sps-print-control.sppkg`
 - Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
 - Existing instances remain in Manual styling unless an author selects a theme mode.
 - Site theme modes cover print-button background, foreground, border, and font family while preserving alignment, size, corners, and print behavior.
+- Initial theme notifications are cached until the first normal render, avoiding startup failures when SharePoint has not yet supplied the web part properties or DOM host. Later theme changes still refresh the button and property pane.
 
 ## Features
 
@@ -45,6 +46,17 @@ gulp package-solution --ship
 ```
 
 The deployable package is generated under `sharepoint/solution/`.
+
+Run the Print Control and Report Forms theme lifecycle regression tests from the repository root:
+
+```powershell
+node tests\themeLifecycle.test.js
+```
+
+These tests use mocked SPFx/DOM dependencies, not a live SharePoint site.
+An `ai.0.js` Content Security Policy warning can come from legacy PnP property
+control telemetry. That asynchronous telemetry request does not gate rendering;
+do not weaken the site's CSP to resolve a missing print button.
 
 ## Usage
 

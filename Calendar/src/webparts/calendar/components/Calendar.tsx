@@ -186,6 +186,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     }
     if (shouldReloadEvents && this.state.selectedItemId > 0) {
       this.setState({ selectedEvent: undefined, selectedItemId: 0, selectedEventKey: '' });
+      this.props.onEventSelectionChange(0, 'view', '', 0);
     }
     if (prevProps.defaultView !== this.props.defaultView) {
       this._calendar.changeView(this.props.defaultView || 'dayGridMonth');
@@ -835,10 +836,12 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     }
 
     this.logDiagnostic('Event selected. itemId=' + String(itemId));
-    this.props.onEventSelectionChange(itemId, 'view');
+    var selectedEventKey = String(event && event.extendedProps && event.extendedProps.sourceItemKey
+      || event && event.id || '');
+    this.props.onEventSelectionChange(itemId, 'view', selectedEventKey, itemId);
     if (this.props.enableEventDetails !== false && event) {
-      var eventKey = String(event.extendedProps && event.extendedProps.sourceItemKey || '');
-      this.setState({ selectedEvent: event, selectedItemId: itemId, selectedEventKey: eventKey }, () => this.rerenderSelectedEvents());
+      this.setState({ selectedEvent: event, selectedItemId: itemId, selectedEventKey: selectedEventKey },
+        () => this.rerenderSelectedEvents());
     } else if (this.props.showLinkToItem === true) {
       this.setState({ selectedItemId: itemId, selectedEventKey: String(event && event.extendedProps && event.extendedProps.sourceItemKey || '') });
       var itemUrl = this.getItemLinkUrl(itemId, event);
@@ -1058,6 +1061,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     var configuredTargetPageUrl = String(this.props.linkTargetPageUrl || '').trim();
     var usesDefaultForm = !configuredTargetPageUrl || configuredTargetPageUrl === '__defaultForm__';
     var itemUrl = showEventAction && !usesDefaultForm ? this.getItemLinkUrl(itemId, event) : '';
+    var registrationUrl = this.getRegistrationUrl(itemId, event);
     var recurrenceDescription = this.getRecurrenceDescription(event);
     return (
       <div className={styles.eventDetailsBackdrop} role='presentation' onClick={() => this.closeEventDetails()}>
@@ -1090,11 +1094,13 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
                 <dd>{recurrenceDescription}</dd>
               </div>}
           </dl>
-          {showEventAction && <div className={styles.eventDetailsActions}>
-            {!usesDefaultForm
+          {(showEventAction || registrationUrl) && <div className={styles.eventDetailsActions}>
+            {showEventAction && (!usesDefaultForm
               ? <a className={styles.eventDetailsOpenButton} href={itemUrl}>{strings.OpenEventDetailsButton}</a>
               : <button type='button' className={styles.eventDetailsEditButton}
-                onClick={() => this.openEditEventDialog(itemId, event)}>{strings.EditEventButtonLabel}</button>}
+                onClick={() => this.openEditEventDialog(itemId, event)}>{strings.EditEventButtonLabel}</button>)}
+            {registrationUrl && <a className={styles.eventDetailsOpenButton} href={registrationUrl}
+              aria-label={strings.RegisterEventButtonLabel}>{strings.RegisterEventButtonLabel}</a>}
           </div>}
         </section>
       </div>
@@ -1131,6 +1137,51 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     }
 
     return this.getWebUrl() + '/Lists/' + encodeURIComponent(sourceListName) + '/DispForm.aspx?ID=' + String(itemId);
+  }
+
+  private getRegistrationUrl(itemId: number, event?: any): string {
+    var pageUrl = String(this.props.registrationPageUrl || '').trim();
+    if (this.props.enableRegistration !== true || !pageUrl || itemId <= 0) {
+      return '';
+    }
+    if (!/^https?:\/\//i.test(pageUrl)) {
+      pageUrl = this.getWebUrl() + (pageUrl.charAt(0) === '/' ? pageUrl : '/' + pageUrl);
+    }
+    var sessionParameter = String(this.props.registrationSessionIdParam || 'sessionid').trim() || 'sessionid';
+    var eventParameter = String(this.props.registrationEventIdParam || 'eventid').trim() || 'eventid';
+    var registrationUrl = appendQueryParam(pageUrl, sessionParameter, String(itemId));
+    var parentEventId = this.getRegistrationParentEventId(event);
+    if (parentEventId > 0) {
+      registrationUrl = appendQueryParam(registrationUrl, eventParameter, String(parentEventId));
+    }
+    if (this.props.includeRegistrationReturnUrl !== false && typeof window !== 'undefined' && window.location) {
+      registrationUrl = appendQueryParam(registrationUrl, 'return', window.location.href);
+    }
+    return registrationUrl;
+  }
+
+  private getRegistrationParentEventId(event: any): number {
+    var extendedProps = event && event.extendedProps ? event.extendedProps : {};
+    var item = extendedProps.item || {};
+    var candidates = [
+      event && event.EventId,
+      event && event.EventLookupId,
+      extendedProps.EventId,
+      extendedProps.EventLookupId,
+      item.EventId,
+      item.EventLookupId
+    ];
+    for (var index = 0; index < candidates.length; index += 1) {
+      var value = candidates[index];
+      if (value && typeof value === 'object') {
+        value = value.Id || value.ID || value.LookupId || value.LookupID;
+      }
+      var parsed = parseInt(String(value || ''), 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return 0;
   }
 
   private getItemValue(item: any, fieldName: string): any {

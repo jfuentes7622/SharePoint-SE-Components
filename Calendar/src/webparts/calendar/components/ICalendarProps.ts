@@ -37,6 +37,11 @@ export interface ICalendarProps {
   linkTargetPageUrl: string;
   linkTargetIdParam: string;
   includeReturnUrlParam: boolean;
+  enableRegistration?: boolean;
+  registrationPageUrl?: string;
+  registrationSessionIdParam?: string;
+  registrationEventIdParam?: string;
+  includeRegistrationReturnUrl?: boolean;
   calendarBackgroundColor: string;
   webPartBorderColor: string;
   webPartBorderWidth: number;
@@ -128,7 +133,7 @@ export interface ICalendarProps {
   detailsCloseButtonHoverBackgroundColor: string;
   detailsCloseButtonCornerRadius: number;
   enableDiagnostics: boolean;
-  onEventSelectionChange: (itemId: number, mode: string) => void;
+  onEventSelectionChange: (itemId: number, mode: string, selectedEventKey?: string, selectedSessionId?: number) => void;
   fUpdateProperty: (value: string) => void;
   fPropertyPaneOpen: () => void;
 }

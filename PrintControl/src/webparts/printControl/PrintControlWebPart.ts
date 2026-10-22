@@ -41,6 +41,7 @@ interface IDropdownOption {
 export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintControlWebPartProps> {
   private _printButton: HTMLButtonElement | undefined;
   private _siteTheme: any;
+  private _hasRenderedOnce: boolean = false;
 
   public constructor() {
     super();
@@ -57,6 +58,10 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
 
   protected onThemeChanged(currentTheme: any): void {
     this._siteTheme = currentTheme;
+    // SharePoint can supply the initial theme before properties and the host are ready.
+    if (!this._hasRenderedOnce) {
+      return;
+    }
     this.render();
     if (this.context && this.context.propertyPane) {
       this.context.propertyPane.refresh();
@@ -353,6 +358,7 @@ export default class PrintControlWebPart extends BaseClientSideWebPart<IPrintCon
     root.appendChild(button);
     this.domElement.appendChild(root);
     this._printButton = button;
+    this._hasRenderedOnce = true;
   }
 
   protected onDispose(): void {

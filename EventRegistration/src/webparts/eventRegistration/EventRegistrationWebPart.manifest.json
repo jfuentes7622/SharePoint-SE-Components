@@ -1,0 +1,30 @@
+{
+  "$schema": "https://dev.office.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "e758253f-da1d-4883-b5a0-47a86d07f753",
+  "alias": "EventRegistrationWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "preconfiguredEntries": [{
+    "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+    "group": { "default": "Other" },
+    "title": { "default": "Event Registration" },
+    "description": { "default": "Event registration, capacity, waitlist, and organizer management." },
+    "officeFabricIconFontName": "Event",
+    "properties": {
+      "title": "Event Registration",
+      "description": "",
+      "appearanceMode": "manual",
+      "borderWidth": 0,
+      "cornerRadius": 0,
+      "fontSize": 14,
+      "excludeFromTabs": false,
+      "listPrefix": "SPS Event Registration",
+      "organizerGroupId": 0,
+      "preferredCalendarInstanceId": "",
+      "buttonDisplayMode": "iconText",
+      "enableDiagnostics": true
+    }
+  }]
+}

@@ -296,6 +296,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
 
   private _isDarkTheme: boolean = false;
   private _currentTheme: any;
+  private _hasRenderedOnce: boolean = false;
   private _lists: IDropdownOption[] = [];
   private _listFields: IDropdownOption[] = [];
   private _filterFields: IDropdownOption[] = [];
@@ -391,6 +392,8 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   }
 
   public render(): void {
+    this._hasRenderedOnce = true;
+    this.applyThemeStyles();
     this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this.domElement.setAttribute('data-spse-form-instance-id', this.context.instanceId);
@@ -1601,18 +1604,19 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
 
     this._currentTheme = currentTheme;
     this._isDarkTheme = !!currentTheme.isInverted;
-    const {
-      semanticColors
-    } = currentTheme;
+    // SharePoint can supply the initial theme before properties and the host are ready.
+    if (!this._hasRenderedOnce) {
+      return;
+    }
+    this.render();
+  }
 
+  private applyThemeStyles(): void {
+    var semanticColors = this._currentTheme && this._currentTheme.semanticColors;
     if (semanticColors) {
       this.domElement.style.setProperty('--bodyText', semanticColors.bodyText || null);
       this.domElement.style.setProperty('--link', semanticColors.link || null);
       this.domElement.style.setProperty('--linkHovered', semanticColors.linkHovered || null);
-    }
-
-    if (this.domElement) {
-      this.render();
     }
   }
 

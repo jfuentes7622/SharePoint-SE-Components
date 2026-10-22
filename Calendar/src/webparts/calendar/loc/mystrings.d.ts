@@ -127,6 +127,19 @@ declare interface ICalendarWebPartStrings {
   LinkTargetPageUrlLabel: string;
   LinkTargetIdParamLabel: string;
   IncludeReturnUrlParamLabel: string;
+  RegistrationGroupName: string;
+  EnableRegistrationLabel: string;
+  RegistrationPageUrlLabel: string;
+  RegistrationPageUrlPlaceholder: string;
+  RegistrationSessionIdParamLabel: string;
+  RegistrationEventIdParamLabel: string;
+  IncludeRegistrationReturnUrlLabel: string;
+  RegisterEventButtonLabel: string;
+  RegistrationPageUrlRequired: string;
+  RegistrationParameterRequired: string;
+  RegistrationParameterInvalid: string;
+  RegistrationParameterIdCollision: string;
+  RegistrationParameterDuplicate: string;
 
   AppearanceGroupName: string;
   AppearanceDefaultLabel: string;

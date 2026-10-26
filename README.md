@@ -4,6 +4,52 @@ A collection of SharePoint Framework (SPFx) components, built for SharePoint SE 
 
 All web-part property panes display the deployed solution version. Components with an **Enable diagnostics logging** setting write optional lifecycle and data-loading details to the browser console; genuine failures remain visible even when diagnostic logging is disabled.
 
+## October 26, 2026 theme-loading fix
+
+SharePoint Online can notify a web part of its theme before properties, the DOM,
+or `onInit` are ready. Eleven controls had callbacks that rendered at this stage,
+which could leave them blank. They now cache the theme and wait for the first
+normal render before processing later theme-driven renders or property-pane
+refreshes. Dynamic Forms also applies cached theme CSS during normal rendering.
+Manual styling and existing site-theme choices are unchanged.
+
+Updated solution and feature versions:
+
+| Component | Version | Deployment package |
+|---|---|---|
+| Tiles | `2.1.0.22` | [sps-tiles.sppkg](Tiles/sharepoint/solution/sps-tiles.sppkg) |
+| Accordion | `1.0.0.23` | [sps-accordion.sppkg](Accordion/sharepoint/solution/sps-accordion.sppkg) |
+| Calendar | `1.1.0.41` | [sps-calendar.sppkg](Calendar/sharepoint/solution/sps-calendar.sppkg) |
+| Contact | `3.1.0.21` | [sps-contacts.sppkg](Contact/sharepoint/solution/sps-contacts.sppkg) |
+| Dynamic Forms | `1.0.0.114` | [sps-dynamic-form.sppkg](DynamicForms/sharepoint/solution/sps-dynamic-form.sppkg) |
+| Form Navigator | `1.0.0.5` | [sps-form-navigator.sppkg](FormNavigator/sharepoint/solution/sps-form-navigator.sppkg) |
+| Grid Control | `1.0.0.91` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
+| LinkButton | `2.0.2.16` | [sps-linkbutton.sppkg](LinkButton/sharepoint/solution/sps-linkbutton.sppkg) |
+| Marquee | `2.1.0.26` | [sps-marquee.sppkg](Marquee/sharepoint/solution/sps-marquee.sppkg) |
+| Search Control | `1.0.0.15` | [sps-search-control.sppkg](SearchControl/sharepoint/solution/sps-search-control.sppkg) |
+| Tab | `3.1.0.37` | [sps-tabs.sppkg](Tab/sharepoint/solution/sps-tabs.sppkg) |
+
+Carousel, Event Registration, List Control, Print Control, and Report Forms
+already guard this lifecycle stage and need no additional change for this fix.
+The shared regression suite covers all 16 theme callbacks, including repeated
+early notifications and theme updates after the first render:
+
+```powershell
+node tests\themeLifecycle.test.js
+node tests\tiles.test.js
+```
+
+Build and redeploy each affected package from its component directory with
+`gulp bundle --ship` and `gulp package-solution --ship`. Replace the package in
+the app catalog, deploy it, apply any offered site-app upgrade, and reload the
+page. Check the version shown in the property pane, then verify Tiles and other
+affected controls on a published SharePoint Online page and after a site-theme
+change. Local tests do not replace this live deployment check.
+
+Tiles `2.1.0.22` also prevents the collection editor from saving and closing
+while a new or existing tile is missing a required Title or URL. See the
+[Tiles guide](Tiles/README.md) for its validation and draft-row behavior.
+
 ## October 14, 2026 customer update
 
 Fifteen configurable web parts now support **Manual styling**, **Site theme only**, and **Site theme with overrides**. Manual styling remains the backward-compatible default. Grid Control, List Control, Dynamic Forms, and Report Forms also include metadata-freshness improvements for SharePoint columns and choice options.

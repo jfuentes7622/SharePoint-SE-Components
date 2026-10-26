@@ -11,6 +11,14 @@ const React = require(path.join(root, 'node_modules', 'react'));
 const jsdom = require(path.join(root, 'node_modules', 'jsdom'));
 const document = jsdom.jsdom('<!doctype html><html><body></body></html>');
 const DisplayMode = { Read: 1, Edit: 2 };
+let nextGuid = 0;
+const collectionFieldTypes = { string: 1, number: 2, boolean: 3, dropdown: 4, fabricIcon: 5, url: 6, custom: 7 };
+function DefaultButton() {}
+function PrimaryButton() {}
+function TextField() {}
+function Dropdown() {}
+function Checkbox() {}
+function Panel() {}
 let strings;
 vm.runInNewContext(fs.readFileSync(path.join(base, 'loc', 'en-us.js'), 'utf8'), {
   define: function(dependencies, factory) { strings = factory(); }
@@ -21,7 +29,7 @@ function field(type) {
     return { type: type, targetProperty: targetProperty, properties: properties };
   };
 }
-const spWebPart = { BaseClientSideWebPart: function() {} };
+const spWebPart = { BaseClientSideWebPart: function() {}, PropertyPaneFieldType: { Custom: 1 } };
 spWebPart.BaseClientSideWebPart.prototype.onPropertyPaneFieldChanged = function() {};
 ['Checkbox', 'Dropdown', 'Label', 'Slider', 'Toggle', 'TextField'].forEach(function(type) {
   spWebPart['PropertyPane' + type] = field(type);
@@ -36,15 +44,24 @@ function load(file, extraImports) {
         container.renderCount = (container.renderCount || 0) + 1;
       }
     },
-    '@microsoft/sp-core-library': { DisplayMode: DisplayMode },
+    '@microsoft/sp-core-library': {
+      DisplayMode: DisplayMode, Guid: { newGuid: function() { nextGuid += 1; return 'tile-' + nextGuid; } }
+    },
+    '@microsoft/sp-lodash-subset': { assign: Object.assign },
     '@microsoft/sp-webpart-base': spWebPart,
     '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker': {
       PropertyFieldColorPicker: field('ColorPicker'), PropertyFieldColorPickerStyle: { Inline: 1 }
     },
     '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData': {
-      PropertyFieldCollectionData: field('Collection'), CustomCollectionFieldType: {}
+      PropertyFieldCollectionData: field('Collection'), CustomCollectionFieldType: collectionFieldTypes
     },
-    'sp-client-custom-fields/lib/PropertyFieldPicturePickerHost': {},
+    './components/TileCollectionEditor': { PropertyPaneTileCollection: field('Collection') },
+    'office-ui-fabric-react/lib/Button': { DefaultButton: DefaultButton, PrimaryButton: PrimaryButton },
+    'office-ui-fabric-react/lib/TextField': { TextField: TextField },
+    'office-ui-fabric-react/lib/Dropdown': { Dropdown: Dropdown },
+    'office-ui-fabric-react/lib/Checkbox': { Checkbox: Checkbox },
+    'office-ui-fabric-react/lib/Panel': { Panel: Panel, PanelType: { large: 3 } },
+    'sp-client-custom-fields/lib/PropertyFieldPicturePickerHost': { default: function PicturePickerHost() {} },
     TilesWebPartStrings: strings,
     './Tiles.module.scss': { default: { tiles: 'tiles', webPartTitle: 'webPartTitle', tilesList: 'tilesList' } },
     './Tile/Tile': { Tile: function() { return React.createElement('div'); } },
@@ -71,6 +88,7 @@ const Tile = load(path.join(base, 'components', 'Tile', 'Tile.tsx'), {
 }).Tile;
 const Tiles = load(path.join(base, 'components', 'Tiles.tsx'), { './Tile/Tile': { Tile: Tile } }).Tiles;
 const WebPart = load(path.join(base, 'TilesWebPart.ts'), { './components/Tiles': { Tiles: Tiles } }).default;
+const editorModule = load(path.join(base, 'components', 'TileCollectionEditor.tsx'));
 const defaults = require(path.join(base, 'TilesWebPart.manifest.json')).preconfiguredEntries[0].properties;
 function fixture() {
   const part = new WebPart();
@@ -131,6 +149,30 @@ function test(name, run) {
     console.error('FAIL ' + name + ': ' + error.message);
   }
 }
+
+test('the initial theme is cached before host initialization and used on the first render', function() {
+  const part = new WebPart();
+  const initial = { semanticColors: { primaryButtonBackground: '#123456' } };
+  part.onThemeChanged(initial);
+  assert.strictEqual(part._siteTheme, initial);
+  part.properties = Object.assign({}, defaults, { appearanceMode: 'siteTheme' });
+  part.domElement = document.createElement('div');
+  let refreshes = 0;
+  part.context = {
+    instanceId: 'tiles-theme-test',
+    propertyPane: { refresh: function() { refreshes += 1; } }
+  };
+  part.onThemeChanged(initial);
+  assert.strictEqual(part.domElement.renderCount, undefined);
+  assert.strictEqual(refreshes, 0);
+  part.render();
+  assert.strictEqual(part.domElement.rendered.props.backgroundColor, '#123456');
+  part.renderedOnce = true;
+  part.onThemeChanged({ semanticColors: { primaryButtonBackground: '#654321' } });
+  assert.strictEqual(part.domElement.renderCount, 2);
+  assert.strictEqual(part.domElement.rendered.props.backgroundColor, '#654321');
+  assert.strictEqual(refreshes, 1);
+});
 
 test('typing consecutive characters updates the controlled inline title immediately', function() {
   const part = fixture();
@@ -338,6 +380,226 @@ test('border thickness and corner radius enforce their exact supported pixel lim
     assert.strictEqual(style['--tile-border-width'], values.expectedWidth);
     assert.strictEqual(style['--border-radius'], values.expectedRadius);
   });
+});
+
+function editorFixture(values) {
+  const part = fixture();
+  const properties = setting(part, 'collectionData').properties;
+  const saved = [];
+  const editor = new editorModule.TileCollectionEditor(Object.assign({}, properties, {
+    value: values || [{ title: 'Existing', url: '/existing' }],
+    onChanged: function(items) { saved.push(items); }
+  }));
+  editor.setState = function(update) {
+    const next = typeof update === 'function' ? update(this.state, this.props) : update;
+    this.state = Object.assign({}, this.state, next);
+  };
+  editor.openPanel();
+  return { editor: editor, saved: saved };
+}
+function saveButton(editor) {
+  return find(editor.render(), function(element) { return element.type === PrimaryButton; });
+}
+function draftField(editor, name) {
+  const field = editor.props.fields.filter(function(item) { return item.id === name; })[0];
+  return editor.renderField(editor.state.draft, field, true);
+}
+function changeDraft(editor, name, value) {
+  editor.updateField(editor.state.draft.uniqueId, name, value);
+}
+
+test('the tile editor retains both required columns and all optional editor fields', function() {
+  const editor = editorFixture().editor;
+  assert.deepStrictEqual(Array.from(editor.props.fields.filter(function(item) { return item.required; }),
+    function(item) { return item.id; }), ['title', 'url']);
+  assert.strictEqual(editor.props.fields.length, 14);
+  ['imageUrl', 'imageOpacity', 'hoverImageUrl', 'color'].forEach(function(id) {
+    assert.strictEqual(typeof editor.props.fields.filter(function(item) { return item.id === id; })[0].onCustomRender, 'function');
+  });
+});
+
+test('an untouched blank draft does not block saving existing tiles or create a phantom tile', function() {
+  const result = editorFixture();
+  const editor = result.editor;
+  assert.strictEqual(saveButton(editor).props.disabled, false);
+  assert.strictEqual(saveButton(editor).props.text, strings.tileSaveButton);
+  saveButton(editor).props.onClick();
+  assert.strictEqual(result.saved.length, 1);
+  assert.strictEqual(result.saved[0].length, 1);
+  assert.strictEqual(result.saved[0][0].title, 'Existing');
+  assert.strictEqual(editor.state.open, false);
+});
+
+test('a title-only draft disables Save and shows URL is required without dropping the draft', function() {
+  const result = editorFixture([]);
+  const editor = result.editor;
+  changeDraft(editor, 'title', 'New tile');
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+  assert.strictEqual(draftField(editor, 'url').props.errorMessage, 'URL is required.');
+  assert.strictEqual(draftField(editor, 'title').props.errorMessage, '');
+  editor.save();
+  assert.strictEqual(result.saved.length, 0);
+  assert.strictEqual(editor.state.open, true);
+  assert.strictEqual(editor.state.draft.title, 'New tile');
+  assert.ok(find(editor.render(), function(element) {
+    return element.props.role === 'alert' && element.props.children === strings.tileRequiredFieldsHelp;
+  }));
+});
+
+test('finishing required fields enables Save and add and persists the unfinished row exactly once', function() {
+  const result = editorFixture();
+  const editor = result.editor;
+  changeDraft(editor, 'url', '/new');
+  assert.strictEqual(draftField(editor, 'title').props.errorMessage, 'Title is required.');
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+  changeDraft(editor, 'title', 'New');
+  assert.strictEqual(saveButton(editor).props.disabled, false);
+  assert.strictEqual(saveButton(editor).props.text, strings.tileSaveAndAddButton);
+  saveButton(editor).props.onClick();
+  assert.strictEqual(result.saved[0].length, 2);
+  assert.strictEqual(result.saved[0][1].title, 'New');
+  assert.strictEqual(result.saved[0][1].url, '/new');
+  assert.strictEqual(result.saved[0][1].imageOpacity, 100);
+  assert.strictEqual(result.saved[0][1].imageAsBackground, false);
+});
+
+test('optional-only and whitespace-only drafts cannot silently disappear through Save', function() {
+  const editor = editorFixture().editor;
+  changeDraft(editor, 'description', 'Keep this unfinished description');
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+  assert.strictEqual(draftField(editor, 'url').props.errorMessage, 'URL is required.');
+  changeDraft(editor, 'title', '   ');
+  changeDraft(editor, 'url', '/target');
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+  assert.strictEqual(draftField(editor, 'title').props.errorMessage, 'Title is required.');
+  changeDraft(editor, 'title', 'Ready');
+  assert.strictEqual(saveButton(editor).props.disabled, false);
+  changeDraft(editor, 'url', '\t ');
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+});
+
+test('invalid edits to existing tiles block Save immediately and retain every typed value', function() {
+  const result = editorFixture();
+  const editor = result.editor;
+  const id = editor.state.items[0].uniqueId;
+  editor.updateField(id, 'url', '');
+  editor.updateField(id, 'description', 'Unsaved edit');
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+  editor.save();
+  assert.strictEqual(editor.state.open, true);
+  assert.strictEqual(result.saved.length, 0);
+  assert.strictEqual(editor.state.items[0].description, 'Unsaved edit');
+  editor.updateField(id, 'url', '#restored');
+  saveButton(editor).props.onClick();
+  assert.strictEqual(result.saved[0][0].description, 'Unsaved edit');
+  assert.strictEqual(result.saved[0][0].url, '#restored');
+});
+
+test('adding a valid draft resets only the draft and allows saving without duplicating it', function() {
+  const result = editorFixture([]);
+  const editor = result.editor;
+  changeDraft(editor, 'title', 'Added');
+  changeDraft(editor, 'url', '/added');
+  editor.addDraft();
+  assert.strictEqual(editor.state.items.length, 1);
+  assert.strictEqual(editor.hasDraftChanges(), false);
+  saveButton(editor).props.onClick();
+  assert.strictEqual(result.saved[0].length, 1);
+});
+
+test('sorting and deleting retain row validation and can save an intentionally empty collection', function() {
+  const result = editorFixture([{ title: 'First', url: '/first' }, { title: 'Second', url: '/second' }]);
+  const editor = result.editor;
+  const firstId = editor.state.items[0].uniqueId;
+  editor.updateField(firstId, 'url', '');
+  editor.moveItem(firstId, 1);
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+  editor.deleteItem(firstId);
+  assert.strictEqual(saveButton(editor).props.disabled, false);
+  editor.deleteItem(editor.state.items[0].uniqueId);
+  saveButton(editor).props.onClick();
+  assert.strictEqual(result.saved[0].length, 0);
+});
+
+test('save serializes sorting order and preserves image, hover, color and target settings', function() {
+  const original = [
+    { title: 'First', url: '/first', imageUrl: '/photo.png', imageOpacity: 0, imageOnly: true,
+      hoverImageUrl: '/hover.png', hoverImagePosition: 'left', color: '#008800', target: '_blank' },
+    { title: 'Second', url: '/second' }
+  ];
+  const result = editorFixture(original);
+  const editor = result.editor;
+  editor.moveItem(editor.state.items[1].uniqueId, 0);
+  saveButton(editor).props.onClick();
+  assert.strictEqual(result.saved[0][0].title, 'Second');
+  assert.strictEqual(result.saved[0][0].sortIdx, 1);
+  assert.strictEqual(result.saved[0][1].sortIdx, 2);
+  Object.keys(original[0]).forEach(function(key) {
+    assert.strictEqual(result.saved[0][1][key], original[0][key]);
+  });
+  assert.strictEqual(original[0].uniqueId, undefined);
+  assert.strictEqual(original[0].sortIdx, undefined);
+});
+
+test('Cancel and panel dismissal leave saved values unchanged and reopening discards edits', function() {
+  const original = [{ title: 'Original', url: '/original' }];
+  const result = editorFixture(original);
+  const editor = result.editor;
+  editor.updateField(editor.state.items[0].uniqueId, 'title', 'Unsaved');
+  changeDraft(editor, 'title', 'Partial');
+  find(editor.render(), function(element) { return element.type === Panel; }).props.onDismiss();
+  assert.strictEqual(result.saved.length, 0);
+  assert.strictEqual(original[0].title, 'Original');
+  editor.openPanel();
+  assert.strictEqual(editor.state.items[0].title, 'Original');
+  assert.strictEqual(editor.hasDraftChanges(), false);
+});
+
+test('custom image controls keep their update callbacks and custom errors also disable Save', function() {
+  const result = editorFixture();
+  const editor = result.editor;
+  const field = editor.props.fields.filter(function(item) { return item.id === 'imageUrl'; })[0];
+  const wrapper = editor.renderField(editor.state.draft, field, true);
+  const picker = React.Children.toArray(wrapper.props.children)[0];
+  picker.props.onPropertyChange('imageUrl', '', '/selected.png');
+  assert.strictEqual(editor.state.draft.imageUrl, '/selected.png');
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+  changeDraft(editor, 'title', 'Picture tile');
+  changeDraft(editor, 'url', '/target');
+  editor.validateCustomField(editor.state.draft.uniqueId, 'imageUrl', 'Invalid image');
+  assert.strictEqual(saveButton(editor).props.disabled, true);
+  editor.validateCustomField(editor.state.draft.uniqueId, 'imageUrl', '');
+  assert.strictEqual(saveButton(editor).props.disabled, false);
+});
+
+test('save failures show an error and keep the panel and edited values intact', function() {
+  const editor = editorFixture().editor;
+  editor.props.onChanged = function() { throw new Error('Simulated property update failure'); };
+  const errors = [];
+  const original = console.error;
+  console.error = function() { errors.push(Array.from(arguments)); };
+  try {
+    editor.save();
+  } finally {
+    console.error = original;
+  }
+  assert.strictEqual(editor.state.open, true);
+  assert.strictEqual(editor.state.saveError, strings.tileSaveError);
+  assert.strictEqual(errors.length, 1);
+});
+
+test('the custom property field wires Save into the SharePoint property change callback', function() {
+  const part = fixture();
+  const properties = setting(part, 'collectionData').properties;
+  const field = editorModule.PropertyPaneTileCollection('collectionData', properties);
+  const container = document.createElement('div');
+  const changes = [];
+  field.properties.onRender(container, {}, function(property, value) { changes.push({ property: property, value: value }); });
+  const values = [{ title: 'Saved', url: '/saved' }];
+  container.rendered.props.onChanged(values);
+  assert.strictEqual(changes.length, 1);
+  assert.strictEqual(changes[0].property, 'collectionData');
+  assert.strictEqual(changes[0].value, values);
 });
 
 document.defaultView.close();

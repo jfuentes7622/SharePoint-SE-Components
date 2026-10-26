@@ -2577,7 +2577,7 @@ function getManifests() {
     "id": "de5f92e8-570c-4a7c-ba96-7ae89a098723",
     "alias": "GridControlWebPart",
     "componentType": "WebPart",
-    "version": "1.0.90",
+    "version": "1.0.91",
     "manifestVersion": 2,
     "requiresCustomScript": false,
     "supportsFullBleed": true,

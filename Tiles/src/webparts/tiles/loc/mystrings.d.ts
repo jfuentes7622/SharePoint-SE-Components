@@ -8,6 +8,17 @@ declare interface ITilesWebPartStrings {
   tilesDataLabel: string;
   tilesPanelHeader: string;
   tilesManageBtn: string;
+  tileFieldRequired: string;
+  tileRequiredFieldsHelp: string;
+  tileRequiredLabel: string;
+  tileOrderLabel: string;
+  tileActionsLabel: string;
+  tileAddButton: string;
+  tileDeleteButton: string;
+  tileSaveButton: string;
+  tileSaveAndAddButton: string;
+  tileCancelButton: string;
+  tileSaveError: string;
 
   // Tile fields
   titleField: string;

@@ -227,7 +227,9 @@ export default class ContactsImagesWebPart extends BaseClientSideWebPart<IContac
 
   protected onThemeChanged(currentTheme: any): void {
     this.currentTheme = currentTheme;
-    this.render();
+    if (this.renderedOnce) {
+      this.render();
+    }
   }
 
   private getAppearanceMode(): string {

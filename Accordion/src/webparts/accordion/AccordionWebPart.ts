@@ -123,7 +123,9 @@ private currentTheme: any;
 
   protected onThemeChanged(currentTheme: any): void {
     this.currentTheme = currentTheme;
-    this.render();
+    if (this.renderedOnce) {
+      this.render();
+    }
   }
 
   private getAppearanceMode(): string {

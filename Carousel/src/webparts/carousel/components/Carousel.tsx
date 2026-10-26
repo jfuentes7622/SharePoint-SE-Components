@@ -33,7 +33,6 @@ const CarouselArrow = (props: any): React.ReactElement<any> => {
 
 export default class IskmCarouselController extends React.Component<ICarouselProps, IIskmCarouselControllerState> {
     private _slides: Array<SlideItemModel> = new Array<SlideItemModel>();
-  private _imageVerticalInsets: Array<number> = new Array<number>();
   private _hashChangeHandler: () => void;
    
     constructor(props: ICarouselProps) {
@@ -177,8 +176,6 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
       maxWidth: '100%',
       margin: '0 auto',
       backgroundColor: this.props.webPartBackgroundColor || '#ffffff'
-      // If you need a fixed height when carouselHeight > 0, you can also add:
-      // height: this.props.carouselHeight > 0 ? this.props.carouselHeight : undefined
     };
     const webPartStyle: React.CSSProperties = {
       backgroundColor: this.props.webPartBackgroundColor || 'transparent',
@@ -215,12 +212,21 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
       display: 'block',
       objectFit: 'contain'
     } : {
+      position: 'absolute',
+      top: 0,
+      left: 0,
       width: '100%',
       height: '100%',
-      minHeight: 0,
+      maxWidth: '100%',
+      maxHeight: '100%',
       display: 'block',
-      objectFit: 'contain',
-      flex: '1 1 0'
+      objectFit: 'contain'
+    };
+    const imageAreaStyle: React.CSSProperties = {
+      position: 'relative',
+      width: '100%',
+      minHeight: 0,
+      flex: dynamicHeight ? '0 0 auto' : '1 1 0%'
     };
     const slideStyle: React.CSSProperties = {
       backgroundColor: this.props.webPartBackgroundColor || '#ffffff'
@@ -269,15 +275,21 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
               {this.state.imageData.map((d, idx) => {
                 const guid = Guid.create().toString();
                 const slide = this._slides[idx];
-                const imageVerticalInset = this._imageVerticalInsets[idx] || 0;
-                const currentImageStyle: React.CSSProperties = assign({}, imageStyle, {
-                  marginTop: -imageVerticalInset + 'px',
-                  marginBottom: -imageVerticalInset + 'px'
-                });
                 const showSlideTitle = slide && this.props.showSlideTitle && slide.slideTitle;
                 const showSlideFooter = slide && (
                   (this.props.showSlideDescription && slide.slideText) ||
                   (this.props.showSlideLink && slide.slideNavigationUrl));
+                const image = (
+                  <img
+                    src={d}
+                    id={guid}
+                    className={this.props.imageIsCircle ? styles.imageCircle : styles.imageSquare}
+                    style={imageStyle}
+                    onClick={() => this._slideClicked(idx)}
+                    alt=""
+                    role="presentation"
+                  />
+                );
                 return (
                   <div key={guid} className={styles.slideFrame} style={slideFrameStyle}>
                     {showSlideTitle &&
@@ -285,16 +297,7 @@ export default class IskmCarouselController extends React.Component<ICarouselPro
                         <div className={styles.slideTitle} style={slideTitleStyle}>{slide.slideTitle}</div>
                       </div>
                     }
-                    <img
-                      src={d}
-                      id={guid}
-                      className={this.props.imageIsCircle ? styles.imageCircle : styles.imageSquare}
-                      style={currentImageStyle}
-                      // onClickItem -> add onClick to slide content
-                      onClick={() => this._slideClicked(idx)}
-                      alt=""
-                      role="presentation"
-                    />
+                    {this.props.imageIsCircle ? image : <div style={imageAreaStyle}>{image}</div>}
                     {showSlideFooter &&
                       <div className={styles.slideFooter} style={captionStyle}>
                         {this.props.showSlideDescription && slide.slideText &&

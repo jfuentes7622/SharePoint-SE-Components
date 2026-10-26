@@ -115,7 +115,9 @@ export default class FormNavigatorWebPart extends BaseClientSideWebPart<IFormNav
 
   protected onThemeChanged(currentTheme: any): void {
     this.currentTheme = currentTheme;
-    this.render();
+    if (this.renderedOnce) {
+      this.render();
+    }
   }
 
   private getAppearanceMode(): string {

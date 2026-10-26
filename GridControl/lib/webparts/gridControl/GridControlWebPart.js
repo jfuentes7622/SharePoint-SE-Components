@@ -306,7 +306,7 @@ var GridControlWebPart = (function (_super) {
     };
     GridControlWebPart.prototype.onThemeChanged = function (currentTheme) {
         this._currentTheme = currentTheme;
-        if (this.domElement) {
+        if (this.renderedOnce) {
             this.render();
         }
     };

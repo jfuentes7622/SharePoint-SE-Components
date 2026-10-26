@@ -387,7 +387,9 @@ export default class CarouselWebPart extends BaseClientSideWebPart<ICarouselWebP
 
   protected onThemeChanged(currentTheme: any): void {
     this.currentTheme = currentTheme;
-    this.render();
+    if (this.renderedOnce) {
+      this.render();
+    }
   }
 
   private getAppearanceMode(): string {

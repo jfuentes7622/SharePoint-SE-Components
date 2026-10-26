@@ -69,6 +69,9 @@ export default class KmMarqueeWebPart extends BaseClientSideWebPart<IKmMarqueeWe
 
   protected onThemeChanged(currentTheme: any): void {
     this._siteTheme = currentTheme;
+    if (!this.renderedOnce) {
+      return;
+    }
     this.render();
     if (this.context && this.context.propertyPane) {
       this.context.propertyPane.refresh();

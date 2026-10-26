@@ -1,5 +1,15 @@
 # SharePoint Dynamic Form
 
+## October 26, 2026 theme-loading fix
+
+- SharePoint solution and feature version: `1.0.0.114`.
+- Early theme notifications cache the theme and dark-mode state without accessing
+  an uninitialized host or starting rendering before initialization.
+- The normal render applies the cached theme's CSS variables before any hidden
+  or loading-state return; subsequent theme notifications still refresh the form.
+- Rebuild and redeploy `sharepoint/solution/sps-dynamic-form.sppkg`.
+- Run `node tests\themeLifecycle.test.js` from the repository root.
+
 ## October 22, 2026 release
 
 - npm version: `1.0.47`

@@ -2,6 +2,15 @@
 
 SPS Search Control connects to an SPS List Control or Grid Control through SPFx Dynamic Data. The target publishes its list and typed field metadata; Search Control publishes an addressed filter state that only the selected target applies.
 
+## October 26, 2026 theme-loading fix
+
+- npm version: `1.0.15`; SharePoint solution and feature version: `1.0.0.15`.
+- Early theme notifications cache the theme without rendering or refreshing the
+  property pane before the first normal render. Later theme changes retain both
+  updates; search behavior and Dynamic Data connections are unchanged.
+- Redeploy `sharepoint/solution/sps-search-control.sppkg`. Run
+  `node tests\themeLifecycle.test.js` from the repository root.
+
 ## October 14, 2026 release
 
 - npm version: `1.0.14`

@@ -412,7 +412,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
 
   protected onThemeChanged(currentTheme: any): void {
     this._currentTheme = currentTheme;
-    if (this.domElement) {
+    if (this.renderedOnce) {
       this.render();
     }
   }

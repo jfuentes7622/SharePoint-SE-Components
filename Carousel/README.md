@@ -2,14 +2,17 @@
 
 SPFx 1.5.1 image carousel backed by a SharePoint document or picture library.
 
-## October 14, 2026 release
+## October 26, 2026 release
 
-- npm version: `0.0.7`
-- SharePoint solution and feature version: `1.0.0.38`
+- npm version: `0.0.8`
+- SharePoint solution and feature version: `1.0.0.41`
 - Package: `sharepoint/solution/sps-carousel.sppkg`
 - Adds **Manual styling**, **Site theme only**, and **Site theme with overrides**.
 - Existing instances remain in Manual styling unless an author selects a theme mode.
 - Site theme modes cover the carousel surface, border, title, caption, links, and font families while retaining saved manual values.
+- Disables optional legacy PnP usage telemetry without changing SharePoint's CSP.
+- Handles early SharePoint theme notifications without rendering before web part initialization; later theme changes still refresh the Carousel.
+- Empty or missing values in the selected optional link column no longer stop all slides from loading. Unlinked images still display; populated text and hyperlink fields retain their navigation URLs and link labels.
 
 ## Features
 
@@ -20,7 +23,21 @@ SPFx 1.5.1 image carousel backed by a SharePoint document or picture library.
 - Use optional display-order, visibility, and expiration metadata when available.
 - Configure carousel dimensions and animation timings.
 - Render images as rectangles or circles.
+- Scale rectangular images to fit the available image area without stretching or cropping; differing aspect ratios leave empty space. Fixed-height slides reserve space for their title and footer, while height `0` follows the image's aspect ratio.
 - Enable diagnostic console logging.
+
+## Content Security Policy
+
+The bundled PnP property-controls 1.1.0 color picker normally initializes legacy
+Application Insights at import time, requesting
+`https://az416426.vo.msecnd.net/scripts/a/ai.0.js`. SharePoint's CSP can block that
+optional usage-telemetry script.
+
+The Carousel webpack configuration replaces only PnP's telemetry module with a
+local no-op before bundling. The color picker and Carousel functionality remain
+available, and `enableDiagnostics` still controls local console diagnostics.
+No CSP allowlist changes or external telemetry scripts are required.
+Rebuild and redeploy the solution package to update existing installations.
 
 ## Configuration
 
@@ -54,11 +71,22 @@ Appearance mode supports manual styling, strict SharePoint site-theme colors/fon
 
 ```powershell
 npm install
+gulp clean --ship
 gulp bundle --ship
 gulp package-solution --ship
 ```
 
 The deployable package is generated under `sharepoint/solution/`.
+
+Run `npm run test:theme-lifecycle` to verify that early theme notifications do not
+render against uninitialized properties or DOM, while later notifications still
+refresh the web part.
+
+Run `npm run test:image-sizing` to verify fixed-height image areas, automatic
+height, caption space, image navigation, and unchanged circular-image rendering.
+
+Run `npm run test:record-service` to verify empty optional link values, mixed
+linked/unlinked slides, custom field mappings, and propagation of library errors.
 
 ## Usage
 

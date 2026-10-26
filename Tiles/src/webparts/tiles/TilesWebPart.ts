@@ -6,7 +6,7 @@ import {
 } from '@microsoft/sp-webpart-base';
 
 import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/spfx-property-controls/lib/PropertyFieldColorPicker';
-import { PropertyFieldCollectionData, CustomCollectionFieldType } from '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData';
+import { CustomCollectionFieldType } from '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData';
 
 import {
   IPropertyPaneConfiguration,
@@ -23,6 +23,7 @@ import * as strings from 'TilesWebPartStrings';
 import { ITilesProps } from './components/ITilesProps';
 import { ITileInfo } from './ITileInfo';
 import { Tiles } from './components/Tiles';
+import { PropertyPaneTileCollection } from './components/TileCollectionEditor';
 import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
@@ -101,6 +102,9 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
 
   protected onThemeChanged(currentTheme: any): void {
     this._siteTheme = currentTheme;
+    if (!this.renderedOnce) {
+      return;
+    }
     this.render();
     if (this.context && this.context.propertyPane) {
       this.context.propertyPane.refresh();
@@ -510,7 +514,7 @@ export default class TilesWebPart extends BaseClientSideWebPart<ITilesWebPartPro
             {
               groupName: strings.tileDataGroup,
               groupFields: [
-                PropertyFieldCollectionData('collectionData', {
+                PropertyPaneTileCollection('collectionData', {
                   key: 'collectionDataField',
                   label: strings.tilesDataLabel,
                   panelHeader: strings.tilesPanelHeader,

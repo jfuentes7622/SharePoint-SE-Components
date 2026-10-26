@@ -2,6 +2,16 @@
 
 SPFx 1.5.1 editable SharePoint grid for SharePoint Server Subscription Edition.
 
+## October 26, 2026 theme-loading fix
+
+- npm version: `1.0.91`; SharePoint solution and feature version: `1.0.0.91`.
+- Caches early theme notifications until the first normal render, rather than
+  treating an existing DOM element as proof that initialization is complete.
+- Later theme changes still refresh the grid. Dynamic Data connections, list
+  initialization, and manual styling are unchanged.
+- Redeploy `sharepoint/solution/sps-grid-control.sppkg`. Run
+  `node tests\themeLifecycle.test.js` from the repository root.
+
 ## October 22, 2026 release
 
 - npm version: `1.0.90`

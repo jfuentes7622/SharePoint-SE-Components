@@ -226,6 +226,9 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
 
   protected onThemeChanged(currentTheme: any): void {
     this._siteTheme = currentTheme;
+    if (!this.renderedOnce) {
+      return;
+    }
     this.render();
     if (this.context && this.context.propertyPane) {
       this.context.propertyPane.refresh();

@@ -2,6 +2,35 @@
 
 SPFx 1.5.1 web part that displays a responsive collection of navigation tiles.
 
+## October 26, 2026 tile-editor validation fix
+
+- npm version: `2.0.6`; SharePoint solution and feature version: `2.1.0.22`.
+- **Save** is disabled while a tile, including the new draft row, is missing
+  a required value. Missing Title and URL values are identified beside the fields
+  and in a visible validation summary. Whitespace-only values count as empty.
+- A completely untouched new row does not block saving existing tiles. A valid
+  new row is included by **Save and add**, or **Add tile** keeps the editor open
+  for another tile. Unfinished edits are not silently discarded.
+- Existing tile data, optional image/hover/color controls, sorting, deletion, and
+  Cancel are retained. A property-update failure keeps the editor open and shows
+  an error instead of appearing to save successfully.
+- The local collection editor replaces the legacy editor's save flow because
+  the legacy control excludes invalid new rows from its save validation.
+- Redeploy `sharepoint/solution/sps-tiles.sppkg`. From the repository root, run
+  `node tests\tiles.test.js` and `node tests\themeLifecycle.test.js`.
+
+## October 26, 2026 theme-loading fix
+
+- SharePoint solution and feature version: `2.1.0.21`.
+- Caches early SharePoint theme notifications without rendering or refreshing the
+  property pane before the first normal render. This prevents Tiles from failing
+  to load when SharePoint Online supplies a theme before initialization.
+- The first render uses the cached theme; later theme changes still update Tiles
+  and refresh the property pane.
+- Rebuild and redeploy `sharepoint/solution/sps-tiles.sppkg`, then reload the page.
+- From the repository root, run `node tests\themeLifecycle.test.js` and
+  `node tests\tiles.test.js` for lifecycle and first-render regressions.
+
 ## October 22, 2026 release
 
 - npm version: `2.0.5`

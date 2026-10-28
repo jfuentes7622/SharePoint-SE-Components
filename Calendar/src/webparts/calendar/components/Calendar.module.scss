@@ -1,5 +1,14 @@
 @import '~@microsoft/sp-office-ui-fabric-core/dist/sass/SPFabricCore.scss';
 
+.newEventLayer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2147483647;
+}
+
 .calendar {
   position: relative;
   box-sizing: border-box;
@@ -21,6 +30,7 @@
   }
 
   .newEventBackdrop {
+    box-sizing: border-box;
     position: fixed;
     top: 0;
     right: 0;
@@ -28,7 +38,7 @@
     left: 0;
     z-index: 30;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     padding: 16px;
     overflow-y: auto;
@@ -48,6 +58,11 @@
     border-radius: var(--details-panel-corner-radius, 6px);
     background: var(--details-panel-background, #fff);
     box-shadow: var(--details-panel-shadow, 0 12px 36px rgba(0, 0, 0, .24));
+
+    @media (max-height: 722px) {
+      min-height: 0;
+      max-height: 100%;
+    }
   }
 
   .newEventTitle {
@@ -748,6 +763,6 @@
     .eventDetailsPanel { max-height: calc(100% - 8px); padding: 22px 18px; }
     .eventDetailsRow { grid-template-columns: 1fr; gap: 4px; }
     .newEventBackdrop { padding: 4px; }
-    .newEventPanel { min-height: 500px; max-height: calc(100vh - 8px); padding: 12px; }
+    .newEventPanel { min-height: 0; max-height: calc(100vh - 8px); padding: 12px; }
   }
 }

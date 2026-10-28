@@ -150,10 +150,13 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private _fieldDisplayFormatByInternalName;
     private _fieldChoicesByInternalName;
     private _fieldLookupListByInternalName;
+    private _fieldLookupValueByInternalName;
     private _filterLookupItemOptions;
     private _conditionalStyleLookupItemOptions;
     private _filterLookupMessage;
     private _conditionalStyleLookupMessage;
+    private _filterLookupLoadSequence;
+    private _conditionalStyleLookupLoadSequence;
     private _isGridDesignerOpen;
     private _externalSearchFilterJson;
     private _externalSearchExecutionMode;
@@ -175,8 +178,10 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     private supportsFilterFieldValue(internalName);
     private isMultiFilterField(internalName);
     private getSelectedFilterFieldValues();
+    private supportsRuleValuePicker(fieldName);
+    private createRuleValuePicker(fieldName, valueProperty);
     private createFilterMultiValuePicker(options);
-    private loadLookupListItems(listId);
+    private loadLookupListItems(fieldName);
     private handleLoadFilterLookupItems();
     private handleApplyFilterLookupPick();
     private handleLoadConditionalStyleLookupItems();

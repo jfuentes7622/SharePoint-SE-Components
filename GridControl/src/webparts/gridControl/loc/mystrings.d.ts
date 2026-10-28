@@ -57,6 +57,15 @@ declare interface IGridControlWebPartStrings {
   PropFilterDesignerValueTypeStatic: string;
   PropFilterDesignerValueTypeExpression: string;
   PropFilterDesignerValueLabel: string;
+  PropFilterDesignerChoiceValueLabel: string;
+  PropFilterDesignerTypedValueLabel: string;
+  PropFilterDesignerBooleanValueLabel: string;
+  PropFilterDesignerReferenceValueLabel: string;
+  PropFilterDesignerReferenceHelp: string;
+  PropFilterDesignerRefreshValuesLabel: string;
+  PropFilterDesignerOptionsLoading: string;
+  PropFilterDesignerOptionsEmpty: string;
+  PropFilterDesignerOptionsLoadFailed: string;
   PropFilterDesignerValuePlaceholder: string;
   PropFilterDesignerExpressionLabel: string;
   PropFilterDesignerExpressionPlaceholder: string;

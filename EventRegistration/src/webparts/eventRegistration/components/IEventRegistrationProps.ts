@@ -4,6 +4,8 @@ import { IRegistrationSelection } from '../models';
 export interface IEventRegistrationProps {
   title: string;
   description: string;
+  displayMode?: string;
+  registrationPageUrl?: string;
   webUrl: string;
   spHttpClient: SPHttpClient;
   listPrefix: string;

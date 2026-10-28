@@ -9,9 +9,9 @@ capacity, waitlists, CSV export, and a Power Automate notification contract.
 
 | Artifact | Version |
 |---|---|
-| npm package | `1.0.0` |
-| SPFx solution | `1.0.0.1` |
-| SPFx feature | `1.0.0.1` |
+| npm package | `1.1.0` |
+| SPFx solution | `1.1.0.1` |
+| SPFx feature | `1.1.0.1` |
 | React | `15.6.2` |
 | TypeScript | `2.4.2` |
 | `@microsoft/sp-*` | `1.5.1` |
@@ -31,6 +31,12 @@ The property pane provides:
 - **Button display** (`text`, `iconText`, or `icon`).
 - **Enable diagnostics logging**.
 - **Title** and optional multiline **Description**, displayed above the registration views.
+- **Display mode**: Combined (fallback for existing instances), Event catalog
+  (default for newly added instances), Single event registration, or Organizer management.
+- **Default event ID**, used by Single event registration when no URL or
+  Calendar event selection is available.
+- **Registration page URL**, an optional same-origin destination for catalog
+  cards. Without a destination, cards open event details inline.
 - **Appearance mode**: Manual styling, Site theme only, or Site theme with overrides.
 - Inline PnP color pickers matching Search Control for background, text, accent,
   button text, active button background, and borders; sliders for border width,
@@ -59,6 +65,49 @@ self-service, authenticated participants require read/add/update rights on the
 six configured lists. Use SharePoint list permissions appropriate to the site;
 the web part's ownership checks are not a substitute for list security.
 
+## Pages and display modes
+
+Use the same web part and list prefix on each page; no separate solution or
+duplicate event lists are required.
+
+| Mode | Experience |
+|---|---|
+| Combined | Original participant browsing/registration plus organizer tools for authorized users. Existing pages retain this mode when no mode is saved. |
+| Event catalog | Search published, upcoming events by title, description, or location; see the next session and its seat/waitlist availability; open **View / Register**. |
+| Single event registration | Focus on one selected event, its sessions and registration rules, attendee selection, and confirmation. **My registrations** remains available. |
+| Organizer management | Authorized organizers create/edit events, manage sessions/capacity, registrations, waitlists, and exports. Opens on **Events**; technical provisioning is under **Settings / list setup**. |
+
+Recommended page setup:
+
+1. Create an organizer page with **Organizer management**, configure the
+   organizer group, and provision the lists under **Settings / list setup**.
+2. Create a registration page with **Single event registration** and the same
+   list prefix. Optionally configure a default event ID.
+3. Create an events landing page with **Event catalog** and the same list
+   prefix. Set **Registration page URL** to the registration page, for example
+   `/sites/events/SitePages/Register.aspx`. The catalog adds `eventid` and
+   removes stale event/session selection parameters, preserving other page
+   parameters and fragments. External destinations and non-HTTP(S) URLs are
+   rejected with a visible error.
+4. Leave **Registration page URL** blank if you prefer the catalog and event
+   details on the same page. **Back to events** returns to the filtered catalog.
+
+Catalog cards include published (`open`) events with upcoming open sessions,
+even before registration opens or after the registration window closes.
+Details show the registration window, but registration controls are available
+only while that window is open. Draft/closed/cancelled events are not exposed
+in participant details. Unavailable event selections show an explicit message.
+After registration, the focused event remains visible with confirmation;
+**My registrations** allows participants to review/cancel their own bookings.
+
+Catalog and single-event modes never render organizer tools or request the
+organizer-wide registration/attendee dataset, even for an organizer.
+Management mode does not grant permissions: users outside the configured
+organizer group who are not Site Collection Administrators see an access
+message instead of management controls. Participant modes do not expose
+technical provisioning controls. SharePoint list permissions must still be
+configured separately.
+
 ## Setup
 
 Until all six configured lists exist, the web part shows **Setup required**
@@ -66,7 +115,7 @@ and, for authorized organizers, **Provision lists and fields**, without a raw
 missing-list REST error. It checks list availability before requesting event
 data. Permission, connection, and schema failures still surface as errors.
 
-An authorized organizer opens **Organizer > Setup** and selects **Validate /
+An authorized organizer opens **Organizer > Settings / list setup** and selects **Validate /
 provision**. Setup:
 
 1. Creates all six missing custom lists.
@@ -214,7 +263,9 @@ compatibility API. The web part consumes:
 - `selectedItemId` as an event selection.
 
 URL query parameters `sessionid` and `eventid` take precedence over Dynamic
-Data. `source` or `returnurl` can request a post-registration redirect. The
+Data. For event selection, the configured **Default event ID** is the final
+fallback after the URL and Calendar selection. Clearing an external selection
+clears stale session/attendee choices. `source` or `returnurl` can request a post-registration redirect. The
 web part resolves and validates the URL and redirects only when its origin
 matches the current page origin.
 
@@ -224,8 +275,8 @@ Dynamic Data properties for future integrations.
 
 ## Organizer user interface
 
-Organizer tabs provide Setup, Events, Sessions, Registrations / Attendees,
-Waitlist, and CSV Export. Event editing includes recurrence and session
+Organizer tabs provide Events, Sessions, Registrations / Attendees,
+Waitlist, CSV Export, and Settings / list setup. Event editing includes recurrence and session
 generation. Session editing enforces capacity rules. The registration views
 show named attendees and allow organizer cancellation. CSV contains
 registration and attendee rows. Participant and organizer operations expose
@@ -252,6 +303,9 @@ daily/weekly generation, cross-session capacity decisions, waitlist capacity,
 capacity-decrease validation, manual/theme appearance, theme overrides, and
 restoring saved manual settings. Mocked REST client tests cover OData request
 headers, typed payloads, exact ETag preservation, and error propagation.
+Display-mode tests cover legacy defaults, management access, participant-only
+data loading, searchable catalog filtering, registration windows, focused
+event/series selection, confirmation persistence, and same-origin page links.
 End-to-end REST transaction behavior requires a
 SharePoint SE integration site and is not simulated by the SPFx 1.5.1 test
 runner.

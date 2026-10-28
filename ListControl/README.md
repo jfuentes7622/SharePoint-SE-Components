@@ -2,6 +2,36 @@
 
 SPFx 1.5.1 list control web part for SharePoint Server Subscription Edition.
 
+## October 28, 2026 type-aware rule values
+
+- npm version: `1.0.115`; SharePoint solution and feature version: `1.0.0.115`.
+- Preset filters and conditional-style rules offer inputs based on the selected
+  SharePoint column: choices, site people/groups, lookup items, dates, date/time,
+  numbers/currency, and Yes/No. Other columns retain text entry.
+- People and lookup options load automatically; selecting one fills the stored
+  ID. Lookup labels use the column's configured target field, not always Title.
+  Refresh reloads options, paged results are included, and failures are displayed.
+- Static multi-value columns can pick one comparison value. Preset filters also
+  retain the **Field value** multi-select for Choice, Lookup, and Person columns.
+- Date-only rules match the whole selected local date; date/time rules retain
+  precise times. Numeric equality compares values rather than decimal formatting.
+- Manual values and expression mode remain available. Existing people/lookup
+  display-text conditions continue to work alongside picker-selected IDs.
+- Redeploy `sharepoint/solution/SPS-list-control.sppkg`. From the repository root,
+  run `node tests\ruleValueDesigners.test.js` and `node tests\dateFilters.test.js`.
+  Tests use mocked SharePoint responses; live property-pane validation is still required.
+
+## October 28, 2026 choice rule designer fix
+
+- npm version: `1.0.114`; SharePoint solution and feature version: `1.0.0.114`.
+- Preset filters and conditional-style rules show **Select a choice** for static
+  Choice/MultiChoice conditions without requiring a switch to **Field value**.
+- Picking an option fills the existing value editor. Manual text remains
+  available for partial matches, fill-in choices, and older saved values.
+- Expression editors and the existing **Field value** multi-select are unchanged.
+- Redeploy `sharepoint/solution/SPS-list-control.sppkg`. From the repository root,
+  run `node tests\ruleValueDesigners.test.js` to verify both control designers.
+
 ## October 22, 2026 release
 
 - npm version: `1.0.113`

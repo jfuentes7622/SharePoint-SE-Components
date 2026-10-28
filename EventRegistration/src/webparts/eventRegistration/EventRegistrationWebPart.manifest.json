@@ -15,6 +15,9 @@
     "properties": {
       "title": "Event Registration",
       "description": "",
+      "displayMode": "catalog",
+      "eventId": "",
+      "registrationPageUrl": "",
       "appearanceMode": "manual",
       "borderWidth": 0,
       "cornerRadius": 0,

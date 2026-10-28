@@ -12,6 +12,7 @@ import {
   IUserInfo
 } from '../models';
 import EventRegistrationService from '../services/EventRegistrationService';
+import { getDisplayMode, getRegistrationPageUrl } from '../helpers/displayMode';
 
 export interface IEventRegistrationState {
   loading: boolean;
@@ -26,6 +27,7 @@ export interface IEventRegistrationState {
   attendees: IAttendeeItem[];
   participantTab: string;
   organizerTab: string;
+  search: string;
   selectedEventId: number;
   selectedSessionId: number;
   selectedAttendeeIds: number[];
@@ -85,7 +87,8 @@ export default class EventRegistration extends React.Component<IEventRegistratio
       registrations: [],
       attendees: [],
       participantTab: 'browse',
-      organizerTab: 'setup',
+      organizerTab: getDisplayMode(props.displayMode) === 'organizer' ? 'events' : 'setup',
+      search: '',
       selectedEventId: props.initialEventId || 0,
       selectedSessionId: props.initialSessionId || 0,
       selectedAttendeeIds: [],
@@ -101,21 +104,36 @@ export default class EventRegistration extends React.Component<IEventRegistratio
     this.initialize();
   }
 
-  public componentWillReceiveProps(nextProps: IEventRegistrationProps): void {
-    if (nextProps.listPrefix !== this.props.listPrefix || nextProps.enableDiagnostics !== this.props.enableDiagnostics) {
-      this.service = new EventRegistrationService(nextProps.webUrl, nextProps.spHttpClient, nextProps.listPrefix,
-        nextProps.enableDiagnostics !== false);
+  public componentDidUpdate(previousProps: IEventRegistrationProps): void {
+    var modeChanged = getDisplayMode(previousProps.displayMode) !== getDisplayMode(this.props.displayMode);
+    if (modeChanged) {
+      this.setState({
+        selectedEventId: this.props.initialEventId || 0,
+        selectedSessionId: this.props.initialSessionId || 0,
+        selectedAttendeeIds: [],
+        participantTab: 'browse',
+        organizerTab: getDisplayMode(this.props.displayMode) === 'organizer' ? 'events' : 'setup'
+      });
+    }
+    if (previousProps.listPrefix !== this.props.listPrefix || previousProps.enableDiagnostics !== this.props.enableDiagnostics
+      || previousProps.organizerGroupId !== this.props.organizerGroupId || previousProps.webUrl !== this.props.webUrl
+      || modeChanged) {
+      this.service = new EventRegistrationService(this.props.webUrl, this.props.spHttpClient, this.props.listPrefix,
+        this.props.enableDiagnostics !== false);
       this.initialize();
     }
-    if (nextProps.initialEventId !== this.props.initialEventId || nextProps.initialSessionId !== this.props.initialSessionId) {
+    if (previousProps.initialEventId !== this.props.initialEventId || previousProps.initialSessionId !== this.props.initialSessionId) {
       this.setState({
-        selectedEventId: nextProps.initialEventId || this.state.selectedEventId,
-        selectedSessionId: nextProps.initialSessionId || this.state.selectedSessionId
+        selectedEventId: this.props.initialEventId || 0,
+        selectedSessionId: this.props.initialSessionId || 0,
+        selectedAttendeeIds: [],
+        participantTab: 'browse'
       });
     }
   }
 
   public render(): React.ReactElement<IEventRegistrationProps> {
+    var mode = getDisplayMode(this.props.displayMode);
     return (
       <div className={styles.eventRegistration}>
         <div className={styles.header}>
@@ -128,8 +146,12 @@ export default class EventRegistration extends React.Component<IEventRegistratio
         {this.renderMessages()}
         {this.state.loading && <div className={styles.message} role="status">Loading…</div>}
         {!this.state.initialized && !this.state.loading && this.renderNotSetup()}
-        {this.state.initialized && this.renderParticipant()}
-        {this.state.initialized && this.state.organizer && this.renderOrganizer()}
+        {this.state.initialized && mode !== 'organizer' && this.renderParticipant()}
+        {this.state.initialized && this.state.organizer && (mode === 'combined' || mode === 'organizer') && this.renderOrganizer()}
+        {!this.state.loading && mode === 'organizer' && !this.state.organizer && (
+          <div className={styles.message} role="alert">You do not have permission to manage events.
+            Contact a site administrator or a member of the configured organizer group.</div>
+        )}
       </div>
     );
   }
@@ -149,7 +171,9 @@ export default class EventRegistration extends React.Component<IEventRegistratio
         <h3>Setup required</h3>
         <p>The configured Event Registration lists are unavailable. A Site Collection Administrator
           {this.props.organizerGroupId > 0 ? ' or configured organizer' : ''} must run setup.</p>
-        {this.state.organizer && this.commandButton('Provision lists and fields', 'Settings', this.runSetup.bind(this))}
+        {this.state.organizer && (getDisplayMode(this.props.displayMode) === 'combined'
+          || getDisplayMode(this.props.displayMode) === 'organizer')
+          && this.commandButton('Provision lists and fields', 'Settings', this.runSetup.bind(this))}
       </div>
     );
   }
@@ -158,21 +182,114 @@ export default class EventRegistration extends React.Component<IEventRegistratio
     return (
       <section aria-label="Participant registration">
         <div className={styles.tabs} role="tablist" aria-label="Participant views">
-          {this.tabButton('browse', 'Browse events', false)}
+          {this.tabButton('browse', getDisplayMode(this.props.displayMode) === 'registration' ? 'Event details' : 'Browse events', false)}
           {this.tabButton('mine', 'My registrations', false)}
         </div>
-        {this.state.participantTab === 'browse' ? this.renderBrowse() : this.renderMyRegistrations()}
+        {this.state.participantTab !== 'browse' ? this.renderMyRegistrations()
+          : getDisplayMode(this.props.displayMode) === 'combined' ? this.renderBrowse()
+          : getDisplayMode(this.props.displayMode) === 'registration' || this.state.selectedEventId > 0
+            ? this.renderEventDetails() : this.renderCatalog()}
       </section>
     );
   }
 
-  private renderBrowse(): React.ReactNode {
-    var currentTime = new Date().getTime();
-    var openEvents = this.state.events.filter(function(event: IEventItem): boolean {
-      return event.ERStatus === 'open'
-        && (!event.ERRegistrationOpen || new Date(event.ERRegistrationOpen).getTime() <= currentTime)
-        && (!event.ERRegistrationClose || new Date(event.ERRegistrationClose).getTime() >= currentTime);
+  private registrationIsOpen(event: IEventItem): boolean {
+    var now = new Date().getTime();
+    return event.ERStatus === 'open'
+      && (!event.ERRegistrationOpen || new Date(event.ERRegistrationOpen).getTime() <= now)
+      && (!event.ERRegistrationClose || new Date(event.ERRegistrationClose).getTime() >= now);
+  }
+
+  private renderCatalog(): React.ReactNode {
+    var search = this.state.search.toLowerCase().trim();
+    var events = this.state.events.filter((event: IEventItem): boolean => {
+      return event.ERStatus === 'open' && this.sessionsForEvent(event.Id).length > 0
+        && (event.Title + ' ' + (event.ERDescription || '') + ' ' + (event.ERLocation || '')).toLowerCase().indexOf(search) >= 0;
+    }).sort((left: IEventItem, right: IEventItem): number => {
+      return new Date(this.sessionsForEvent(left.Id)[0].ERStart).getTime()
+        - new Date(this.sessionsForEvent(right.Id)[0].ERStart).getTime();
     });
+    return (
+      <div>
+        {this.textField('Search events', this.state.search, (value: string): void => this.setState({ search: value }))}
+        <p role="status">{String(events.length)} upcoming events</p>
+        <div className={styles.grid}>
+          {events.map((event: IEventItem): React.ReactNode => {
+            var sessions = this.sessionsForEvent(event.Id);
+            var next = sessions[0];
+            var availability = this.state.availability[String(next.Id)];
+            return (
+              <article className={styles.card} key={event.Id}>
+                <h3>{event.Title}</h3>
+                <p>{event.ERDescription || ''}</p>
+                <div>{event.ERLocation || 'Location not specified'}</div>
+                <div>Next session: {new Date(next.ERStart).toLocaleString()}</div>
+                <div className={styles.meta}>{String(sessions.length)} upcoming session(s)</div>
+                <div className={styles.meta}>{availability
+                  ? 'Next session: ' + String(availability.available) + ' seats; '
+                    + String(Math.max(0, availability.waitlistCapacity - availability.waitlisted)) + ' waitlist seats available'
+                  : 'Availability loading'}</div>
+                <div className={styles.meta}>{this.registrationIsOpen(event) ? 'Registration open' : 'Registration not currently open'}</div>
+                {this.commandButton('View / Register', 'Calendar', (): void => this.openEvent(event.Id))}
+              </article>
+            );
+          })}
+        </div>
+        {events.length === 0 && <div className={styles.panel}>No upcoming events match your search.</div>}
+      </div>
+    );
+  }
+
+  private openEvent(eventId: number): void {
+    if (this.props.registrationPageUrl) {
+      try {
+        window.location.href = getRegistrationPageUrl(this.props.registrationPageUrl, window.location.href, eventId);
+      } catch (error) {
+        this.setState({ error: this.errorMessage(error) });
+      }
+      return;
+    }
+    this.setState({ selectedEventId: eventId, selectedSessionId: 0, selectedAttendeeIds: [], error: '' });
+  }
+
+  private renderEventDetails(): React.ReactNode {
+    var event = this.state.events.filter((item: IEventItem): boolean => {
+      return item.Id === this.state.selectedEventId && item.ERStatus === 'open';
+    })[0];
+    var sessions = event ? this.sessionsForEvent(event.Id) : [];
+    var canRegister = event && this.registrationIsOpen(event) && sessions.length > 0;
+    var selectedSession = sessions.some((session: ISessionItem): boolean => session.Id === this.state.selectedSessionId);
+    return (
+      <div className={styles.panel}>
+        {getDisplayMode(this.props.displayMode) === 'catalog' && this.commandButton('Back to events', 'Back', (): void => {
+          this.setState({ selectedEventId: 0, selectedSessionId: 0, selectedAttendeeIds: [] });
+        }, false, true)}
+        {!event ? <p role="status">{this.state.selectedEventId > 0
+          ? 'This event is unavailable or has not been published.'
+          : 'Select an event from the catalog or configure a default event ID for this page.'}</p> : (
+          <article>
+            <h3>{event.Title}</h3>
+            <p className={styles.description}>{event.ERDescription || ''}</p>
+            <p>{event.ERLocation || 'Location not specified'}</p>
+            <div className={styles.meta}>Registration: {event.ERRegistrationMode === 'series' ? 'entire series' : 'per occurrence'}
+              {' · Maximum named attendees: ' + String(event.ERMaxSeatsPerRegistration || 1)}</div>
+            {event.ERRegistrationOpen && <div>Registration opens: {new Date(event.ERRegistrationOpen).toLocaleString()}</div>}
+            {event.ERRegistrationClose && <div>Registration closes: {new Date(event.ERRegistrationClose).toLocaleString()}</div>}
+            {!canRegister && <p role="status">{sessions.length === 0
+              ? 'There are no upcoming sessions available for this event.' : 'Registration is not currently open for this event.'}</p>}
+            {sessions.map((session: ISessionItem): React.ReactNode => this.renderSessionChoice(event, session, !canRegister))}
+            {canRegister && event.ERRegistrationMode === 'series' && this.commandButton('Select series', 'Calendar', (): void => {
+              this.setState({ selectedSessionId: sessions[0].Id, selectedAttendeeIds: [] });
+            })}
+            {canRegister && selectedSession && this.renderRegistrationForm(event)}
+          </article>
+        )}
+      </div>
+    );
+  }
+
+  private renderBrowse(): React.ReactNode {
+    var openEvents = this.state.events.filter((event: IEventItem): boolean => this.registrationIsOpen(event));
     if (openEvents.length === 0) {
       return <div className={styles.panel}>There are no open events.</div>;
     }
@@ -203,7 +320,7 @@ export default class EventRegistration extends React.Component<IEventRegistratio
     );
   }
 
-  private renderSessionChoice(event: IEventItem, session: ISessionItem): React.ReactNode {
+  private renderSessionChoice(event: IEventItem, session: ISessionItem, registrationDisabled?: boolean): React.ReactNode {
     var availability = this.state.availability[String(session.Id)];
     return (
       <div className={styles.card} key={session.Id}>
@@ -215,7 +332,8 @@ export default class EventRegistration extends React.Component<IEventRegistratio
               + String(Math.max(0, availability.waitlistCapacity - availability.waitlisted)) + ' waitlist seats available'
             : 'Availability loading'}
         </div>
-        {event.ERRegistrationMode !== 'series' && this.commandButton('Register for this session', 'AddFriend', (): void => {
+        {event.ERRegistrationMode !== 'series' && !registrationDisabled
+          && this.commandButton('Register for this session', 'AddFriend', (): void => {
           this.setState({ selectedEventId: event.Id, selectedSessionId: session.Id, selectedAttendeeIds: [] });
         })}
       </div>
@@ -241,7 +359,11 @@ export default class EventRegistration extends React.Component<IEventRegistratio
         <div className={styles.actions}>
           {this.commandButton(event.ERRegistrationMode === 'series' ? 'Register for series' : 'Register',
             'Accept', (): void => this.submitRegistration(event), this.state.selectedAttendeeIds.length === 0)}
-          {this.commandButton('Close', 'Cancel', (): void => this.setState({ selectedEventId: 0 }), false, true)}
+          {this.commandButton('Close', 'Cancel', (): void => this.setState({
+            selectedEventId: getDisplayMode(this.props.displayMode) === 'combined' ? 0 : this.state.selectedEventId,
+            selectedSessionId: 0,
+            selectedAttendeeIds: []
+          }), false, true)}
         </div>
       </div>
     );
@@ -274,12 +396,12 @@ export default class EventRegistration extends React.Component<IEventRegistratio
       <section aria-label="Organizer administration">
         <h2>Organizer</h2>
         <div className={styles.tabs} role="tablist" aria-label="Organizer views">
-          {this.tabButton('setup', 'Setup', true)}
           {this.tabButton('events', 'Events', true)}
           {this.tabButton('sessions', 'Sessions', true)}
           {this.tabButton('registrations', 'Registrations / Attendees', true)}
           {this.tabButton('waitlist', 'Waitlist', true)}
           {this.tabButton('export', 'CSV Export', true)}
+          {this.tabButton('setup', 'Settings / list setup', true)}
         </div>
         {this.state.organizerTab === 'setup' && this.renderSetup()}
         {this.state.organizerTab === 'events' && this.renderEventsAdmin()}
@@ -466,7 +588,9 @@ export default class EventRegistration extends React.Component<IEventRegistratio
   }
 
   private reload(organizerOverride?: boolean, userIdOverride?: number): Promise<void> {
-    var organizer = organizerOverride === undefined ? this.state.organizer : organizerOverride;
+    var mode = getDisplayMode(this.props.displayMode);
+    var organizer = (organizerOverride === undefined ? this.state.organizer : organizerOverride)
+      && (mode === 'combined' || mode === 'organizer');
     var userId = userIdOverride === undefined ? (this.state.user ? this.state.user.id : 0) : userIdOverride;
     return Promise.all([
       this.service.getEvents(organizer),
@@ -529,7 +653,8 @@ export default class EventRegistration extends React.Component<IEventRegistratio
       });
       this.setState({
         lastResult: result,
-        selectedEventId: 0,
+        selectedEventId: getDisplayMode(this.props.displayMode) === 'combined' ? 0 : this.state.selectedEventId,
+        selectedSessionId: 0,
         selectedAttendeeIds: [],
         message: 'Registration ' + result.registration.ERConfirmationNumber + ' is ' + result.status + '.'
       });
@@ -628,6 +753,8 @@ export default class EventRegistration extends React.Component<IEventRegistratio
     return this.state.sessions.filter(function(session: ISessionItem): boolean {
       return Number(session.EREventId) === Number(eventId) && session.ERStatus === 'open'
         && new Date(session.EREnd).getTime() >= new Date().getTime();
+    }).sort(function(left: ISessionItem, right: ISessionItem): number {
+      return new Date(left.ERStart).getTime() - new Date(right.ERStart).getTime();
     });
   }
 

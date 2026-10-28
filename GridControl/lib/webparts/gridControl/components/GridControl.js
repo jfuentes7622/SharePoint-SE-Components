@@ -4492,17 +4492,20 @@ var GridControl = (function (_super) {
             var scalarMatches = values.map(function (value) { return _this.rowMatchesFilter(row, field, { operator: scalarOperator, value: value, compareDateOnly: filter.compareDateOnly }); });
             return isNegative ? scalarMatches.every(function (matches) { return !matches; }) : scalarMatches.some(function (matches) { return matches; });
         }
-        var valueText = this.getFilterCellText(row, field);
-        var candidate = String(valueText || '').trim();
         var query = String(filter.value || '').trim();
+        var fieldType = String(field.TypeAsString || '').toLowerCase();
+        var isReference = fieldType.indexOf('lookup') >= 0 || fieldType.indexOf('user') >= 0;
+        var valueText = isReference && !/^\d+$/.test(query)
+            ? this.getCellPlainText(row, field) : this.getFilterCellText(row, field);
+        var candidate = String(valueText || '').trim();
         if (!query) {
             return true;
         }
         var normalizedCandidate = candidate.toLowerCase();
         var normalizedQuery = query.toLowerCase();
         var compareResult = this.compareComparableValues(candidate, query);
-        var fieldType = String(field.TypeAsString || '').toLowerCase();
-        var lookupCandidates = fieldType.indexOf('lookup') >= 0
+        var hasDiscreteValues = fieldType.indexOf('lookup') >= 0 || fieldType.indexOf('user') >= 0 || fieldType === 'multichoice';
+        var lookupCandidates = hasDiscreteValues
             ? normalizedCandidate.split(';').map(function (value) { return value.trim(); }).filter(function (value) { return !!value; })
             : [];
         if (filter.compareDateOnly) {
@@ -4514,6 +4517,32 @@ var GridControl = (function (_super) {
             compareResult = this.compareComparableValues(normalizedCandidate, query);
             if (filter.endValue) {
                 return normalizedCandidate >= normalizedQuery && normalizedCandidate <= String(filter.endValue).toLowerCase();
+            }
+        }
+        else if (fieldType === 'datetime') {
+            var candidateTime = Date.parse(candidate);
+            var startTime = Date.parse(query);
+            if (isNaN(candidateTime) || isNaN(startTime)) {
+                return false;
+            }
+            if (filter.endValue) {
+                var endTime = Date.parse(String(filter.endValue));
+                return !isNaN(endTime) && candidateTime >= startTime && candidateTime <= endTime;
+            }
+            if (filter.operator === 'eq') {
+                return candidateTime === startTime;
+            }
+            if (filter.operator === 'ne') {
+                return candidateTime !== startTime;
+            }
+        }
+        else if (['number', 'currency', 'integer', 'counter'].indexOf(fieldType) >= 0
+            && candidate !== '' && !isNaN(Number(candidate)) && !isNaN(Number(query))) {
+            if (filter.operator === 'eq') {
+                return compareResult === 0;
+            }
+            if (filter.operator === 'ne') {
+                return compareResult !== 0;
             }
         }
         switch (filter.operator) {
@@ -4543,7 +4572,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.getFilterCellText = function (row, field) {
         var fieldType = String(field.TypeAsString || '').toLowerCase();
-        if (fieldType.indexOf('lookup') < 0) {
+        if (fieldType.indexOf('lookup') < 0 && fieldType.indexOf('user') < 0) {
             return this.getCellPlainText(row, field);
         }
         var lookupIds = [];
@@ -4712,7 +4741,7 @@ var GridControl = (function (_super) {
             if (!field) {
                 continue;
             }
-            var resolvedValue = this.resolvePresetFilterValue(condition);
+            var resolvedValue = this.resolvePresetFilterValue(condition, field);
             var matches = this.rowMatchesFilter(row, field, {
                 operator: normalizeFilterOperator(condition.operator),
                 value: resolvedValue.value,
@@ -4730,10 +4759,14 @@ var GridControl = (function (_super) {
         }
         return aggregate === null ? true : aggregate;
     };
-    GridControl.prototype.resolvePresetFilterValue = function (condition) {
+    GridControl.prototype.resolvePresetFilterValue = function (condition, field) {
         var rawValue = Array.isArray(condition.value) ? condition.value : (condition.value === undefined || condition.value === null ? '' : String(condition.value).trim());
         if (String(condition.valueType || '').toLowerCase() !== 'expression') {
-            return { value: rawValue, compareDateOnly: false };
+            return {
+                value: rawValue,
+                compareDateOnly: !!field && String(field.TypeAsString || '').toLowerCase() === 'datetime'
+                    && field.DisplayFormat === 0 && typeof rawValue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawValue)
+            };
         }
         var expression = rawValue.toLowerCase();
         var pageContext = this.props.context && this.props.context.pageContext;
@@ -5024,7 +5057,7 @@ var GridControl = (function (_super) {
             if (!field) {
                 continue;
             }
-            var resolvedValue = this.resolvePresetFilterValue(condition);
+            var resolvedValue = this.resolvePresetFilterValue(condition, field);
             var matches = this.rowMatchesFilter(row, field, {
                 operator: condition.operator,
                 value: resolvedValue.value,

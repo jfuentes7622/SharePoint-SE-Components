@@ -293,7 +293,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private parsePresetFilterConditions();
     private resolveFieldByReference(fieldsByKey, fieldRef);
     private rowMatchesPresetConditions(row, fieldsByKey, conditions);
-    private resolvePresetFilterValue(condition);
+    private resolvePresetFilterValue(condition, field?);
     private getProcessedRows();
     private getGroupingConfig();
     private resolveFieldDefinitionByName(fieldName);

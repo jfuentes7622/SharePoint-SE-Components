@@ -379,7 +379,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private mergeHydratedRows(rows, hydratedRows);
     private resolveFieldByReference(fieldsByKey, fieldRef);
     private rowMatchesPresetConditions(row, fieldsByKey, conditions);
-    private resolvePresetFilterValue(condition);
+    private resolvePresetFilterValue(condition, field?);
     private getProcessedRows();
     private resolveFieldDefinitionByName(fieldName);
     private getGroupValueText(row, fieldName);

@@ -112,10 +112,13 @@ var ListControlWebPart = (function (_super) {
         _this._fieldDisplayFormatByInternalName = {};
         _this._fieldChoicesByInternalName = {};
         _this._fieldLookupListByInternalName = {};
+        _this._fieldLookupValueByInternalName = {};
         _this._filterLookupItemOptions = [];
         _this._conditionalStyleLookupItemOptions = [];
         _this._filterLookupMessage = '';
         _this._conditionalStyleLookupMessage = '';
+        _this._filterLookupLoadSequence = 0;
+        _this._conditionalStyleLookupLoadSequence = 0;
         _this._externalSearchFilterJson = '';
         _this._externalSearchExecutionMode = 'local';
         _this._searchSourceHandlers = {};
@@ -428,9 +431,6 @@ var ListControlWebPart = (function (_super) {
                 this._filterLookupItemOptions = [];
                 this.properties.filterDesignerLookupPick = '';
                 this._filterLookupMessage = '';
-                if (this.isLookupTypeField(String(newValue || ''))) {
-                    this.handleLoadFilterLookupItems();
-                }
             }
             if (propertyPath === 'filterDesignerValueType') {
                 this.properties.filterDesignerValue = '';
@@ -440,14 +440,22 @@ var ListControlWebPart = (function (_super) {
                 this._conditionalStyleLookupItemOptions = [];
                 this.properties.conditionalStyleLookupPick = '';
                 this._conditionalStyleLookupMessage = '';
-                if (this.isLookupTypeField(String(newValue || ''))) {
-                    this.handleLoadConditionalStyleLookupItems();
-                }
             }
             _super.prototype.onPropertyPaneFieldChanged.call(this, propertyPath, oldValue, newValue);
-            if (propertyPath === 'filterDesignerLookupPick' && this.properties.filterDesignerValueType === 'fieldValue') {
+            if ((propertyPath === 'filterDesignerField' || propertyPath === 'filterDesignerValueType')
+                && this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField)) {
+                this.handleLoadFilterLookupItems();
+            }
+            if ((propertyPath === 'conditionalStyleConditionField' || propertyPath === 'conditionalStyleConditionValueType')
+                && this.properties.conditionalStyleConditionValueType !== 'expression' && this.isLookupTypeField(this.properties.conditionalStyleConditionField)) {
+                this.handleLoadConditionalStyleLookupItems();
+            }
+            if (propertyPath === 'filterDesignerLookupPick') {
                 this.properties.filterDesignerValue = String(newValue || '');
                 this._filterLookupMessage = newValue ? 'Selected item ID ' + String(newValue) + '.' : '';
+            }
+            if (propertyPath === 'conditionalStyleLookupPick') {
+                this.properties.conditionalStyleConditionValue = String(newValue || '');
             }
             this.context.propertyPane.refresh();
             return;
@@ -467,6 +475,7 @@ var ListControlWebPart = (function (_super) {
                             this._fieldDisplayFormatByInternalName = {};
                             this._fieldChoicesByInternalName = {};
                             this._fieldLookupListByInternalName = {};
+                            this._fieldLookupValueByInternalName = {};
                             this.context.propertyPane.refresh();
                             return [2 /*return*/];
                         }
@@ -474,7 +483,7 @@ var ListControlWebPart = (function (_super) {
                     case 1:
                         _a.trys.push([1, 3, , 4]);
                         endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,LookupField,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
                         return [4 /*yield*/, this.getJsonWithAcceptFallback(endpoint)];
                     case 2:
                         data = _a.sent();
@@ -486,12 +495,14 @@ var ListControlWebPart = (function (_super) {
                         this._fieldDisplayFormatByInternalName = {};
                         this._fieldChoicesByInternalName = {};
                         this._fieldLookupListByInternalName = {};
+                        this._fieldLookupValueByInternalName = {};
                         fields.forEach(function (field) {
                             var fieldInternalName = String(field.InternalName || '');
                             if (!fieldInternalName) {
                                 return;
                             }
                             _this._fieldTypeByInternalName[fieldInternalName] = String(field.TypeAsString || '').toLowerCase();
+                            _this._fieldLookupValueByInternalName[fieldInternalName] = String(field.LookupField || 'Title');
                             if (field.DisplayFormat !== undefined && field.DisplayFormat !== null) {
                                 _this._fieldDisplayFormatByInternalName[fieldInternalName] = Number(field.DisplayFormat);
                             }
@@ -514,6 +525,12 @@ var ListControlWebPart = (function (_super) {
                         }).sort(function (a, b) {
                             return String(a.text).localeCompare(String(b.text));
                         });
+                        if (this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField)) {
+                            this.handleLoadFilterLookupItems();
+                        }
+                        if (this.properties.conditionalStyleConditionValueType !== 'expression' && this.isLookupTypeField(this.properties.conditionalStyleConditionField)) {
+                            this.handleLoadConditionalStyleLookupItems();
+                        }
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 4];
                     case 3:
@@ -522,6 +539,7 @@ var ListControlWebPart = (function (_super) {
                         this._fieldTypeByInternalName = {};
                         this._fieldChoicesByInternalName = {};
                         this._fieldLookupListByInternalName = {};
+                        this._fieldLookupValueByInternalName = {};
                         this.context.propertyPane.refresh();
                         this.logDiagnostic('Failed to load fields for list "' + listName + '": ' + (error_1 && error_1.message ? error_1.message : String(error_1)));
                         return [3 /*break*/, 4];
@@ -532,15 +550,15 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.isLookupTypeField = function (internalName) {
         var typeName = this._fieldTypeByInternalName[internalName || ''];
-        return typeName === 'lookup' || typeName === 'lookupmulti';
+        return typeName === 'lookup' || typeName === 'lookupmulti' || typeName === 'user' || typeName === 'usermulti';
     };
     ListControlWebPart.prototype.supportsFilterFieldValue = function (internalName) {
         var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
-        return typeName === 'choice' || typeName === 'multichoice' || typeName === 'lookup' || typeName === 'lookupmulti';
+        return typeName === 'choice' || typeName === 'multichoice' || this.isLookupTypeField(internalName);
     };
     ListControlWebPart.prototype.isMultiFilterField = function (internalName) {
         var typeName = String(this._fieldTypeByInternalName[internalName || ''] || '').toLowerCase();
-        return typeName === 'multichoice' || typeName === 'lookupmulti';
+        return typeName === 'multichoice' || typeName === 'lookupmulti' || typeName === 'usermulti';
     };
     ListControlWebPart.prototype.getSelectedFilterFieldValues = function () {
         var rawValue = String(this.properties.filterDesignerValue || '').trim();
@@ -554,6 +572,74 @@ var ListControlWebPart = (function (_super) {
         catch (_parseError) {
             return [rawValue];
         }
+    };
+    ListControlWebPart.prototype.supportsRuleValuePicker = function (fieldName) {
+        var typeName = this._fieldTypeByInternalName[fieldName || ''];
+        return (this._fieldChoicesByInternalName[fieldName || ''] || []).length > 0
+            || ['datetime', 'boolean', 'number', 'currency', 'integer', 'counter'].indexOf(typeName) >= 0;
+    };
+    ListControlWebPart.prototype.createRuleValuePicker = function (fieldName, valueProperty) {
+        var _this = this;
+        return PropertyPaneCustomField_1.PropertyPaneCustomField({
+            key: valueProperty + 'TypedValuePicker',
+            onRender: function (domElement) {
+                while (domElement.firstChild) {
+                    domElement.removeChild(domElement.firstChild);
+                }
+                var typeName = _this._fieldTypeByInternalName[fieldName];
+                var inputType = typeName === 'datetime'
+                    ? (_this._fieldDisplayFormatByInternalName[fieldName] === 0 ? 'date' : 'datetime-local')
+                    : (['number', 'currency', 'integer', 'counter'].indexOf(typeName) >= 0 ? 'number' : '');
+                var currentValue = _this.properties[valueProperty] || '';
+                var label = document.createElement('label');
+                label.style.display = 'block';
+                label.style.marginBottom = '8px';
+                label.appendChild(document.createTextNode(inputType
+                    ? strings.PropFilterDesignerTypedValueLabel
+                    : (typeName === 'boolean' ? strings.PropFilterDesignerBooleanValueLabel : strings.PropFilterDesignerChoiceValueLabel)));
+                if (inputType) {
+                    var input = document.createElement('input');
+                    input.type = inputType;
+                    input.style.display = 'block';
+                    input.style.width = '100%';
+                    input.style.boxSizing = 'border-box';
+                    input.style.minHeight = '32px';
+                    input.step = typeName === 'integer' || typeName === 'counter' ? '1' : 'any';
+                    input.value = inputType === 'date' ? currentValue.substring(0, 10) : currentValue;
+                    input.addEventListener('change', function () {
+                        _this.properties[valueProperty] = input.value;
+                        _this.context.propertyPane.refresh();
+                    });
+                    label.appendChild(input);
+                    domElement.appendChild(label);
+                    return;
+                }
+                var select = document.createElement('select');
+                select.style.display = 'block';
+                select.style.width = '100%';
+                select.style.minHeight = '32px';
+                var placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = typeName === 'boolean' ? strings.PropFilterDesignerBooleanValueLabel : strings.PropFilterDesignerChoiceValueLabel;
+                placeholder.disabled = true;
+                select.appendChild(placeholder);
+                var choices = typeName === 'boolean'
+                    ? [strings.RuntimeBooleanYes, strings.RuntimeBooleanNo] : (_this._fieldChoicesByInternalName[fieldName] || []);
+                choices.forEach(function (choice) {
+                    var option = document.createElement('option');
+                    option.value = choice;
+                    option.textContent = choice;
+                    select.appendChild(option);
+                });
+                select.value = choices.indexOf(currentValue) >= 0 ? currentValue : '';
+                select.addEventListener('change', function () {
+                    _this.properties[valueProperty] = select.value;
+                    _this.context.propertyPane.refresh();
+                });
+                label.appendChild(select);
+                domElement.appendChild(label);
+            }
+        });
     };
     ListControlWebPart.prototype.createFilterMultiValuePicker = function (options) {
         var _this = this;
@@ -591,53 +677,80 @@ var ListControlWebPart = (function (_super) {
             }
         });
     };
-    ListControlWebPart.prototype.loadLookupListItems = function (listId) {
+    ListControlWebPart.prototype.loadLookupListItems = function (fieldName) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, url, data, items, error_2;
+            var typeName, isPerson, lookupField, listId, listSegment, webUrl, url, options, data, items;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        _a.trys.push([0, 2, , 3]);
+                        typeName = this._fieldTypeByInternalName[fieldName];
+                        isPerson = typeName === 'user' || typeName === 'usermulti';
+                        lookupField = this._fieldLookupValueByInternalName[fieldName] || 'Title';
+                        lookupField = /^[A-Za-z0-9_]+$/.test(lookupField) ? lookupField : 'Title';
+                        listId = this._fieldLookupListByInternalName[fieldName];
+                        if (!isPerson && !listId) {
+                            throw new Error(strings.PropFilterDesignerOptionsLoadFailed);
+                        }
+                        listSegment = /^[0-9a-fA-F-]{36}$/.test(listId || '')
+                            ? "lists(guid'" + listId + "')" : "lists/getByTitle('" + escapeODataText(listId || '') + "')";
                         webUrl = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '');
-                        url = webUrl + "/_api/web/lists(guid'" + listId + "')/items?$select=Id,Title&$top=500&$orderby=Title";
-                        return [4 /*yield*/, this.getJsonWithAcceptFallback(url)];
+                        url = isPerson
+                            ? webUrl + '/_api/web/siteusers?$select=Id,Title,Email,PrincipalType&$top=5000'
+                            : webUrl + '/_api/web/' + listSegment + '/items?$select=' + encodeURIComponent('Id,' + lookupField) + '&$top=5000';
+                        options = [];
+                        _a.label = 1;
                     case 1:
+                        if (!url) return [3 /*break*/, 3];
+                        return [4 /*yield*/, this.getJsonWithAcceptFallback(url)];
+                    case 2:
                         data = _a.sent();
                         items = data && data.value ? data.value : (data && data.d && data.d.results ? data.d.results : []);
-                        return [2 /*return*/, items.map(function (item) {
-                                var title = item.Title ? String(item.Title) : '(no title)';
-                                return { key: String(item.Id), text: title + ' (ID: ' + item.Id + ')' };
-                            })];
-                    case 2:
-                        error_2 = _a.sent();
-                        this.logDiagnostic('Failed to load lookup list items for listId=' + listId + ': ' + (error_2 && error_2.message ? error_2.message : String(error_2)));
-                        return [2 /*return*/, []];
-                    case 3: return [2 /*return*/];
+                        options = options.concat(items.filter(function (item) {
+                            return item && Number(item.Id) > 0 && (!isPerson || Number(item.PrincipalType) > 0);
+                        }).map(function (item) {
+                            var title = String((isPerson ? item.Title || item.Email : item[lookupField]) || item.Id);
+                            return { key: String(item.Id), text: title + ' (ID: ' + item.Id + ')' };
+                        }));
+                        url = String(data && (data['@odata.nextLink'] || data['odata.nextLink'] || (data.d && data.d.__next)) || '');
+                        return [3 /*break*/, 1];
+                    case 3: return [2 /*return*/, options.sort(function (left, right) { return left.text.localeCompare(right.text); })];
                 }
             });
         });
     };
     ListControlWebPart.prototype.handleLoadFilterLookupItems = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var fieldName, listId, _a;
-            return __generator(this, function (_b) {
-                switch (_b.label) {
+            var sequence, fieldName, listName, options, error_2;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
                     case 0:
+                        sequence = ++this._filterLookupLoadSequence;
                         fieldName = String(this.properties.filterDesignerField || '');
-                        listId = this._fieldLookupListByInternalName[fieldName];
-                        if (!listId) {
-                            this._filterLookupMessage = 'Selected field is not a lookup column, or its target list could not be resolved.';
-                            this._filterLookupItemOptions = [];
-                            this.context.propertyPane.refresh();
+                        listName = this.properties.listName;
+                        this._filterLookupItemOptions = [];
+                        this._filterLookupMessage = strings.PropFilterDesignerOptionsLoading;
+                        this.context.propertyPane.refresh();
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, this.loadLookupListItems(fieldName)];
+                    case 2:
+                        options = _a.sent();
+                        if (sequence !== this._filterLookupLoadSequence || this.properties.filterDesignerField !== fieldName || this.properties.listName !== listName) {
                             return [2 /*return*/];
                         }
-                        _a = this;
-                        return [4 /*yield*/, this.loadLookupListItems(listId)];
-                    case 1:
-                        _a._filterLookupItemOptions = _b.sent();
-                        this._filterLookupMessage = this._filterLookupItemOptions.length > 0
-                            ? 'Loaded ' + this._filterLookupItemOptions.length + ' item(s). Pick one and click Use selected value.'
-                            : 'The target list has no items.';
+                        this._filterLookupItemOptions = options;
+                        this._filterLookupMessage = options.length > 0 ? strings.PropFilterDesignerReferenceHelp : strings.PropFilterDesignerOptionsEmpty;
+                        return [3 /*break*/, 4];
+                    case 3:
+                        error_2 = _a.sent();
+                        console.error('[ListControlWebPart] Failed to load rule values for ' + fieldName + '.', error_2);
+                        if (sequence !== this._filterLookupLoadSequence || this.properties.filterDesignerField !== fieldName || this.properties.listName !== listName) {
+                            return [2 /*return*/];
+                        }
+                        this._filterLookupMessage = strings.PropFilterDesignerOptionsLoadFailed + ' ' + String(error_2 && error_2.message || error_2);
+                        return [3 /*break*/, 4];
+                    case 4:
                         this.context.propertyPane.refresh();
                         return [2 /*return*/];
                 }
@@ -657,25 +770,37 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.handleLoadConditionalStyleLookupItems = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var fieldName, listId, _a;
-            return __generator(this, function (_b) {
-                switch (_b.label) {
+            var sequence, fieldName, listName, options, error_3;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
                     case 0:
+                        sequence = ++this._conditionalStyleLookupLoadSequence;
                         fieldName = String(this.properties.conditionalStyleConditionField || '');
-                        listId = this._fieldLookupListByInternalName[fieldName];
-                        if (!listId) {
-                            this._conditionalStyleLookupMessage = 'Selected field is not a lookup column, or its target list could not be resolved.';
-                            this._conditionalStyleLookupItemOptions = [];
-                            this.context.propertyPane.refresh();
+                        listName = this.properties.listName;
+                        this._conditionalStyleLookupItemOptions = [];
+                        this._conditionalStyleLookupMessage = strings.PropFilterDesignerOptionsLoading;
+                        this.context.propertyPane.refresh();
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, this.loadLookupListItems(fieldName)];
+                    case 2:
+                        options = _a.sent();
+                        if (sequence !== this._conditionalStyleLookupLoadSequence || this.properties.conditionalStyleConditionField !== fieldName || this.properties.listName !== listName) {
                             return [2 /*return*/];
                         }
-                        _a = this;
-                        return [4 /*yield*/, this.loadLookupListItems(listId)];
-                    case 1:
-                        _a._conditionalStyleLookupItemOptions = _b.sent();
-                        this._conditionalStyleLookupMessage = this._conditionalStyleLookupItemOptions.length > 0
-                            ? 'Loaded ' + this._conditionalStyleLookupItemOptions.length + ' item(s). Pick one and click Use selected value.'
-                            : 'The target list has no items.';
+                        this._conditionalStyleLookupItemOptions = options;
+                        this._conditionalStyleLookupMessage = options.length > 0 ? strings.PropFilterDesignerReferenceHelp : strings.PropFilterDesignerOptionsEmpty;
+                        return [3 /*break*/, 4];
+                    case 3:
+                        error_3 = _a.sent();
+                        console.error('[ListControlWebPart] Failed to load rule values for ' + fieldName + '.', error_3);
+                        if (sequence !== this._conditionalStyleLookupLoadSequence || this.properties.conditionalStyleConditionField !== fieldName || this.properties.listName !== listName) {
+                            return [2 /*return*/];
+                        }
+                        this._conditionalStyleLookupMessage = strings.PropFilterDesignerOptionsLoadFailed + ' ' + String(error_3 && error_3.message || error_3);
+                        return [3 /*break*/, 4];
+                    case 4:
                         this.context.propertyPane.refresh();
                         return [2 /*return*/];
                 }
@@ -785,6 +910,8 @@ var ListControlWebPart = (function (_super) {
         this.render();
     };
     ListControlWebPart.prototype.onDispose = function () {
+        this._filterLookupLoadSequence += 1;
+        this._conditionalStyleLookupLoadSequence += 1;
         this.unregisterSearchSources();
         deterministicFullWidth_1.releaseOptionalFullWidth(this.domElement.ownerDocument, this.context.instanceId);
         ReactDom.unmountComponentAtNode(this.domElement);
@@ -1580,7 +1707,10 @@ var ListControlWebPart = (function (_super) {
                                     ].concat((this.supportsFilterFieldValue(this.properties.filterDesignerField || '') ? [{ key: 'fieldValue', text: 'Field value' }] : [])),
                                     selectedKey: this.properties.filterDesignerValueType || 'static'
                                 })
-                            ].concat((this.properties.filterDesignerValueType !== 'fieldValue' ? [sp_webpart_base_1.PropertyPaneTextField('filterDesignerValue', {
+                            ].concat((this.properties.filterDesignerValueType !== 'expression' && this.properties.filterDesignerValueType !== 'fieldValue'
+                                && this.supportsRuleValuePicker(this.properties.filterDesignerField) ? [
+                                this.createRuleValuePicker(this.properties.filterDesignerField, 'filterDesignerValue')
+                            ] : []), (this.properties.filterDesignerValueType !== 'fieldValue' ? [sp_webpart_base_1.PropertyPaneTextField('filterDesignerValue', {
                                     label: this.properties.filterDesignerValueType === 'expression' ? strings.PropFilterDesignerExpressionLabel : strings.PropFilterDesignerValueLabel,
                                     placeholder: this.properties.filterDesignerValueType === 'expression' ? strings.PropFilterDesignerExpressionPlaceholder : strings.PropFilterDesignerValuePlaceholder,
                                     value: this.properties.filterDesignerValue || ''
@@ -1594,17 +1724,18 @@ var ListControlWebPart = (function (_super) {
                                 })
                             ] : []), (this.properties.filterDesignerValueType === 'fieldValue' && this.isMultiFilterField(this.properties.filterDesignerField || '') ? [
                                 this.createFilterMultiValuePicker(this.isLookupTypeField(this.properties.filterDesignerField || '') ? this._filterLookupItemOptions : (this._fieldChoicesByInternalName[this.properties.filterDesignerField || ''] || []).map(function (choice) { return { key: choice, text: choice }; }))
-                            ] : []), (this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField || '') && !this.isMultiFilterField(this.properties.filterDesignerField || '') ? [
+                            ] : []), (this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField || '') ? [
                                 sp_webpart_base_1.PropertyPaneLabel('filterLookupHelperTitle', {
-                                    text: 'Lookup item picker: choose an item from the target list to fill in its value.'
+                                    text: strings.PropFilterDesignerReferenceHelp
                                 }),
                                 sp_webpart_base_1.PropertyPaneButton('loadFilterLookupItems', {
-                                    text: 'Refresh lookup items',
+                                    text: strings.PropFilterDesignerRefreshValuesLabel,
                                     buttonType: sp_webpart_base_1.PropertyPaneButtonType.Normal,
                                     onClick: this.handleLoadFilterLookupItems.bind(this)
-                                }),
+                                })
+                            ].concat((this.properties.filterDesignerValueType !== 'fieldValue' || !this.isMultiFilterField(this.properties.filterDesignerField) ? [
                                 sp_webpart_base_1.PropertyPaneDropdown('filterDesignerLookupPick', {
-                                    label: 'Select item',
+                                    label: strings.PropFilterDesignerReferenceValueLabel,
                                     options: this._filterLookupItemOptions.length > 0 ? this._filterLookupItemOptions : [{ key: '', text: 'No items loaded yet' }],
                                     selectedKey: this.properties.filterDesignerLookupPick || ''
                                 }),
@@ -1612,11 +1743,12 @@ var ListControlWebPart = (function (_super) {
                                     text: 'Use selected value',
                                     buttonType: sp_webpart_base_1.PropertyPaneButtonType.Normal,
                                     onClick: this.handleApplyFilterLookupPick.bind(this)
-                                }),
-                                sp_webpart_base_1.PropertyPaneLabel('filterLookupHelperResult', {
-                                    text: this._filterLookupMessage || 'Lookup items load automatically when you select the column.'
-                                }),
+                                })
                             ] : []), [
+                                sp_webpart_base_1.PropertyPaneLabel('filterLookupHelperResult', {
+                                    text: this._filterLookupMessage || strings.PropFilterDesignerReferenceHelp
+                                }),
+                            ]) : []), [
                                 sp_webpart_base_1.PropertyPaneButton('addFilterDesignerCondition', {
                                     text: strings.PropFilterDesignerAddButtonLabel,
                                     buttonType: sp_webpart_base_1.PropertyPaneButtonType.Primary,
@@ -1763,7 +1895,11 @@ var ListControlWebPart = (function (_super) {
                                         { key: 'expression', text: strings.PropFilterDesignerValueTypeExpression }
                                     ],
                                     selectedKey: this.properties.conditionalStyleConditionValueType || 'static'
-                                }),
+                                })
+                            ], (this.properties.conditionalStyleConditionValueType !== 'expression'
+                                && this.supportsRuleValuePicker(this.properties.conditionalStyleConditionField) ? [
+                                this.createRuleValuePicker(this.properties.conditionalStyleConditionField, 'conditionalStyleConditionValue')
+                            ] : []), [
                                 sp_webpart_base_1.PropertyPaneTextField('conditionalStyleConditionValue', {
                                     label: this.properties.conditionalStyleConditionValueType === 'expression' ? strings.PropFilterDesignerExpressionLabel : strings.PropConditionalStyleConditionValueLabel,
                                     placeholder: this.properties.conditionalStyleConditionValueType === 'expression' ? strings.PropFilterDesignerExpressionPlaceholder : strings.PropConditionalStyleConditionValuePlaceholder,
@@ -1773,15 +1909,15 @@ var ListControlWebPart = (function (_super) {
                                 this.createConditionalStyleExpressionHelpField()
                             ] : []), (this.properties.conditionalStyleConditionValueType !== 'expression' && this.isLookupTypeField(this.properties.conditionalStyleConditionField || '') ? [
                                 sp_webpart_base_1.PropertyPaneLabel('conditionalStyleLookupHelperTitle', {
-                                    text: 'Lookup item picker: choose an item from the target list to fill in its value.'
+                                    text: strings.PropFilterDesignerReferenceHelp
                                 }),
                                 sp_webpart_base_1.PropertyPaneButton('loadConditionalStyleLookupItems', {
-                                    text: 'Refresh lookup items',
+                                    text: strings.PropFilterDesignerRefreshValuesLabel,
                                     buttonType: sp_webpart_base_1.PropertyPaneButtonType.Normal,
                                     onClick: this.handleLoadConditionalStyleLookupItems.bind(this)
                                 }),
                                 sp_webpart_base_1.PropertyPaneDropdown('conditionalStyleLookupPick', {
-                                    label: 'Select item',
+                                    label: strings.PropFilterDesignerReferenceValueLabel,
                                     options: this._conditionalStyleLookupItemOptions.length > 0 ? this._conditionalStyleLookupItemOptions : [{ key: '', text: 'No items loaded yet' }],
                                     selectedKey: this.properties.conditionalStyleLookupPick || ''
                                 }),
@@ -1791,7 +1927,7 @@ var ListControlWebPart = (function (_super) {
                                     onClick: this.handleApplyConditionalStyleLookupPick.bind(this)
                                 }),
                                 sp_webpart_base_1.PropertyPaneLabel('conditionalStyleLookupHelperResult', {
-                                    text: this._conditionalStyleLookupMessage || 'Lookup items load automatically when you select the column.'
+                                    text: this._conditionalStyleLookupMessage || strings.PropFilterDesignerReferenceHelp
                                 }),
                             ] : []), [
                                 PropertyFieldColorPicker_1.PropertyFieldColorPicker('conditionalStyleBackgroundColor', {
@@ -2197,6 +2333,9 @@ var ListControlWebPart = (function (_super) {
             this.properties.filterDesignerValueType = storedValueType === 'expression' ? 'expression' : (storedValueType === 'fieldvalue' ? 'fieldValue' : 'static');
             this.properties.filterDesignerValue = Array.isArray(selected.value) ? JSON.stringify(selected.value) : String(selected.value === undefined || selected.value === null ? '' : selected.value);
             this._filterDesignerMessage = strings.PropFilterDesignerLoadSuccess;
+            if (this.properties.filterDesignerValueType !== 'expression' && this.isLookupTypeField(this.properties.filterDesignerField)) {
+                this.handleLoadFilterLookupItems();
+            }
         }
         catch (error) {
             this._filterDesignerMessage = error && error.message ? error.message : strings.PropFilterDesignerActionFailed;
@@ -2446,6 +2585,9 @@ var ListControlWebPart = (function (_super) {
             this._isEditingConditionalStyle = true;
             this._conditionalStyleDesignerRevision += 1;
             this._conditionalStyleDesignerMessage = strings.PropConditionalStyleLoadSuccess;
+            if (this.properties.conditionalStyleConditionValueType !== 'expression' && this.isLookupTypeField(this.properties.conditionalStyleConditionField)) {
+                this.handleLoadConditionalStyleLookupItems();
+            }
         }
         catch (error) {
             this._conditionalStyleDesignerMessage = error && error.message ? error.message : strings.PropConditionalStyleActionFailed;
@@ -2644,7 +2786,7 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.loadLists = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, data, lists, error_3;
+            var webUrl, data, lists, error_4;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2668,8 +2810,8 @@ var ListControlWebPart = (function (_super) {
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 3];
                     case 2:
-                        error_3 = _a.sent();
-                        this.logDiagnostic('Failed to load lists: ' + (error_3 && error_3.message ? error_3.message : String(error_3)));
+                        error_4 = _a.sent();
+                        this.logDiagnostic('Failed to load lists: ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
                         this._lists = [];
                         return [3 /*break*/, 3];
                     case 3: return [2 /*return*/];
@@ -2690,7 +2832,7 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.loadSitePages = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, libraryData, libraries, pageOptionsByUrl, libraryIndex, libraryId, data, pages, pageError_1, defaultPageOptions, error_4;
+            var webUrl, libraryData, libraries, pageOptionsByUrl, libraryIndex, libraryId, data, pages, pageError_1, defaultPageOptions, error_5;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2748,8 +2890,8 @@ var ListControlWebPart = (function (_super) {
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 9];
                     case 8:
-                        error_4 = _a.sent();
-                        this.logDiagnostic('Failed to load Site Pages: ' + (error_4 && error_4.message ? error_4.message : String(error_4)));
+                        error_5 = _a.sent();
+                        this.logDiagnostic('Failed to load Site Pages: ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
                         this._sitePages = [{ key: '__defaultForm__', text: strings.PropLinkTargetDefaultFormOption }];
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 9];
@@ -2760,7 +2902,7 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.loadViews = function (listName) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, data, views, i, error_5;
+            var webUrl, data, views, i, error_6;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2804,8 +2946,8 @@ var ListControlWebPart = (function (_super) {
                         this.render();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_5 = _a.sent();
-                        this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
+                        error_6 = _a.sent();
+                        this.logDiagnostic('Failed to load views for list ' + String(listName) + ': ' + (error_6 && error_6.message ? error_6.message : String(error_6)));
                         this._views = [];
                         this.context.propertyPane.refresh();
                         return [3 /*break*/, 5];
@@ -2816,7 +2958,7 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.loadViewColumns = function (listName, viewId) {
         return __awaiter(this, void 0, void 0, function () {
-            var webUrl, listPath, normalizedViewId, viewData, viewFields, fieldData, fields, titleByName, error_6;
+            var webUrl, listPath, normalizedViewId, viewData, viewFields, fieldData, fields, titleByName, error_7;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -2871,11 +3013,11 @@ var ListControlWebPart = (function (_super) {
                         this.render();
                         return [3 /*break*/, 5];
                     case 4:
-                        error_6 = _a.sent();
+                        error_7 = _a.sent();
                         this.properties.viewColumns = [];
                         this.context.propertyPane.refresh();
                         this.render();
-                        this.logDiagnostic('Failed to initialize columns for view ' + viewId + ': ' + (error_6 && error_6.message ? error_6.message : String(error_6)));
+                        this.logDiagnostic('Failed to initialize columns for view ' + viewId + ': ' + (error_7 && error_7.message ? error_7.message : String(error_7)));
                         return [3 /*break*/, 5];
                     case 5: return [2 /*return*/];
                 }

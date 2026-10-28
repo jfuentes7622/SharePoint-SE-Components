@@ -2676,7 +2676,7 @@ function getManifests() {
     "id": "3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001",
     "alias": "ListControlWebPart",
     "componentType": "WebPart",
-    "version": "1.0.113",
+    "version": "1.0.115",
     "manifestVersion": 2,
     "requiresCustomScript": false,
     "supportsFullBleed": true,
@@ -2786,13 +2786,11 @@ function getManifests() {
         },
         "ListControlWebPartStrings": {
           "defaultPath": "lib/webparts/listControl/loc/en-us.js",
-          "type": "localizedPath",
-          "paths": {}
+          "type": "localizedPath"
         },
         "PropertyControlStrings": {
           "defaultPath": "node_modules/@pnp/spfx-property-controls/lib/loc/en-us.js",
-          "type": "localizedPath",
-          "paths": {}
+          "type": "localizedPath"
         },
         "react": {
           "type": "component",

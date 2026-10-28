@@ -16,12 +16,16 @@ import { IEventRegistrationProps } from './components/IEventRegistrationProps';
 import { IRegistrationSelection } from './models';
 import EventRegistrationService from './services/EventRegistrationService';
 import { applyAppearance, getAppearanceMode, IEventRegistrationAppearance, IEventRegistrationTheme } from './helpers/appearance';
+import { getDisplayMode } from './helpers/displayMode';
 
 const packageSolutionConfig: any = require('../../../config/package-solution.json');
 
 export interface IEventRegistrationWebPartProps extends IEventRegistrationAppearance {
   title: string;
   description: string;
+  displayMode?: string;
+  eventId?: string;
+  registrationPageUrl?: string;
   excludeFromTabs?: boolean;
   listPrefix: string;
   organizerGroupId: number;
@@ -111,13 +115,16 @@ export default class EventRegistrationWebPart extends BaseClientSideWebPart<IEve
     var element = React.createElement<IEventRegistrationProps>(EventRegistration, {
       title: this.properties.title === undefined ? 'Event Registration' : this.properties.title,
       description: this.properties.description || '',
+      displayMode: getDisplayMode(this.properties.displayMode),
+      registrationPageUrl: this.properties.registrationPageUrl || '',
       webUrl: this.context.pageContext.web.absoluteUrl,
       spHttpClient: this.context.spHttpClient,
       listPrefix: this.properties.listPrefix,
       organizerGroupId: Number(this.properties.organizerGroupId || 0),
       buttonDisplayMode: this.normalizeButtonMode(this.properties.buttonDisplayMode),
       enableDiagnostics: this.properties.enableDiagnostics !== false,
-      initialEventId: query.eventId || this.dynamicEventId,
+      initialEventId: query.eventId || this.dynamicEventId || (getDisplayMode(this.properties.displayMode) === 'registration'
+        ? this.positiveNumber(String(this.properties.eventId || '')) : 0),
       initialSessionId: query.sessionId || this.dynamicSessionId,
       sourceUrl: query.sourceUrl,
       onRegistrationSelected: this.handleRegistrationSelected.bind(this)
@@ -145,7 +152,7 @@ export default class EventRegistrationWebPart extends BaseClientSideWebPart<IEve
     if (propertyPath === 'preferredCalendarInstanceId') {
       this.subscribeCalendar();
     }
-    if (propertyPath === 'appearanceMode') {
+    if (propertyPath === 'appearanceMode' || propertyPath === 'displayMode') {
       this.context.propertyPane.refresh();
     }
     this.render();
@@ -166,6 +173,29 @@ export default class EventRegistrationWebPart extends BaseClientSideWebPart<IEve
             groupFields: [
               PropertyPaneTextField('title', { label: 'Title' }),
               PropertyPaneTextField('description', { label: 'Description', multiline: true }),
+              PropertyPaneDropdown('displayMode', {
+                label: 'Display mode',
+                selectedKey: getDisplayMode(this.properties.displayMode),
+                options: [
+                  { key: 'combined', text: 'Combined (existing experience)' },
+                  { key: 'catalog', text: 'Event catalog' },
+                  { key: 'registration', text: 'Single event registration' },
+                  { key: 'organizer', text: 'Organizer management' }
+                ]
+              }),
+              PropertyPaneTextField('eventId', {
+                label: 'Default event ID',
+                description: 'Single-event page fallback. URL and Calendar selections take precedence.',
+                disabled: getDisplayMode(this.properties.displayMode) !== 'registration',
+                onGetErrorMessage: (value: string): string => {
+                  return !value || /^[1-9][0-9]*$/.test(value) ? '' : 'Enter a positive whole-number event ID.';
+                }
+              }),
+              PropertyPaneTextField('registrationPageUrl', {
+                label: 'Registration page URL (optional)',
+                description: 'Catalog opens this same-origin page with eventid. Leave blank for inline event details.',
+                disabled: getDisplayMode(this.properties.displayMode) !== 'catalog'
+              }),
               PropertyPaneTextField('listPrefix', {
                 label: 'List name prefix',
                 description: 'Default: SPS Event Registration'

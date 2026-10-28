@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as ReactDOM from 'react-dom';
 import styles from './Calendar.module.scss';
 import { ICalendarDataSource, ICalendarProps } from './ICalendarProps';
 import { SPHttpClient } from '@microsoft/sp-http';
@@ -96,6 +97,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
   private _eventLoadSequence: number = 0;
   private _newEventFrameObserver: any;
   private _newEventFrameResizeTimer: number;
+  private _newEventLayer: HTMLDivElement;
   private _calendarResizeObserver: any;
   private _calendarResizeTimers: number[] = [];
   private _calendarLastWidth: number = 0;
@@ -166,6 +168,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     }
     this._eventLoadSequence += 1;
     this.disconnectNewEventFrameObserver();
+    this.removeNewEventLayer();
     this.stopCalendarSizeMonitoring();
     if (this._calendar) {
       this._calendar.destroy();
@@ -174,6 +177,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
   }
 
   public componentDidUpdate(prevProps: ICalendarProps): void {
+    this.updateNewEventLayer();
     if (!this._calendar) {
       return;
     }
@@ -781,6 +785,33 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     } catch (error) {
       this.logDiagnostic('Could not observe the native event form size. ' + String(error));
     }
+  }
+
+  private removeNewEventLayer(): void {
+    if (this._newEventLayer) {
+      ReactDOM.unmountComponentAtNode(this._newEventLayer);
+      this._newEventLayer.parentNode.removeChild(this._newEventLayer);
+      this._newEventLayer = undefined;
+    }
+  }
+
+  private updateNewEventLayer(): void {
+    if (!this.state.newEventDate) {
+      this.removeNewEventLayer();
+      return;
+    }
+    if (!this._newEventLayer) {
+      this._newEventLayer = document.createElement('div');
+      this._newEventLayer.className = styles.newEventLayer;
+      document.body.appendChild(this._newEventLayer);
+    }
+    // React 15 has no portals; keep the native form outside SharePoint stacking contexts.
+    ReactDOM.render(
+      <div className={styles.calendar} style={this.getEventDetailsStyle()}>
+        {this.renderNewEventDialog()}
+      </div>,
+      this._newEventLayer
+    );
   }
 
   private renderNewEventDialog(): React.ReactElement<any> {
@@ -2335,9 +2366,46 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     );
   }
 
+  private getEventDetailsStyle(): any {
+    return {
+      '--details-overlay-background': this.getColorWithOpacity(this.props.detailsOverlayColor || '#000000',
+        typeof this.props.detailsOverlayOpacity === 'number' ? this.props.detailsOverlayOpacity : 28),
+      '--details-panel-background': this.props.detailsPanelBackgroundColor || '#ffffff',
+      '--details-panel-border-color': this.props.detailsPanelBorderColor || '#8a8886',
+      '--details-panel-border-width': String(typeof this.props.detailsPanelBorderWidth === 'number' ? this.props.detailsPanelBorderWidth : 1) + 'px',
+      '--details-panel-corner-radius': String(typeof this.props.detailsPanelCornerRadius === 'number' ? this.props.detailsPanelCornerRadius : 6) + 'px',
+      '--details-panel-max-width': String(typeof this.props.detailsPanelMaxWidth === 'number' ? this.props.detailsPanelMaxWidth : 680) + 'px',
+      '--details-panel-padding': String(typeof this.props.detailsPanelPadding === 'number' ? this.props.detailsPanelPadding : 30) + 'px',
+      '--details-panel-shadow': this.props.detailsPanelShadow !== false ? '0 12px 36px rgba(0, 0, 0, .24)' : 'none',
+      '--details-title-color': this.props.detailsTitleTextColor || '#201f1e',
+      '--details-title-font-family': this.props.detailsTitleFontFamily || 'inherit',
+      '--details-title-font-size': this.props.detailsTitleFontSize || '24px',
+      '--details-title-font-style': this.props.detailsTitleFontStyle || 'normal',
+      '--details-title-font-weight': this.props.detailsTitleFontBold !== false ? 'bold' : 'normal',
+      '--details-label-color': this.props.detailsLabelTextColor || '#323130',
+      '--details-label-font-family': this.props.detailsLabelFontFamily || 'inherit',
+      '--details-label-font-size': this.props.detailsLabelFontSize || '14px',
+      '--details-label-font-style': this.props.detailsLabelFontStyle || 'normal',
+      '--details-label-font-weight': this.props.detailsLabelFontBold !== false ? 'bold' : 'normal',
+      '--details-value-color': this.props.detailsValueTextColor || '#201f1e',
+      '--details-value-font-family': this.props.detailsValueFontFamily || 'inherit',
+      '--details-value-font-size': this.props.detailsValueFontSize || '14px',
+      '--details-value-font-style': this.props.detailsValueFontStyle || 'normal',
+      '--details-value-font-weight': this.props.detailsValueFontBold === true ? 'bold' : 'normal',
+      '--details-divider-color': this.props.detailsDividerColor || '#edebe9',
+      '--details-divider-width': String(typeof this.props.detailsDividerWidth === 'number' ? this.props.detailsDividerWidth : 1) + 'px',
+      '--details-close-color': this.props.detailsCloseButtonColor || '#323130',
+      '--details-close-background': this.props.detailsCloseButtonBackgroundColor || 'transparent',
+      '--details-close-hover-background': this.props.detailsCloseButtonHoverBackgroundColor || '#edebe9',
+      '--details-close-corner-radius': String(typeof this.props.detailsCloseButtonCornerRadius === 'number'
+        ? this.props.detailsCloseButtonCornerRadius : 2) + 'px'
+    };
+  }
+
   public render(): React.ReactElement<ICalendarProps> {
     this.logDiagnostic('render() called. listName=' + (this.props.listName || '(none)'));
     const calendarStyle: any = {
+      ...this.getEventDetailsStyle(),
       backgroundColor: this.props.calendarBackgroundColor || '#ffffff',
       borderColor: this.props.webPartBorderColor || '#d2d0ce',
       borderStyle: 'solid',
@@ -2387,38 +2455,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       '--calendar-event-font-style': this.props.eventFontStyle || 'normal',
       '--calendar-event-font-weight': this.props.eventFontBold === true ? 'bold' : 'normal',
       '--calendar-event-border-width': String(typeof this.props.eventBorderWidth === 'number' ? this.props.eventBorderWidth : 1) + 'px',
-      '--calendar-event-corner-radius': String(typeof this.props.eventCornerRadius === 'number' ? this.props.eventCornerRadius : 3) + 'px',
-      '--details-overlay-background': this.getColorWithOpacity(this.props.detailsOverlayColor || '#000000',
-        typeof this.props.detailsOverlayOpacity === 'number' ? this.props.detailsOverlayOpacity : 28),
-      '--details-panel-background': this.props.detailsPanelBackgroundColor || '#ffffff',
-      '--details-panel-border-color': this.props.detailsPanelBorderColor || '#8a8886',
-      '--details-panel-border-width': String(typeof this.props.detailsPanelBorderWidth === 'number' ? this.props.detailsPanelBorderWidth : 1) + 'px',
-      '--details-panel-corner-radius': String(typeof this.props.detailsPanelCornerRadius === 'number' ? this.props.detailsPanelCornerRadius : 6) + 'px',
-      '--details-panel-max-width': String(typeof this.props.detailsPanelMaxWidth === 'number' ? this.props.detailsPanelMaxWidth : 680) + 'px',
-      '--details-panel-padding': String(typeof this.props.detailsPanelPadding === 'number' ? this.props.detailsPanelPadding : 30) + 'px',
-      '--details-panel-shadow': this.props.detailsPanelShadow !== false ? '0 12px 36px rgba(0, 0, 0, .24)' : 'none',
-      '--details-title-color': this.props.detailsTitleTextColor || '#201f1e',
-      '--details-title-font-family': this.props.detailsTitleFontFamily || 'inherit',
-      '--details-title-font-size': this.props.detailsTitleFontSize || '24px',
-      '--details-title-font-style': this.props.detailsTitleFontStyle || 'normal',
-      '--details-title-font-weight': this.props.detailsTitleFontBold !== false ? 'bold' : 'normal',
-      '--details-label-color': this.props.detailsLabelTextColor || '#323130',
-      '--details-label-font-family': this.props.detailsLabelFontFamily || 'inherit',
-      '--details-label-font-size': this.props.detailsLabelFontSize || '14px',
-      '--details-label-font-style': this.props.detailsLabelFontStyle || 'normal',
-      '--details-label-font-weight': this.props.detailsLabelFontBold !== false ? 'bold' : 'normal',
-      '--details-value-color': this.props.detailsValueTextColor || '#201f1e',
-      '--details-value-font-family': this.props.detailsValueFontFamily || 'inherit',
-      '--details-value-font-size': this.props.detailsValueFontSize || '14px',
-      '--details-value-font-style': this.props.detailsValueFontStyle || 'normal',
-      '--details-value-font-weight': this.props.detailsValueFontBold === true ? 'bold' : 'normal',
-      '--details-divider-color': this.props.detailsDividerColor || '#edebe9',
-      '--details-divider-width': String(typeof this.props.detailsDividerWidth === 'number' ? this.props.detailsDividerWidth : 1) + 'px',
-      '--details-close-color': this.props.detailsCloseButtonColor || '#323130',
-      '--details-close-background': this.props.detailsCloseButtonBackgroundColor || 'transparent',
-      '--details-close-hover-background': this.props.detailsCloseButtonHoverBackgroundColor || '#edebe9',
-      '--details-close-corner-radius': String(typeof this.props.detailsCloseButtonCornerRadius === 'number'
-        ? this.props.detailsCloseButtonCornerRadius : 2) + 'px'
+      '--calendar-event-corner-radius': String(typeof this.props.eventCornerRadius === 'number' ? this.props.eventCornerRadius : 3) + 'px'
     };
     var dataSources = this.getEffectiveDataSources();
     var headerClassName = styles.webPartHeader
@@ -2427,7 +2464,6 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     return (
       <div className={styles.calendar} style={calendarStyle}>
         {this.renderEventDetails()}
-        {this.renderNewEventDialog()}
         <div className={headerClassName}>
           <WebPartTitle key={'calendar-web-part-title-' + String(this.props.title || '')}
             displayMode={this.props.displayMode}

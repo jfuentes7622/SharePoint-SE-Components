@@ -3151,9 +3151,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       var scalarMatches = values.map((value: any) => this.rowMatchesFilter(row, field, { operator: scalarOperator, value: value, compareDateOnly: filter.compareDateOnly }));
       return isNegative ? scalarMatches.every(function(matches: boolean) { return !matches; }) : scalarMatches.some(function(matches: boolean) { return matches; });
     }
-    var valueText = this.getFilterCellText(row, field);
-    var candidate = String(valueText || '').trim();
     var query = String(filter.value || '').trim();
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    var isReference = fieldType.indexOf('lookup') >= 0 || fieldType.indexOf('user') >= 0;
+    var valueText = isReference && !/^\d+$/.test(query)
+      ? this.getCellPlainText(row, field) : this.getFilterCellText(row, field);
+    var candidate = String(valueText || '').trim();
 
     if (!query) {
       return true;
@@ -3162,7 +3165,6 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var normalizedCandidate = candidate.toLowerCase();
     var normalizedQuery = query.toLowerCase();
     var compareResult = this.compareComparableValues(candidate, query);
-    var fieldType = String(field.TypeAsString || '').toLowerCase();
     var hasDiscreteValues = fieldType.indexOf('lookup') >= 0 || fieldType.indexOf('user') >= 0 || fieldType === 'multichoice';
     var lookupCandidates = hasDiscreteValues
       ? normalizedCandidate.split(';').map(function(value) { return value.trim(); }).filter(function(value) { return !!value; })
@@ -3190,6 +3192,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       }
       if (filter.operator === 'eq') { return candidateTime === startTime; }
       if (filter.operator === 'ne') { return candidateTime !== startTime; }
+    } else if (['number', 'currency', 'integer', 'counter'].indexOf(fieldType) >= 0
+      && candidate !== '' && !isNaN(Number(candidate)) && !isNaN(Number(query))) {
+      if (filter.operator === 'eq') { return compareResult === 0; }
+      if (filter.operator === 'ne') { return compareResult !== 0; }
     }
 
     switch (filter.operator) {
@@ -3236,11 +3242,21 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         }
         return;
       }
+      if (typeof value === 'string') {
+        var trimmedLookupValue = value.trim();
+        if (trimmedLookupValue.charAt(0) === '{' || trimmedLookupValue.charAt(0) === '[') {
+          var parsedLookupValue = tryParseObject(trimmedLookupValue);
+          if (parsedLookupValue && typeof parsedLookupValue === 'object') {
+            collectLookupIds(parsedLookupValue);
+            return;
+          }
+        }
+      }
       if (typeof value === 'object') {
         var lookupId = value.LookupId !== undefined ? value.LookupId
           : value.lookupId !== undefined ? value.lookupId
             : value.Id !== undefined ? value.Id
-              : value.ID;
+              : value.ID !== undefined ? value.ID : value.id;
         if (lookupId !== undefined && lookupId !== null && String(lookupId).trim()) {
           lookupIds.push(String(lookupId).trim());
         }
@@ -3357,7 +3373,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         continue;
       }
 
-      var resolvedValue = this.resolvePresetFilterValue(condition);
+      var resolvedValue = this.resolvePresetFilterValue(condition, field);
 
       var matches = this.rowMatchesFilter(row, field, {
         operator: normalizeFilterOperator(condition.operator),
@@ -3377,10 +3393,14 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return aggregate === null ? true : aggregate;
   }
 
-  private resolvePresetFilterValue(condition: { value: any; valueType?: string }): { value: any; compareDateOnly: boolean } {
+  private resolvePresetFilterValue(condition: { value: any; valueType?: string }, field?: IListFieldDefinition): { value: any; compareDateOnly: boolean } {
     var rawValue: any = Array.isArray(condition.value) ? condition.value : (condition.value === undefined || condition.value === null ? '' : String(condition.value).trim());
     if (String(condition.valueType || '').toLowerCase() !== 'expression') {
-      return { value: rawValue, compareDateOnly: false };
+      return {
+        value: rawValue,
+        compareDateOnly: !!field && String(field.TypeAsString || '').toLowerCase() === 'datetime'
+          && field.DisplayFormat === 0 && typeof rawValue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawValue)
+      };
     }
 
     var expression = rawValue.toLowerCase();
@@ -3721,7 +3741,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         continue;
       }
 
-      var resolvedValue = this.resolvePresetFilterValue(condition);
+      var resolvedValue = this.resolvePresetFilterValue(condition, field);
 
       var matches = this.rowMatchesFilter(row, field, {
         operator: condition.operator,

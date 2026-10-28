@@ -116,6 +116,31 @@ let failed = 0;
     assert.strictEqual(page.instance.rowMatchesFilter({ EventDate: '2026-10-23' }, page.field, filter), false);
   });
 
+  test('date-only preset and conditional rules match the whole selected date', function() {
+    const page = control(0);
+    const condition = { field: 'EventDate', operator: 'eq', logical: 'and', valueType: 'static', value: '2026-10-22' };
+    const fields = { EventDate: page.field };
+    const rule = { conditions: [condition] };
+    ['2026-10-22', '2026-10-22T00:00:00', '2026-10-22T23:59:59'].forEach(function(value) {
+      const row = { EventDate: value };
+      assert.strictEqual(page.instance.rowMatchesPresetConditions(row, fields, [condition]), true, value);
+      assert.strictEqual(page.instance.evaluateConditionalStyleRule(row, rule, fields), true, value);
+    });
+    const otherDate = { EventDate: '2026-10-23T00:00:00' };
+    assert.strictEqual(page.instance.rowMatchesPresetConditions(otherDate, fields, [condition]), false);
+    assert.strictEqual(page.instance.evaluateConditionalStyleRule(otherDate, rule, fields), false);
+  });
+
+  test('date/time rule values retain precise-time and expression behavior', function() {
+    const page = control(1);
+    const condition = { field: 'EventDate', operator: 'eq', logical: 'and', valueType: 'static', value: '2026-10-22T12:30' };
+    const fields = { EventDate: page.field };
+    assert.strictEqual(page.instance.rowMatchesPresetConditions({ EventDate: '2026-10-22T12:30:00' }, fields, [condition]), true);
+    assert.strictEqual(page.instance.rowMatchesPresetConditions({ EventDate: '2026-10-22T13:30:00' }, fields, [condition]), false);
+    assert.strictEqual(page.instance.resolvePresetFilterValue({ value: 'today', valueType: 'expression' }, page.field).compareDateOnly, true);
+    assert.strictEqual(page.instance.resolvePresetFilterValue({ value: '2026-10-22', valueType: 'static' }, page.field).compareDateOnly, false);
+  });
+
   test('one date works on a daylight-saving transition day', function() {
     const page = control(1);
     const filter = apply(page.instance, '2026-03-08');

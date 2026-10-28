@@ -2,6 +2,13 @@
 
 SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCalendar library.
 
+## October 28, 2026 release
+
+- SharePoint solution and feature version: `1.1.0.42`
+- Package: `sharepoint/solution/sps-calendar.sppkg`
+- Centers New/Edit forms in the viewport above banners and other web parts.
+- Keeps long forms scrollable within shorter screens and removes the overlay when closed.
+
 ## October 21, 2026 release
 
 - npm version: `1.1.9`
@@ -22,6 +29,7 @@ SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCale
 - Group events into field-based horizontal swim lanes without premium FullCalendar plugins.
 - Open an event's default SharePoint display form or a custom page URL.
 - Open an animated in-place event details panel with configurable fields and ordering.
+- Open New/Edit event forms centered in the viewport above page banners and other web parts, with scrolling on shorter screens.
 - Publish the selected event ID and `view` mode for Dynamic Form connections.
 - Publish scalar session and multi-source event identities for Event Registration connections.
 - Enable diagnostic console logging for list and event loading.

@@ -1,6 +1,6 @@
 {
   "name": "sps-event-registration",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "SharePoint SE event registration and waitlist web part",
   "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,

@@ -147,10 +147,13 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private _fieldDisplayFormatByInternalName;
     private _fieldChoicesByInternalName;
     private _fieldLookupListByInternalName;
+    private _fieldLookupValueByInternalName;
     private _filterLookupItemOptions;
     private _conditionalStyleLookupItemOptions;
     private _filterLookupMessage;
     private _conditionalStyleLookupMessage;
+    private _filterLookupLoadSequence;
+    private _conditionalStyleLookupLoadSequence;
     private _externalSearchFilterJson;
     private _externalSearchExecutionMode;
     private _searchSourceHandlers;
@@ -173,8 +176,10 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     private supportsFilterFieldValue(internalName);
     private isMultiFilterField(internalName);
     private getSelectedFilterFieldValues();
+    private supportsRuleValuePicker(fieldName);
+    private createRuleValuePicker(fieldName, valueProperty);
     private createFilterMultiValuePicker(options);
-    private loadLookupListItems(listId);
+    private loadLookupListItems(fieldName);
     private handleLoadFilterLookupItems();
     private handleApplyFilterLookupPick();
     private handleLoadConditionalStyleLookupItems();

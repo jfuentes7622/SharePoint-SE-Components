@@ -19,11 +19,11 @@ Updated solution and feature versions:
 |---|---|---|
 | Tiles | `2.1.0.22` | [sps-tiles.sppkg](Tiles/sharepoint/solution/sps-tiles.sppkg) |
 | Accordion | `1.0.0.23` | [sps-accordion.sppkg](Accordion/sharepoint/solution/sps-accordion.sppkg) |
-| Calendar | `1.1.0.41` | [sps-calendar.sppkg](Calendar/sharepoint/solution/sps-calendar.sppkg) |
+| Calendar | `1.1.0.42` | [sps-calendar.sppkg](Calendar/sharepoint/solution/sps-calendar.sppkg) |
 | Contact | `3.1.0.21` | [sps-contacts.sppkg](Contact/sharepoint/solution/sps-contacts.sppkg) |
 | Dynamic Forms | `1.0.0.114` | [sps-dynamic-form.sppkg](DynamicForms/sharepoint/solution/sps-dynamic-form.sppkg) |
 | Form Navigator | `1.0.0.5` | [sps-form-navigator.sppkg](FormNavigator/sharepoint/solution/sps-form-navigator.sppkg) |
-| Grid Control | `1.0.0.91` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
+| Grid Control | `1.0.0.93` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
 | LinkButton | `2.0.2.16` | [sps-linkbutton.sppkg](LinkButton/sharepoint/solution/sps-linkbutton.sppkg) |
 | Marquee | `2.1.0.26` | [sps-marquee.sppkg](Marquee/sharepoint/solution/sps-marquee.sppkg) |
 | Search Control | `1.0.0.15` | [sps-search-control.sppkg](SearchControl/sharepoint/solution/sps-search-control.sppkg) |

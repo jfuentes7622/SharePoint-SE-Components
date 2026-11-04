@@ -23,6 +23,7 @@ import { FormSchema, FormMode } from '../../formEngine/core/types';
 import { SharePointDynamicFormContainer } from './components/SharePointDynamicForm';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
+import { ensureInstanceName } from '../shared/instanceNames';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 var FORM_ACTIVATION_EVENT = 'spse:form-activation-changed';
@@ -32,6 +33,7 @@ var STANDALONE_ACTIVATION_DELAY = 500;
 export interface ISharePointDynamicFormWebPartProps {
   appearanceMode?: 'manual' | 'siteTheme' | 'siteThemeOverrides';
   instanceName?: string;
+  instanceNameGeneratedFor?: string;
   forceFullWidth?: boolean;
   fixedWidth?: number;
   formSchemaJson: string;
@@ -399,7 +401,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
 
   public getPropertyDefinitions(): ReadonlyArray<IDynamicDataPropertyDefinitionCompat> {
     return [
-      { id: 'instanceName', title: 'Form name' },
+      { id: 'instanceName', title: strings.PropInstanceNameLabel },
       { id: 'listName', title: 'Configured list name' },
       { id: 'selectedItemId', title: 'Saved item ID' },
       { id: 'selectedMode', title: 'Saved item mode' },
@@ -559,6 +561,29 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   }
 
   protected onInit(): Promise<void> {
+    return this.ensureDefaultInstanceName().then(() => this.initializeControl()).catch((error) => {
+      console.error('[SharePointDynamicFormWebPart] Initialization failed.', error);
+      throw error;
+    });
+  }
+
+  private ensureDefaultInstanceName(): Promise<boolean> {
+    return ensureInstanceName(this.properties, 'DynamicForm', this.context, this.domElement, () => this.displayMode).then((changed) => {
+      if (changed) {
+        this.notifyDynamicData('instanceName');
+        this.handleRuntimeStateChanged(this._navigatorRuntimeState);
+        this.context.propertyPane.refresh();
+      }
+      return changed;
+    });
+  }
+
+  protected onDisplayModeChanged(oldDisplayMode: DisplayMode): void {
+    this.ensureDefaultInstanceName().then((changed) => { if (changed) { this.render(); } })
+      .catch((error) => console.error('[SharePointDynamicFormWebPart] Default name allocation failed.', error));
+  }
+
+  private initializeControl(): Promise<void> {
     this.properties.itemIdQueryParam = normalizeQueryParamName(this.properties.itemIdQueryParam, 'itemid');
     this.properties.redirectItemIdQueryParam = normalizeQueryParamName(this.properties.redirectItemIdQueryParam, 'itemid');
     this.initializeDynamicDataSource();
@@ -791,8 +816,11 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this.ensureDynamicValueChangeHandler();
 
     if (propertyPath === 'instanceName') {
+      delete this.properties.instanceNameGeneratedFor;
+      this.ensureDefaultInstanceName().catch((error) => console.error('[SharePointDynamicFormWebPart] Default name allocation failed.', error));
       this.notifyDynamicData('instanceName');
       this.notifyDynamicSourceChanged();
+      this.handleRuntimeStateChanged(this._navigatorRuntimeState);
     }
 
     if (propertyPath === 'wizardPreviousFormInstanceId' || propertyPath === 'wizardNextFormInstanceId') {
@@ -3164,6 +3192,17 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
               ]
             },
             {
+              groupName: strings.PropertyGroupWebPart,
+              groupFields: [
+                PropertyPaneTextField('instanceName', {
+                  label: strings.PropInstanceNameLabel,
+                  description: strings.PropInstanceNameDescription,
+                  placeholder: strings.PropInstanceNamePlaceholder,
+                  value: this.properties.instanceName || ''
+                })
+              ]
+            },
+            {
               groupName: 'Appearance',
               groupFields: [
                 PropertyPaneDropdown('appearanceMode', {
@@ -3307,11 +3346,6 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                   placeholder: strings.PropItemIdPlaceholder,
                   value: this.properties.itemId ? String(this.properties.itemId) : '',
                   description: strings.PropItemIdHelp,
-                }),
-                PropertyPaneTextField('instanceName', {
-                  label: strings.PropInstanceNameLabel,
-                  placeholder: strings.PropInstanceNamePlaceholder,
-                  value: this.properties.instanceName || ''
                 }),
                 PropertyPaneDropdown('wizardPreviousFormInstanceId', {
                   label: strings.PropWizardPreviousFormLabel,

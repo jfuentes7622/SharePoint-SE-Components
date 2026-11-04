@@ -2,6 +2,51 @@
 
 SPFx 1.5.1 web part for grouping modern SharePoint page sections or individual web parts into a tabbed interface.
 
+## Visual examples
+
+These screenshots show a configured SharePoint Online demo, not a SharePoint SE
+deployment verification. They illustrate the tab presentation and content-grouping
+features; the surrounding page content is supplied by other web parts. Screenshots
+are stored in this repository so readers do not need access to the demo tenant.
+
+### Text labels and an image-only tab
+
+![Tabs navigation with Truck selected in blue, Flowers inactive in dark gray, and a dog image used as the third tab](docs/images/tabs-navigation.png)
+
+Mix descriptive labels with image-only navigation in the same strip. This example
+uses bold white labels, contrasting active/inactive backgrounds, square tab corners,
+and a separate red line beneath the strip.
+
+To create a similar layout:
+
+1. Add two entries in `collectionData` with `Title` values such as Truck and Flowers.
+2. Add another entry with a meaningful `Title`, an `imageUrl`, and `onlyImage` enabled.
+3. Configure `selectedColor`, `disableColor`, typography, and `tabShape` for the
+   desired branding. Set `tabLineColor` and `tabLineWidth` independently.
+4. Arrange the target sections or web parts in the same order as the tab entries.
+
+### Selected content below the navigation
+
+![The active Truck tab above a large truck photograph in the associated page content](docs/images/tabs-truck-content.png)
+
+Use the tab strip to organize a page's existing content rather than placing all
+content inside the tab label. Here, selecting Truck reveals its associated image
+web part beneath the navigation. The same grouping pattern can organize dashboard,
+list, or report areas.
+
+Choose Sections or Web Parts mode with `TabType` to match the page layout, then
+check each tab in read mode. The truck photograph is demo content, not a built-in
+Tabs asset.
+
+### Selecting an image-only tab
+
+![The dog image tab selected while both Truck and Flowers labels use the inactive dark background](docs/images/tabs-image-only-selected.png)
+
+An image can act as the tab's visible label. Compare this selected state with the
+first screenshot: the text tabs become inactive when the image-only tab is chosen.
+Use `imagePosition` when combining images and text, or `onlyImage` when the image
+should be the only visible label. `inactiveImageFade` controls inactive-image opacity.
+
 ## October 14, 2026 release
 
 - npm version: `2.0.6`

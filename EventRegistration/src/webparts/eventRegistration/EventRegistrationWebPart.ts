@@ -408,7 +408,11 @@ export default class EventRegistrationWebPart extends BaseClientSideWebPart<IEve
 
   private readCalendarSelection(source: any): void {
     this.dynamicSessionId = this.safeDynamicNumber(source, 'selectedSessionId');
-    this.dynamicEventId = this.safeDynamicNumber(source, 'selectedItemId');
+    var definitions = source.getPropertyDefinitions ? source.getPropertyDefinitions() : [];
+    var exposesEventId = definitions.some(function(definition: IDynamicDataPropertyDefinitionCompat): boolean {
+      return definition.id === 'selectedEventId';
+    });
+    this.dynamicEventId = this.safeDynamicNumber(source, exposesEventId ? 'selectedEventId' : 'selectedItemId');
     this.logDiagnostic('Calendar selection: event=' + String(this.dynamicEventId)
       + ', session=' + String(this.dynamicSessionId) + '.');
   }
@@ -473,7 +477,7 @@ export default class EventRegistrationWebPart extends BaseClientSideWebPart<IEve
     return {
       eventId: this.positiveNumber(values.eventid),
       sessionId: this.positiveNumber(values.sessionid),
-      sourceUrl: values.source || values.returnurl || ''
+      sourceUrl: values.source || values.returnurl || values.return || ''
     };
   }
 

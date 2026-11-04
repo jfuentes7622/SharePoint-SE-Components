@@ -218,6 +218,7 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   private _selectedMode: string = 'view';
   private _selectedEventKey: string = '';
   private _selectedSessionId: number = 0;
+  private _selectedEventId: number = 0;
   private _dynamicDataSourceManager: any;
   private _conditionalStyleJsonValidationMessage: string = '';
   private _conditionalStyleDesignerMessage: string = '';
@@ -371,6 +372,11 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         id: 'selectedSessionId',
         title: 'Selected Session ID',
         description: 'The SharePoint item ID of the selected registration session.'
+      },
+      {
+        id: 'selectedEventId',
+        title: 'Selected Registration Event ID',
+        description: 'The parent Event lookup ID of the selected registration session, or zero when unavailable.'
       }
     ];
   }
@@ -390,6 +396,10 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
 
     if (propertyId === 'selectedSessionId') {
       return this._selectedSessionId;
+    }
+
+    if (propertyId === 'selectedEventId') {
+      return this._selectedEventId;
     }
 
     throw new Error('Bad property id');
@@ -561,8 +571,9 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
         detailsCloseButtonCornerRadius: typeof this.properties.detailsCloseButtonCornerRadius === 'number'
           ? this.properties.detailsCloseButtonCornerRadius : 2,
         enableDiagnostics: this.properties.enableDiagnostics !== false,
-        onEventSelectionChange: (itemId: number, mode: string, selectedEventKey?: string, selectedSessionId?: number) =>
-          this.handleEventSelectionChange(itemId, mode, selectedEventKey, selectedSessionId),
+        onEventSelectionChange: (itemId: number, mode: string, selectedEventKey?: string,
+          selectedSessionId?: number, selectedEventId?: number) =>
+          this.handleEventSelectionChange(itemId, mode, selectedEventKey, selectedSessionId, selectedEventId),
         fUpdateProperty: (value: string) => {
           this.properties.title = value;
         },
@@ -1174,18 +1185,20 @@ export default class CalendarWebPart extends BaseClientSideWebPart<ICalendarWebP
   }
 
   private handleEventSelectionChange(itemId: number, mode: string, selectedEventKey?: string,
-    selectedSessionId?: number): void {
+    selectedSessionId?: number, selectedEventId?: number): void {
     this._selectedItemId = itemId > 0 ? itemId : 0;
     this._selectedMode = mode || 'view';
     this._selectedEventKey = this._selectedItemId > 0 ? String(selectedEventKey || '') : '';
     this._selectedSessionId = this._selectedItemId > 0
       ? (typeof selectedSessionId === 'number' && selectedSessionId > 0 ? selectedSessionId : this._selectedItemId)
       : 0;
+    this._selectedEventId = this._selectedItemId > 0 && selectedEventId > 0 ? selectedEventId : 0;
     this.logDiagnostic('Event selection changed. itemId=' + String(this._selectedItemId));
     this.notifyDynamicData('selectedItemId');
     this.notifyDynamicData('selectedMode');
     this.notifyDynamicData('selectedEventKey');
     this.notifyDynamicData('selectedSessionId');
+    this.notifyDynamicData('selectedEventId');
   }
 
   private normalizeRegistrationParameterName(value: any, defaultValue: string): string {

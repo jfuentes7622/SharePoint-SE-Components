@@ -55,8 +55,10 @@ var PropertyFieldColorPicker_1 = require("@pnp/spfx-property-controls/lib/Proper
 var strings = require("GridControlWebPartStrings");
 var GridControl_1 = require("./components/GridControl");
 var GridDesigner_1 = require("./components/GridDesigner");
+var PageNavigation_1 = require("./components/PageNavigation");
 var deterministicFullWidth_1 = require("../shared/deterministicFullWidth");
 var overrideCss_1 = require("../shared/overrideCss");
+var instanceNames_1 = require("../shared/instanceNames");
 var packageSolutionConfig = require('../../../config/package-solution.json');
 function escapeODataText(value) {
     return value.replace(/'/g, "''");
@@ -235,6 +237,7 @@ var GridControlWebPart = (function (_super) {
             showViewSelector: this.properties.showViewSelector === true,
             showViewAsDropdown: this.properties.showViewAsDropdown !== false,
             showRefresh: this.properties.showRefresh !== false,
+            matchingDocumentFolders: this.properties.matchingDocumentFolders === true,
             showAdd: this.properties.showAdd !== false,
             showDelete: this.properties.showDelete !== false,
             showHistory: this.properties.showHistory !== false,
@@ -303,6 +306,8 @@ var GridControlWebPart = (function (_super) {
             externalSearchExecutionMode: this._externalSearchExecutionMode,
             conditionalStyleJson: this.properties.conditionalStyleJson || '',
             onSelectionChange: function (itemId, mode) { return _this.handleSelectionChange(itemId, mode); },
+            navigationTargetInstanceId: this.properties.navigationTargetInstanceId || '',
+            onNavigateToTarget: function () { return PageNavigation_1.navigateToPageTarget(_this.domElement.ownerDocument, _this.properties.navigationTargetInstanceId || '', _this.context.instanceId); },
             onFilteredCountChange: function (count) { return _this.handleFilteredCountChange(count); }
         });
         ReactDom.render(element, this.domElement);
@@ -314,6 +319,31 @@ var GridControlWebPart = (function (_super) {
         }
     };
     GridControlWebPart.prototype.onInit = function () {
+        var _this = this;
+        return this.ensureDefaultInstanceName().then(function () { return _this.initializeControl(); }).catch(function (error) {
+            console.error('[GridControlWebPart] Initialization failed.', error);
+            throw error;
+        });
+    };
+    GridControlWebPart.prototype.ensureDefaultInstanceName = function () {
+        var _this = this;
+        return instanceNames_1.ensureInstanceName(this.properties, 'GridControl', this.context, this.domElement, function () { return _this.displayMode; }).then(function (changed) {
+            if (changed) {
+                _this.notifyDynamicData('instanceName');
+                _this.notifyDynamicSourceChanged();
+                _this.context.propertyPane.refresh();
+            }
+            return changed;
+        });
+    };
+    GridControlWebPart.prototype.onDisplayModeChanged = function (oldDisplayMode) {
+        var _this = this;
+        this.ensureDefaultInstanceName().then(function (changed) { if (changed) {
+            _this.render();
+        } })
+            .catch(function (error) { return console.error('[GridControlWebPart] Default name allocation failed.', error); });
+    };
+    GridControlWebPart.prototype.initializeControl = function () {
         var _this = this;
         this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
         this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
@@ -334,6 +364,17 @@ var GridControlWebPart = (function (_super) {
             }
             return Promise.resolve();
         });
+    };
+    GridControlWebPart.prototype.getNavigationTargetOptions = function () {
+        var options = [{ key: '', text: strings.PropNavigationNone }];
+        PageNavigation_1.getPageNavigationTargets(this.domElement.ownerDocument, this.context.instanceId).forEach(function (target) {
+            options.push({ key: target.instanceId, text: target.title + ' (' + target.instanceId + ')' });
+        });
+        var selected = this.properties.navigationTargetInstanceId || '';
+        if (selected && !options.some(function (option) { return option.key === selected; })) {
+            options.push({ key: selected, text: strings.PropNavigationUnavailable + ' (' + selected + ')' });
+        }
+        return options;
     };
     GridControlWebPart.prototype.onPropertyPaneConfigurationStart = function () {
         this.logDiagnostic('Property pane opened. listName=' + String(this.properties.listName || '(none)'));
@@ -357,6 +398,8 @@ var GridControlWebPart = (function (_super) {
         this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
         if (propertyPath === 'instanceName' && oldValue !== newValue) {
             _super.prototype.onPropertyPaneFieldChanged.call(this, propertyPath, oldValue, newValue);
+            delete this.properties.instanceNameGeneratedFor;
+            this.ensureDefaultInstanceName().catch(function (error) { return console.error('[GridControlWebPart] Default name allocation failed.', error); });
             this.notifyDynamicData('instanceName');
             this.notifyDynamicSourceChanged();
             return;
@@ -461,7 +504,7 @@ var GridControlWebPart = (function (_super) {
                     case 1:
                         _a.trys.push([1, 3, , 4]);
                         endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,LookupField,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+                            + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,LookupField,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID' or InternalName eq 'Created' or InternalName eq 'Modified')";
                         return [4 /*yield*/, this.getJsonWithAcceptFallback(endpoint)];
                     case 2:
                         data = _a.sent();
@@ -1102,6 +1145,17 @@ var GridControlWebPart = (function (_super) {
                             ]
                         },
                         {
+                            groupName: strings.PropertyGroupWebPart,
+                            groupFields: [
+                                sp_webpart_base_1.PropertyPaneTextField('instanceName', {
+                                    label: strings.PropInstanceNameLabel,
+                                    description: strings.PropInstanceNameDescription,
+                                    placeholder: strings.DynamicSourceTitle,
+                                    value: this.properties.instanceName || ''
+                                })
+                            ]
+                        },
+                        {
                             groupName: 'Appearance',
                             groupFields: [
                                 sp_webpart_base_1.PropertyPaneDropdown('appearanceMode', {
@@ -1129,12 +1183,6 @@ var GridControlWebPart = (function (_super) {
                         {
                             groupName: strings.PropertyGroupData,
                             groupFields: [
-                                sp_webpart_base_1.PropertyPaneTextField('instanceName', {
-                                    label: strings.PropInstanceNameLabel,
-                                    description: strings.PropInstanceNameDescription,
-                                    placeholder: strings.DynamicSourceTitle,
-                                    value: this.properties.instanceName || ''
-                                }),
                                 sp_webpart_base_1.PropertyPaneCheckbox('forceFullWidth', { text: 'Force Full Width' }),
                                 sp_webpart_base_1.PropertyPaneDropdown('listName', {
                                     label: strings.PropListLabel,
@@ -1197,8 +1245,28 @@ var GridControlWebPart = (function (_super) {
                             ] : []))
                         },
                         {
+                            groupName: strings.PropertyGroupNavigation,
+                            groupFields: [
+                                sp_webpart_base_1.PropertyPaneDropdown('navigationTargetInstanceId', {
+                                    label: strings.PropNavigationTarget,
+                                    options: this.getNavigationTargetOptions(),
+                                    selectedKey: this.properties.navigationTargetInstanceId || ''
+                                }),
+                                sp_webpart_base_1.PropertyPaneLabel('navigationHelp', { text: strings.PropNavigationHelp }),
+                                sp_webpart_base_1.PropertyPaneButton('refreshNavigationTargets', {
+                                    text: strings.PropNavigationRefresh,
+                                    onClick: function () { return _this.context.propertyPane.refresh(); }
+                                })
+                            ]
+                        },
+                        {
                             groupName: strings.PropertyGroupButtons,
                             groupFields: [
+                                sp_webpart_base_1.PropertyPaneCheckbox('matchingDocumentFolders', {
+                                    text: strings.PropMatchingDocumentFolders,
+                                    checked: this.properties.matchingDocumentFolders === true
+                                }),
+                                sp_webpart_base_1.PropertyPaneLabel('matchingDocumentFoldersHelp', { text: strings.PropMatchingDocumentFoldersHelp }),
                                 sp_webpart_base_1.PropertyPaneCheckbox('showRefresh', {
                                     text: strings.PropShowRefreshLabel,
                                     checked: this.properties.showRefresh !== false
@@ -2460,6 +2528,10 @@ var GridControlWebPart = (function (_super) {
     };
     GridControlWebPart.prototype.isSupportedFilterExpression = function (value) {
         var normalized = String(value || '').trim().toLowerCase();
+        var hours = /^now\(\s*([+-]?\d+)h\s*\)$/.exec(normalized);
+        if (hours) {
+            return isFinite(new Date(new Date().getTime() + Number(hours[1]) * 3600000).getTime());
+        }
         return normalized === 'today'
             || normalized === 'now'
             || normalized === 'me'

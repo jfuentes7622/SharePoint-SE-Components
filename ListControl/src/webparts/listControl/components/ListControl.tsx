@@ -2,6 +2,7 @@ import * as React from 'react';
 import { SPHttpClient } from '@microsoft/sp-http';
 import * as strings from 'ListControlWebPartStrings';
 import { DateTime24HourInput } from './DateTime24HourInput';
+import { ILibraryFolder, resolveNowExpression, documentUrl, loadLibraryDocuments, loadAncestorFolders, loadLibraryFolders, detectDocumentLibrary, folderLevel, folderDocumentCount, nearestFolder, defaultLibraryViewId, validateLibraryFilterJson } from './LibraryBrowser';
 import './ListControl.css';
 
 export interface IListControlViewOption {
@@ -29,6 +30,7 @@ export interface IListControlProps {
   showViewSelector: boolean;
   showViewAsDropdown: boolean;
   showRefresh: boolean;
+  matchingDocumentFolders?: boolean;
   showAdd: boolean;
   showEdit: boolean;
   showView: boolean;
@@ -90,6 +92,8 @@ export interface IListControlProps {
   externalSearchExecutionMode?: string;
   conditionalStyleJson?: string;
   onSelectionChange: (itemId: number, mode: string) => void;
+  navigationTargetInstanceId?: string;
+  onNavigateToTarget?: () => void;
   onFilteredCountChange: (count: number) => void;
 }
 
@@ -138,6 +142,12 @@ interface IListRowGroup {
 }
 
 export interface IListControlState {
+  libraryDocuments?: any[];
+  libraryRoot?: string;
+  libraryFolder?: string;
+  libraryFolders?: ILibraryFolder[];
+  libraryNotice?: string;
+  libraryError?: string;
   selectedViewId: string;
   fields: IListFieldDefinition[];
   rows: any[];
@@ -147,12 +157,14 @@ export interface IListControlState {
   error: string | null;
   selectedItemId: number;
   selectedMode: string;
+  navigationError: string;
   deleting: boolean;
   sortFieldName: string;
   sortDirection: 'asc' | 'desc' | '';
   activeFilterFieldName: string;
   filterPopoverStyle: any;
   activeFilterIsDate: boolean;
+  activeFilterIsMultiSelect: boolean;
   activeFilterCompareDateOnly: boolean;
   activeFilterFieldType: string;
   activeFilterOptions: IFilterOption[];
@@ -160,6 +172,7 @@ export interface IListControlState {
   activeFilterOptionsError: string;
   draftFilterOperator: FilterOperator;
   draftFilterValue: string;
+  draftFilterValues: string[];
   draftFilterEndValue: string;
   datePickerTarget: 'start' | 'end' | '';
   datePickerMonth: string;
@@ -547,12 +560,20 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   private _runtimeConfigEventHandler: any;
   private _fieldDisplayFormatMap: { [internalName: string]: number } = {};
   private _loadRowsRequestId: number = 0;
+  private _libraryRefreshTimer: number = 0;
+  private _libraryLoading: boolean = false;
+  private _libraryRefreshPending: boolean = false;
+  private _libraryTypeKey: string = '';
+  private _libraryTypePromise: Promise<boolean>;
+  private _libraryIsDocumentLibrary: boolean = false;
+  private _filterReferenceTime: number = new Date().getTime();
   private _tableWrapEl: HTMLDivElement;
   private _tableHeadEl: HTMLTableSectionElement;
   private _stickyHeaderViewportEl: HTMLDivElement;
   private _stickyHeaderSourceHtml: string = '';
   private _stickyHeaderVisible: boolean = false;
   private _filterAnchorEl: HTMLElement;
+  private _filterOptionsRequestId: number = 0;
   private _pagingEndpoint: string = '';
   private _pagingRequestBody: any = undefined;
   private _pagingRuntimeFilterFieldNames: string[] = [];
@@ -574,12 +595,14 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       error: null,
       selectedItemId: 0,
       selectedMode: 'view',
+      navigationError: '',
       deleting: false,
       sortFieldName: '',
       sortDirection: '',
       activeFilterFieldName: '',
       filterPopoverStyle: {},
       activeFilterIsDate: false,
+      activeFilterIsMultiSelect: false,
       activeFilterCompareDateOnly: true,
       activeFilterFieldType: '',
       activeFilterOptions: [],
@@ -587,6 +610,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       activeFilterOptionsError: '',
       draftFilterOperator: 'contains',
       draftFilterValue: '',
+      draftFilterValues: [],
       draftFilterEndValue: '',
       datePickerTarget: '',
       datePickerMonth: '',
@@ -636,12 +660,17 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       window.dispatchEvent(requestEvent);
     }
     this.loadRows();
+    this.updateLibraryRefreshTimer();
     this.updateConditionalStyleReevaluationTimer();
     this.reportFilteredCount();
   }
 
   public componentWillUnmount(): void {
     this._loadRowsRequestId += 1;
+    this._libraryTypeKey = '';
+    this._libraryTypePromise = undefined;
+    this._libraryRefreshPending = false;
+    if (this._libraryRefreshTimer) { window.clearInterval(this._libraryRefreshTimer); }
     this.clearConditionalStyleReevaluationTimer();
     if (typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener(LIST_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
@@ -708,15 +737,41 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   public componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void {
+    if (prevProps.matchingDocumentFolders !== this.props.matchingDocumentFolders) {
+      this.updateLibraryRefreshTimer();
+      this._loadRowsRequestId += 1;
+      this.setState({ libraryFolder: '', currentPage: 0 }, () => this.loadRows());
+      return;
+    }
+    if (this.isLibraryBrowsing() && (prevProps.filterJson !== this.props.filterJson
+      || prevProps.externalFilterJson !== this.props.externalFilterJson
+      || prevState.columnFilters !== this.state.columnFilters || prevState.runtimeFilterJson !== this.state.runtimeFilterJson)) {
+      this._loadRowsRequestId += 1;
+      this.setState({ libraryFolder: '', currentPage: 0 }, () => this.loadRows());
+      return;
+    }
+    if (prevProps.navigationTargetInstanceId !== this.props.navigationTargetInstanceId && this.state.navigationError) {
+      this.setState({ navigationError: '' });
+    }
     if (prevProps.conditionalStyleJson !== this.props.conditionalStyleJson) {
       this.updateConditionalStyleReevaluationTimer();
     }
+    if (prevProps.isEditMode !== this.props.isEditMode) { this.updateLibraryRefreshTimer(); }
+    if (this.isLibraryBrowsing() && prevState.deleting && !this.state.deleting && this._libraryRefreshPending) {
+      this.loadRows();
+    }
+    if (this.isLibraryBrowsing() && prevProps.listName !== this.props.listName) {
+      this._loadRowsRequestId += 1;
+      this.setState({ libraryRoot: '', libraryFolder: '', libraryFolders: [], libraryDocuments: [], rows: [], fields: [] });
+    }
     if (prevProps.listName !== this.props.listName || prevProps.defaultViewId !== this.props.defaultViewId) {
+      if (this.isLibraryBrowsing()) { this._loadRowsRequestId += 1; }
       this.logDiagnostic('Props changed; resetting selection and reloading rows. listName=' + String(this.props.listName || '(none)') + ', viewId=' + String(this.props.defaultViewId || '(none)'));
       var nextSelectedViewId = this.props.defaultViewId || this.getInitialViewId(this.props.views);
       var selectedViewWillChange = nextSelectedViewId !== this.state.selectedViewId;
       this.setState({
         selectedViewId: nextSelectedViewId,
+        libraryFolder: '',
         selectedItemId: 0,
         selectedMode: 'view',
         sortFieldName: '',
@@ -737,11 +792,14 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
 
     if (prevProps.viewColumns !== this.props.viewColumns || prevProps.groupingJson !== this.props.groupingJson) {
+      if (this.isLibraryBrowsing()) { this._loadRowsRequestId += 1; }
       this.setState({ currentPage: 0 }, () => this.loadRows());
       return;
     }
 
     if (prevState.selectedViewId !== this.state.selectedViewId) {
+      if (this.isLibraryBrowsing()) { this._loadRowsRequestId += 1; }
+      if (this.isLibraryBrowsing() && this.state.libraryFolder) { this.setState({ libraryFolder: '' }); }
       if (this.state.currentPage !== 0) {
         this.setState({ currentPage: 0 });
       }
@@ -1531,7 +1589,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return field.RuntimeFilterOnly !== true;
     });
     if (this.state.selectedViewId !== this.props.defaultViewId || !this.props.viewColumns || this.props.viewColumns.length === 0) {
-      return visibleStateFields;
+      return this.ensureLibraryNameField(visibleStateFields);
     }
 
     var byName: { [fieldName: string]: IListFieldDefinition } = {};
@@ -1560,7 +1618,13 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         }));
       }
     }
-    return configured;
+    return this.ensureLibraryNameField(configured);
+  }
+
+  private ensureLibraryNameField(fields: IListFieldDefinition[]): IListFieldDefinition[] {
+    var nameField: IListFieldDefinition = { Name: 'FileLeafRef', DisplayName: strings.RuntimeLibraryDocumentName, TypeAsString: 'File' };
+    return this.isLibraryBrowsing() && !fields.some((field) => this.isTitleField(field))
+      ? [nameField].concat(fields) : fields;
   }
 
   private getConfiguredColumnStyle(field: IListFieldDefinition): React.CSSProperties {
@@ -2176,11 +2240,197 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return counts;
   }
 
+  private isLibraryBrowsing(): boolean {
+    return this.props.matchingDocumentFolders === true || !!this.state.libraryRoot
+      || (this._libraryTypeKey === this.getWebUrl() + '|' + this.props.listName && this._libraryIsDocumentLibrary);
+  }
+
+  private loadLibraryType(): Promise<boolean> {
+    var key = this.getWebUrl() + '|' + this.props.listName;
+    if (this._libraryTypeKey !== key || !this._libraryTypePromise) {
+      this._libraryTypeKey = key;
+      this._libraryIsDocumentLibrary = false;
+      this._libraryTypePromise = detectDocumentLibrary(this.getWebUrl(), this.props.listName, (url) => this.getJsonWithFallback(url))
+        .then((isLibrary) => {
+          if (this._libraryTypeKey === key) { this._libraryIsDocumentLibrary = isLibrary; this.updateLibraryRefreshTimer(); }
+          return isLibrary;
+        }, (error) => {
+          if (this._libraryTypeKey === key) { this._libraryTypePromise = undefined; }
+          throw error;
+        });
+    }
+    return this._libraryTypePromise;
+  }
+
+  private updateLibraryRefreshTimer(): void {
+    if (this._libraryRefreshTimer) { window.clearInterval(this._libraryRefreshTimer); this._libraryRefreshTimer = 0; }
+    if (this.isLibraryBrowsing() && !this.props.isEditMode) {
+      this._libraryRefreshTimer = window.setInterval(() => this.loadRows(), 300000);
+    }
+  }
+
+  private async loadLibraryRows(): Promise<void> {
+    if (this._libraryLoading || this.state.deleting) {
+      this._libraryRefreshPending = true;
+      this.setState({ libraryNotice: strings.RuntimeLibraryRefreshPending });
+      return;
+    }
+    var requestId = ++this._loadRowsRequestId;
+    var prune = this.props.matchingDocumentFolders === true;
+    var previousTime = this._filterReferenceTime;
+    var time = new Date().getTime();
+    this._libraryLoading = true;
+    this._libraryRefreshPending = false;
+    this.setState({ loading: !this.state.libraryRoot, libraryError: '', error: null });
+    try {
+      validateLibraryFilterJson([this.props.filterJson, this.state.runtimeFilterJson, this.props.externalFilterJson]);
+      var selectedViewId = this.state.selectedViewId
+        || await defaultLibraryViewId(this.getWebUrl(), this.props.listName, (url) => this.getJsonWithFallback(url));
+      var names = await this.loadSelectedViewFieldNames(selectedViewId);
+      if (!names.length) { throw new Error('Unable to load source library view columns.'); }
+      (this.props.viewColumns || []).forEach((column) => {
+        if (selectedViewId === this.props.defaultViewId && column.fieldName && names.indexOf(column.fieldName) < 0) { names.push(column.fieldName); }
+      });
+      var supportNames = this.getRuntimeFilterFieldNames().concat(Object.keys(this.state.columnFilters));
+      var conditions = this.parsePresetFilterConditions();
+      var viewXml = await this.loadSelectedViewXml(selectedViewId, names);
+      if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
+        viewXml = this.applyExternalServerSearchToViewXml(viewXml || '<View/>');
+      }
+      var snapshot = await loadLibraryDocuments({
+        webUrl: this.getWebUrl(), listName: this.props.listName, fields: names.concat(supportNames),
+        viewXml: viewXml, conditions: conditions, time: time, batchSize: this.props.fetchBatchSize,
+        get: (url) => this.getJsonWithFallback(url), post: (url, body) => this.postJsonWithFallback(url, body),
+        extract: extractRenderRowsAndFields, current: () => requestId === this._loadRowsRequestId
+      });
+      var fields = this.getFieldsForConsumption(snapshot.fields, names);
+      var needed = supportNames.concat(conditions.map(function(condition: IPresetFilterCondition): string { return condition.field; }));
+      var neededKeys = needed.map(function(name: string): string { return name.toLowerCase(); });
+      snapshot.metadata.forEach(function(source: any): void {
+        if ((neededKeys.indexOf(String(source.InternalName).toLowerCase()) >= 0 || neededKeys.indexOf(String(source.Title).toLowerCase()) >= 0)
+          && !fields.some(function(field: IListFieldDefinition): boolean {
+          return String(field.RealFieldName || field.Name).toLowerCase() === String(source.InternalName).toLowerCase();
+        })) { fields.push({ Name: source.InternalName, RuntimeFilterOnly: true }); }
+      });
+      var metadata = await this.loadListFieldMetadataMap(fields.map((field) => this.getFieldKey(field)));
+      fields = this.applyFieldMetadata(fields, metadata);
+      fields.forEach(function(field: IListFieldDefinition): void {
+        var source = snapshot.metadata.filter(function(item: any): boolean {
+          return String(item.InternalName).toLowerCase() === String(field.RealFieldName || field.Name).toLowerCase();
+        })[0];
+        if (source) { field.TypeAsString = source.TypeAsString; field.DisplayFormat = source.DisplayFormat; field.DisplayName = source.Title; }
+      });
+      var matches: any[];
+      conditions.forEach((condition) => {
+        var known = fields.some((field) => String(field.RealFieldName || field.Name).toLowerCase() === condition.field.toLowerCase()
+          || String(field.DisplayName).toLowerCase() === condition.field.toLowerCase());
+        if (!known) { throw new Error('Unknown filter field: ' + condition.field); }
+      });
+      this._filterReferenceTime = time;
+      try { matches = this.getProcessedRows(snapshot.rows, fields); }
+      finally { this._filterReferenceTime = previousTime; }
+      var folders = prune
+        ? await loadAncestorFolders(this.getWebUrl(), snapshot.root, matches, (url) => this.getJsonWithFallback(url))
+        : await loadLibraryFolders(this.getWebUrl(), this.props.listName, snapshot.root, matches,
+          (url) => this.getJsonWithFallback(url), () => requestId === this._loadRowsRequestId, this.props.fetchBatchSize);
+      if (requestId !== this._loadRowsRequestId) { return; }
+      var current = nearestFolder(snapshot.root, this.state.libraryFolder || snapshot.root, folders.map(function(folder): string { return folder.path; }));
+      var notice = this.state.libraryFolder && current !== this.state.libraryFolder ? strings.RuntimeLibraryFolderGone : '';
+      if (this.state.selectedItemId > 0 && !matches.some((row) => this.getRowItemId(row) === this.state.selectedItemId)) {
+        notice += (notice ? ' ' : '') + strings.RuntimeLibrarySelectionGone;
+      }
+      this._filterReferenceTime = time;
+      this.setState({ fields: fields, rows: snapshot.rows, libraryDocuments: matches, libraryRoot: snapshot.root, libraryFolder: current,
+        libraryFolders: folders, libraryNotice: notice, libraryError: '', loading: false, nextPageHref: '',
+        currentPage: current === this.state.libraryFolder ? this.state.currentPage : 0 },
+        () => this.reportFilteredCount());
+    } catch (error) {
+      if (requestId !== this._loadRowsRequestId) { return; }
+      console.error('[ListControl] Library refresh failed.', error);
+      this.setState({ loading: false, libraryError: strings.RuntimeLibraryRefreshFailed + ' ' + String(error && error.message || error) });
+    } finally {
+      this._libraryLoading = false;
+      if (this._libraryRefreshPending && this.isLibraryBrowsing()) {
+        this._libraryRefreshPending = false;
+        this.loadRows();
+      }
+    }
+  }
+
+  private navigateLibraryFolder(path: string): void {
+    if (this.state.deleting) { this.setState({ libraryNotice: strings.RuntimeLibraryRefreshPending }); return; }
+    this.setState({ libraryFolder: path, currentPage: 0, selectedItemId: 0, selectedMode: 'view', libraryNotice: '', navigationError: '' });
+    this.props.onSelectionChange(0, 'view');
+  }
+
+  private renderLibraryNavigation(): React.ReactNode {
+    if (!this.isLibraryBrowsing() || !this.state.libraryRoot) { return undefined; }
+    var root = this.state.libraryRoot;
+    var current = this.state.libraryFolder || root;
+    var fileCount = this.getProcessedRows().length;
+    var parts = current.substring(root.length).split('/').filter(function(part: string): boolean { return !!part; });
+    var paths = [root];
+    parts.forEach(function(part: string): void { paths.push(paths[paths.length - 1] + '/' + part); });
+    return <div className="lc-library-navigation">
+      <nav aria-label={strings.RuntimeLibraryBreadcrumb}>
+        <button type="button" className={this.getCommandButtonClass('lc-library-up', true)} disabled={current === root}
+          title={strings.RuntimeLibraryUp} aria-label={strings.RuntimeLibraryUp}
+          onClick={() => this.navigateLibraryFolder(current.substring(0, current.lastIndexOf('/')))}>
+          {this.renderCommandContent('Up', strings.RuntimeLibraryUp, true)}</button>
+        {paths.map((path, index) => <span key={path} className="lc-library-path-part">
+          {index > 0 && <span className="lc-library-separator" aria-hidden="true">{'\\'}</span>}
+          {this.renderLibraryFolderLink(path, index === 0 ? this.props.listName : parts[index - 1], path === current, index === 0)}
+        </span>)}
+      </nav>
+      <div role="status">{formatString(fileCount === 1 ? strings.RuntimeLibraryDocumentCountSingular : strings.RuntimeLibraryDocumentCount, fileCount)}</div>
+    </div>;
+  }
+
+  private renderLibraryFolderLink(path: string, label: string, current: boolean = false, showIcon: boolean = true): JSX.Element {
+    return <a className="lc-item-link lc-library-folder-link" href={documentUrl(this.getWebUrl(), path)}
+      title={label} aria-label={label} aria-current={current ? 'page' : undefined}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.navigateLibraryFolder(path);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === ' ' || event.key === 'Spacebar') {
+          event.preventDefault();
+          event.stopPropagation();
+          this.navigateLibraryFolder(path);
+        }
+      }}>
+      {showIcon && <img className="lc-library-folder-icon" src={this.getWebUrl() + '/_layouts/15/images/folder.gif'} alt="" aria-hidden="true" />}
+      <span>{label}</span>
+    </a>;
+  }
+
+  private renderLibraryFolderRow(row: any, columnCount: number): JSX.Element {
+    var folder: ILibraryFolder = row.libraryFolder;
+    return <tr key={'folder-' + folder.path} className="lc-row lc-library-folder"><td colSpan={Math.max(1, columnCount)}>
+      {this.renderLibraryFolderLink(folder.path, folder.name)}
+    </td></tr>;
+  }
+
   private async loadRows(): Promise<void> {
     if (!this.props.listName) {
       this.setState({ loading: false, error: null, fields: [], rows: [] });
       return;
     }
+    var sourceName = this.props.listName;
+    var sourceRequestId = this._loadRowsRequestId;
+    try {
+      var isLibrary = this.props.matchingDocumentFolders === true || await this.loadLibraryType();
+      if (sourceName !== this.props.listName || sourceRequestId !== this._loadRowsRequestId) { return; }
+      if (isLibrary) { await this.loadLibraryRows(); return; }
+    } catch (error) {
+      if (sourceName !== this.props.listName || sourceRequestId !== this._loadRowsRequestId) { return; }
+      console.error('[ListControl] List type discovery failed.', error);
+      this.setState({ loading: false, error: String(error && error.message || error) });
+      return;
+    }
+    this._filterReferenceTime = new Date().getTime();
 
     var requestId = ++this._loadRowsRequestId;
     this.logDiagnostic('Starting loadRows. requestId=' + String(requestId) + ', listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
@@ -2470,9 +2720,33 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
   private selectRow(row: any): void {
     var itemId = this.getRowItemId(row);
-    this.setState({ selectedItemId: itemId, selectedMode: 'view' });
+    this.setState({ selectedItemId: itemId, selectedMode: 'view', navigationError: '' });
     this.logDiagnostic('Row selected. itemId=' + String(itemId));
     this.props.onSelectionChange(itemId, 'view');
+  }
+
+  private renderNavigationCell(isSelected: boolean): JSX.Element {
+    return (
+      <td className="lc-navigation-cell">
+        <button type="button" className={this.getCommandButtonClass('lc-navigation-button')}
+          style={{ visibility: isSelected ? 'visible' : 'hidden' }}
+          disabled={!isSelected} tabIndex={isSelected ? 0 : -1} aria-hidden={!isSelected}
+          title={strings.RuntimeGoToDetails} aria-label={strings.RuntimeGoToDetails}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!isSelected) { return; }
+            try {
+              if (!this.props.onNavigateToTarget) { throw new Error(strings.RuntimeNavigationFailed); }
+              this.props.onNavigateToTarget();
+              this.setState({ navigationError: '' });
+            } catch (error) {
+              console.error('[ListControl] Unable to navigate to details.', error);
+              this.setState({ navigationError: error && error.message ? error.message : strings.RuntimeNavigationFailed });
+            }
+          }}>{this.renderCommandContent('Forward', strings.RuntimeGoToDetails)}</button>
+        {isSelected && !!this.state.navigationError && <div className="lc-navigation-error" role="alert">{this.state.navigationError}</div>}
+      </td>
+    );
   }
 
   private async deleteSelected(): Promise<void> {
@@ -2686,6 +2960,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   private getItemLinkUrl(row: any): string {
+    if (this.isLibraryBrowsing()) { return documentUrl(this.getWebUrl(), row.FileRef); }
     var itemId = this.getRowItemId(row);
     var targetPageUrl = String(this.props.linkTargetPageUrl || '').trim();
     var targetIdParam = String(this.props.linkTargetIdParam || 'itemid').trim() || 'itemid';
@@ -2733,15 +3008,16 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
     if (fileRef) {
       if (/^https?:\/\//i.test(fileRef)) {
-        return fileRef;
+        return documentUrl(this.getWebUrl(), fileRef);
       }
 
       // List item pseudo files usually end with _.000; avoid those and use form URL instead.
       if (fileRef.charAt(0) === '/' && !/\/\d+_\.000$/i.test(fileRef)) {
-        return this.getWebUrl() + fileRef;
+        return documentUrl(this.getWebUrl(), fileRef);
       }
     }
 
+    if (fileRef && !/\/\d+_\.000$/i.test(fileRef)) { return ''; }
     if (itemId > 0) {
       return this.getWebUrl() + '/Lists/' + encodeURIComponent(this.props.listName) + '/DispForm.aspx?ID=' + itemId;
     }
@@ -2802,6 +3078,27 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return fieldType === 'lookup' || fieldType === 'lookupmulti' || fieldType === 'user' || fieldType === 'usermulti';
   }
 
+  private isMultiSelectFilterField(field: IListFieldDefinition): boolean {
+    var fieldType = String(field.TypeAsString || '').toLowerCase();
+    return fieldType === 'choice' || fieldType === 'multichoice' || fieldType === 'lookup' || fieldType === 'lookupmulti';
+  }
+
+  private toggleFilterValue(value: string, checked: boolean): void {
+    this.setState((state) => ({
+      draftFilterValues: state.draftFilterValues.filter(function(selected) { return selected !== value; }).concat(checked ? [value] : [])
+    }));
+  }
+
+  private getActiveFilterOptions(): IFilterOption[] {
+    var options = this.state.activeFilterOptions.slice(0);
+    this.state.draftFilterValues.forEach(function(value) {
+      if (!options.some(function(option) { return option.value === value; })) {
+        options.push({ value: value, text: value });
+      }
+    });
+    return options;
+  }
+
   private async loadFilterOptions(field: IListFieldDefinition): Promise<IFilterOption[]> {
     var fieldType = String(field.TypeAsString || '').toLowerCase();
     var endpoint = '';
@@ -2818,14 +3115,19 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (!endpoint) {
       throw new Error(strings.RuntimeFilterOptionsLoadFailed);
     }
-    var response = await this.getJsonWithFallback(endpoint);
-    if (!response.ok) {
-      throw new Error(strings.RuntimeFilterOptionsLoadFailed + ' HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
-    }
-    var data = await response.json();
-    var items = toArray(data.value);
-    if (items.length === 0) {
-      items = toArray(data && data.d && data.d.results);
+    var items: any[] = [];
+    while (endpoint) {
+      var response = await this.getJsonWithFallback(endpoint);
+      if (!response.ok) {
+        throw new Error(strings.RuntimeFilterOptionsLoadFailed + ' HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+      }
+      var data = await response.json();
+      var page = toArray(data.value);
+      if (page.length === 0) {
+        page = toArray(data && data.d && data.d.results);
+      }
+      items = items.concat(page);
+      endpoint = String(data['@odata.nextLink'] || data['odata.nextLink'] || (data.d && data.d.__next) || '');
     }
     var lookupValueField = /^[A-Za-z0-9_]+$/.test(String(field.LookupField || '')) ? String(field.LookupField) : 'Title';
     return items.filter(function(item: any) {
@@ -2871,6 +3173,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     this._filterAnchorEl = anchorElement;
     var popoverStyle = this.getFilterPopoverStyle(anchorElement);
     var existing = this.state.columnFilters[fieldKey];
+    var requestId = ++this._filterOptionsRequestId;
+    var isMultiSelect = this.isMultiSelectFilterField(field);
+    var existingValues = existing ? (Array.isArray(existing.value) ? existing.value : [existing.value]) : [];
     var fieldType = String(field.TypeAsString || '').toLowerCase();
     var isDateField = fieldType === 'datetime';
     var compareDateOnly = isDateField && (field.DisplayFormat === 0 || !existing || existing.compareDateOnly !== false);
@@ -2886,23 +3191,25 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       activeFilterFieldName: fieldKey,
       filterPopoverStyle: popoverStyle,
       activeFilterIsDate: isDateField,
+      activeFilterIsMultiSelect: isMultiSelect,
       activeFilterCompareDateOnly: compareDateOnly,
       activeFilterFieldType: fieldType,
       activeFilterOptions: this.getStaticFilterOptions(field),
       activeFilterOptionsLoading: this.isLookupFilterField(field),
       activeFilterOptionsError: '',
       draftFilterOperator: isDateField ? 'eq' : (existingOperatorIsValid ? existing.operator : defaultOperator),
-      draftFilterValue: existing ? existing.value : '',
+      draftFilterValue: existing && !isMultiSelect ? existing.value : '',
+      draftFilterValues: isMultiSelect ? existingValues.map(function(value) { return String(value); }).filter(function(value) { return !!value.trim(); }) : [],
       draftFilterEndValue: existing ? String(existing.endValue || '') : '',
       datePickerTarget: '',
       datePickerMonth: ''
     });
     if (this.isLookupFilterField(field)) {
       this.loadFilterOptions(field).then((options: IFilterOption[]) => {
-        if (this.state.activeFilterFieldName !== fieldKey) { return; }
+        if (this.state.activeFilterFieldName !== fieldKey || this._filterOptionsRequestId !== requestId) { return; }
         this.setState({ activeFilterOptions: options, activeFilterOptionsLoading: false, activeFilterOptionsError: '' });
       }).catch((error: any) => {
-        if (this.state.activeFilterFieldName !== fieldKey) { return; }
+        if (this.state.activeFilterFieldName !== fieldKey || this._filterOptionsRequestId !== requestId) { return; }
         var message = error && error.message ? error.message : strings.RuntimeFilterOptionsLoadFailed;
         console.error('[ListControl] Filter options failed for ' + fieldKey + '.', error);
         this.setState({ activeFilterOptions: [], activeFilterOptionsLoading: false, activeFilterOptionsError: message });
@@ -3043,6 +3350,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     if (!fieldKey) {
       return;
     }
+    if (this.state.activeFilterIsMultiSelect && (this.state.activeFilterOptionsLoading || this.state.activeFilterOptionsError)) {
+      return;
+    }
 
     var nextFilters: { [fieldName: string]: IColumnFilter } = {};
     var key: string;
@@ -3054,7 +3364,13 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
     var value = String(this.state.draftFilterValue || '').trim();
     var endValue = String(this.state.draftFilterEndValue || '').trim();
-    if (!value) {
+    if (this.state.activeFilterIsMultiSelect) {
+      if (this.state.draftFilterValues.length === 0) {
+        delete nextFilters[fieldKey];
+      } else {
+        nextFilters[fieldKey] = { operator: this.state.draftFilterOperator, value: this.state.draftFilterValues.slice(0) };
+      }
+    } else if (!value) {
       delete nextFilters[fieldKey];
     } else if (this.state.activeFilterIsDate) {
       if (endValue && endValue < value) {
@@ -3100,6 +3416,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       columnFilters: nextFilters,
       draftFilterOperator: 'contains',
       draftFilterValue: '',
+      draftFilterValues: [],
       draftFilterEndValue: '',
       activeFilterFieldName: '',
       currentPage: 0
@@ -3166,8 +3483,10 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var normalizedQuery = query.toLowerCase();
     var compareResult = this.compareComparableValues(candidate, query);
     var hasDiscreteValues = fieldType.indexOf('lookup') >= 0 || fieldType.indexOf('user') >= 0 || fieldType === 'multichoice';
+    var choiceValues = fieldType === 'multichoice' ? toArray(this.getRowFieldValue(row, field)) : [];
     var lookupCandidates = hasDiscreteValues
-      ? normalizedCandidate.split(';').map(function(value) { return value.trim(); }).filter(function(value) { return !!value; })
+      ? (choiceValues.length > 0 ? choiceValues : candidate.split(fieldType === 'multichoice' && candidate.indexOf(';#') >= 0 ? ';#' : ';'))
+        .map(function(value) { return String(value).trim().toLowerCase(); }).filter(function(value) { return !!value; })
       : [];
 
     if (filter.compareDateOnly) {
@@ -3393,7 +3712,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return aggregate === null ? true : aggregate;
   }
 
-  private resolvePresetFilterValue(condition: { value: any; valueType?: string }, field?: IListFieldDefinition): { value: any; compareDateOnly: boolean } {
+  private resolvePresetFilterValue(condition: { value: any; valueType?: string }, field?: IListFieldDefinition, referenceTime?: number): { value: any; compareDateOnly: boolean } {
     var rawValue: any = Array.isArray(condition.value) ? condition.value : (condition.value === undefined || condition.value === null ? '' : String(condition.value).trim());
     if (String(condition.valueType || '').toLowerCase() !== 'expression') {
       return {
@@ -3404,20 +3723,21 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
 
     var expression = rawValue.toLowerCase();
+    var time = referenceTime === undefined ? this._filterReferenceTime : referenceTime;
     var pageContext = this.props.context && this.props.context.pageContext;
     var user = pageContext && pageContext.user;
     var legacyContext = pageContext && (pageContext as any).legacyPageContext;
 
     if (expression === 'today') {
-      return { value: formatLocalDate(new Date()), compareDateOnly: true };
+      return { value: formatLocalDate(new Date(referenceTime !== undefined || this.isLibraryBrowsing() ? time : new Date().getTime())), compareDateOnly: true };
     }
-    if (expression === 'now') {
-      return { value: new Date().toISOString(), compareDateOnly: false };
+    if (/^now(?:\(|$)/.test(expression)) {
+      return { value: resolveNowExpression(expression, time), compareDateOnly: false };
     }
 
     var dateMatch = /^date\(\s*([+-]?\d+)\s*\)$/.exec(expression);
     if (dateMatch) {
-      var dateValue = new Date();
+      var dateValue = new Date(referenceTime !== undefined || this.isLibraryBrowsing() ? time : new Date().getTime());
       dateValue.setDate(dateValue.getDate() + parseInt(dateMatch[1], 10));
       return { value: formatLocalDate(dateValue), compareDateOnly: true };
     }
@@ -3438,25 +3758,27 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return { value: rawValue, compareDateOnly: false };
   }
 
-  private getProcessedRows(): any[] {
-    var rows = this.state.rows.slice(0);
+  private getProcessedRows(sourceRows?: any[], sourceFields?: IListFieldDefinition[]): any[] {
+    var useLibrarySnapshot = !sourceRows && this.isLibraryBrowsing() && !!this.state.libraryDocuments;
+    var rows = (sourceRows || (useLibrarySnapshot ? this.state.libraryDocuments : this.state.rows)).slice(0);
+    var fields = sourceFields || this.state.fields;
     var fieldsByKey: { [key: string]: IListFieldDefinition } = {};
-    for (var i = 0; i < this.state.fields.length; i += 1) {
-      var field = this.state.fields[i];
+    for (var i = 0; i < fields.length; i += 1) {
+      var field = fields[i];
       var fieldKey = this.getFieldKey(field);
       if (fieldKey) {
         fieldsByKey[fieldKey] = field;
       }
     }
 
-    var presetConditions = this.parsePresetFilterConditions();
+    var presetConditions = useLibrarySnapshot ? [] : this.parsePresetFilterConditions();
     if (presetConditions.length > 0) {
       rows = rows.filter((row: any) => {
         return this.rowMatchesPresetConditions(row, fieldsByKey, presetConditions);
       });
     }
 
-    var filterKeys = Object.keys(this.state.columnFilters || {});
+    var filterKeys = useLibrarySnapshot ? [] : Object.keys(this.state.columnFilters || {});
     if (filterKeys.length > 0) {
       rows = rows.filter((row: any) => {
         for (var index = 0; index < filterKeys.length; index += 1) {
@@ -3490,6 +3812,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   private getGroupingConfig(): IListGroupingConfig {
+    if (this.isLibraryBrowsing()) { return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true }; }
     var json = String(this.props.groupingJson || '').trim();
     if (!json) { return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true }; }
     try {
@@ -3741,7 +4064,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         continue;
       }
 
-      var resolvedValue = this.resolvePresetFilterValue(condition, field);
+      var resolvedValue = this.resolvePresetFilterValue(condition, field, new Date().getTime());
 
       var matches = this.rowMatchesFilter(row, field, {
         operator: condition.operator,
@@ -3820,22 +4143,22 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     return names;
   }
 
-  private getCommandButtonClass(className?: string): string {
+  private getCommandButtonClass(className?: string, forceIconText?: boolean): string {
     return joinClassNames([
       className || '',
       'gc-command-button',
-      this.props.buttonDisplayMode === 'icon' ? 'gc-command-button-icon-only' : ''
+      this.props.buttonDisplayMode === 'icon' && !forceIconText ? 'gc-command-button-icon-only' : ''
     ]);
   }
 
-  private renderCommandContent(iconName: string, label: string): React.ReactNode {
-    if (this.props.buttonDisplayMode !== 'icon' && this.props.buttonDisplayMode !== 'iconText') {
+  private renderCommandContent(iconName: string, label: string, forceIconText?: boolean): React.ReactNode {
+    if (!forceIconText && this.props.buttonDisplayMode !== 'icon' && this.props.buttonDisplayMode !== 'iconText') {
       return label;
     }
     return (
       <span className="gc-command-content">
         <i className={'ms-Icon ms-Icon--' + iconName} aria-hidden="true"></i>
-        <span className={this.props.buttonDisplayMode === 'icon' ? 'gc-visually-hidden' : ''}>{label}</span>
+        <span className={this.props.buttonDisplayMode === 'icon' && !forceIconText ? 'gc-visually-hidden' : ''}>{label}</span>
       </span>
     );
   }
@@ -3854,8 +4177,17 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       <tr
         key={rowItemId > 0 ? String(rowItemId) : keySuffix}
         onClick={() => this.selectRow(row)}
+        tabIndex={this.props.navigationTargetInstanceId ? 0 : undefined}
+        onKeyDown={(event) => {
+          if (this.props.navigationTargetInstanceId && event.target === event.currentTarget
+            && (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar')) {
+            event.preventDefault();
+            this.selectRow(row);
+          }
+        }}
         className={joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : ''])}
       >
+        {!!this.props.navigationTargetInstanceId && this.renderNavigationCell(isSelected)}
         {displayFields.map((field) => {
           var markup = this.getCellMarkup(row, field);
           var isAttachmentField = String(field.TypeAsString || '') === 'Attachments';
@@ -3977,8 +4309,15 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return <div>{strings.RuntimeNoListSelected}</div>;
     }
 
-    var canOperateOnSelection = this.state.selectedItemId > 0;
+    var canOperateOnSelection = this.state.selectedItemId > 0 && (!this.isLibraryBrowsing()
+      || this.getProcessedRows().some((row) => this.getRowItemId(row) === this.state.selectedItemId));
     var processedRows = this.getProcessedRows();
+    var libraryFileCount = 0;
+    if (this.isLibraryBrowsing() && this.state.libraryRoot) {
+      libraryFileCount = folderDocumentCount(this.state.libraryFolder || this.state.libraryRoot, processedRows);
+      processedRows = folderLevel(this.state.libraryRoot, this.state.libraryFolder || this.state.libraryRoot,
+        processedRows, this.state.libraryFolders || [], this.props.matchingDocumentFolders === true);
+    }
     var pageSize = this.props.pageSize > 0 ? this.props.pageSize : 0;
     var pageCount = pageSize > 0 ? Math.max(1, Math.ceil(processedRows.length / pageSize)) : 1;
     var currentPage = Math.min(this.state.currentPage, pageCount - 1);
@@ -3990,7 +4329,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var displayFields = this.getDisplayFields();
     var groupingConfig = this.getGroupingConfig();
     var rowGroups = groupingConfig.enabled ? this.buildRowGroups(visibleRows, groupingConfig) : [];
-    var totalColumnCount = displayFields.length;
+    var totalColumnCount = displayFields.length + (this.props.navigationTargetInstanceId ? 1 : 0);
     var fieldsByKey: { [key: string]: IListFieldDefinition } = {};
     for (var i = 0; i < displayFields.length; i += 1) {
       var fieldsByKeyField = displayFields[i];
@@ -4073,6 +4412,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                 src={this.state.displayFormUrl} title="Item details" />}
             </section>
           </div>}
+        {this.renderLibraryNavigation()}
+        {!!this.state.libraryNotice && <div role="status" className="lc-status">{this.state.libraryNotice}</div>}
+        {!!this.state.libraryError && <div role="alert" className="lc-navigation-error">{this.state.libraryError}</div>}
         <div className="lc-toolbar">
           {this.props.showViewSelector && !this.state.embeddedByReportForms && (
             <label>
@@ -4161,7 +4503,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
         {this.state.loading && <div>{strings.RuntimeLoading}</div>}
         {!!this.state.error && <div>{this.state.error}</div>}
-        {!this.state.loading && !this.state.error && processedRows.length === 0 && (
+        {!this.state.loading && !this.state.error && (!this.state.libraryError || !!this.state.libraryRoot) && processedRows.length === 0 && (
           <div>{hasActiveFilters ? strings.RuntimeNoItemsAfterFilter : strings.RuntimeNoItems}</div>
         )}
 
@@ -4192,6 +4534,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
             <table className="lc-table">
               <thead ref={this._setTableHeadRef}>
                 <tr>
+                  {!!this.props.navigationTargetInstanceId && <th className="lc-navigation-header" scope="col"><span className="gc-visually-hidden">{strings.RuntimeGoToDetails}</span></th>}
                   {displayFields.map((field) => {
                     var fieldKey = this.getFieldKey(field);
                     var sortActive = this.state.sortFieldName === fieldKey;
@@ -4289,6 +4632,20 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                                   {this.state.activeFilterOptionsLoading && <div role="status">{strings.RuntimeLoading}</div>}
                                   {!!this.state.activeFilterOptionsError && <div role="alert">{this.state.activeFilterOptionsError}</div>}
                                   {!this.state.activeFilterOptionsLoading && !this.state.activeFilterOptionsError
+                                    && this.state.activeFilterIsMultiSelect && (
+                                    <div className="lc-filter-options" role="group" aria-label={strings.RuntimeFilterValueLabel}>
+                                      {this.getActiveFilterOptions().length === 0 && <div>{strings.RuntimeFilterNoOptions}</div>}
+                                      {this.getActiveFilterOptions().map((option: IFilterOption) => (
+                                        <label key={option.value} className="lc-filter-option">
+                                          <input type="checkbox" checked={this.state.draftFilterValues.indexOf(option.value) >= 0}
+                                            onChange={(ev) => this.toggleFilterValue(option.value, ev.currentTarget.checked)} />
+                                          <span>{option.text}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {!this.state.activeFilterOptionsLoading && !this.state.activeFilterOptionsError
+                                    && !this.state.activeFilterIsMultiSelect
                                     && (this.state.activeFilterOptions.length > 0 || this.isLookupFilterField(field)
                                       || this.state.activeFilterFieldType === 'choice' || this.state.activeFilterFieldType === 'multichoice'
                                       || this.state.activeFilterFieldType === 'boolean')
@@ -4308,7 +4665,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                                 </div>
                               )}
                               <div className="lc-filter-actions">
-                                <button type="button" className={this.getCommandButtonClass()} title={strings.RuntimeFilterApply} aria-label={strings.RuntimeFilterApply} onClick={() => this.applyActiveFilter()}>{this.renderCommandContent('CheckMark', strings.RuntimeFilterApply)}</button>
+                                <button type="button" className={this.getCommandButtonClass()} title={strings.RuntimeFilterApply} aria-label={strings.RuntimeFilterApply} disabled={this.state.activeFilterIsMultiSelect && (this.state.activeFilterOptionsLoading || !!this.state.activeFilterOptionsError)} onClick={() => this.applyActiveFilter()}>{this.renderCommandContent('CheckMark', strings.RuntimeFilterApply)}</button>
                                 <button type="button" className={this.getCommandButtonClass()} title={strings.RuntimeFilterClear} aria-label={strings.RuntimeFilterClear} onClick={() => this.clearActiveFilter()}>{this.renderCommandContent('ClearFilter', strings.RuntimeFilterClear)}</button>
                                 <button type="button" className={this.getCommandButtonClass()} title={strings.RuntimeFilterClose} aria-label={strings.RuntimeFilterClose} onClick={() => this.closeFilter()}>{this.renderCommandContent('Cancel', strings.RuntimeFilterClose)}</button>
                               </div>
@@ -4325,15 +4682,17 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                   ? rowGroups.reduce((accumulated: JSX.Element[], group) => accumulated.concat(this.renderRowGroupRows(
                       group, group.key, 0, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules
                     )), [] as JSX.Element[])
-                  : visibleRows.map((row, index) => this.renderDataRow(row, String(index), displayFields, fieldsByKey, conditionalRules))}
+                  : visibleRows.map((row, index) => row.libraryFolder ? this.renderLibraryFolderRow(row, totalColumnCount)
+                    : this.renderDataRow(row, String(index), displayFields, fieldsByKey, conditionalRules))}
               </tbody>
             </table>
             </div>
           </div>
         )}
-        {!this.state.loading && !this.state.error && (
+        {!this.state.loading && !this.state.error && (!this.isLibraryBrowsing() || !!this.state.libraryRoot) && (
           <div className="lc-footer">
-            <div className="lc-total-items">{this.state.nextPageHref
+            <div className="lc-total-items">{this.isLibraryBrowsing()
+              ? formatString(libraryFileCount === 1 ? strings.RuntimeLibraryFileCountSingular : strings.RuntimeLibraryFileCount, libraryFileCount) : this.state.nextPageHref
               ? strings.RuntimeLoadedItemsLabel.replace('{0}', String(processedRows.length))
               : formatString(strings.RuntimeTotalItemsLabel, processedRows.length)}</div>
             {pageSize > 0 && (pageCount > 1 || !!this.state.nextPageHref) && (

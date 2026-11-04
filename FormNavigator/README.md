@@ -2,6 +2,23 @@
 
 Grouped, direct navigation for multiple SPS Dynamic Forms and SPS Report Forms web parts on the same SharePoint page.
 
+## Visual example
+
+![Grouped form navigation with Main forms and Secondary Forms categories, completion counts and a blue active form](docs/images/form-navigator-groups.png)
+
+Organize several forms into named groups while keeping the current step visible.
+This vertical example shows two main forms, one secondary form, category
+completion counts and a contrasting active node.
+
+Give each target Dynamic Form or Report Form a unique navigation name. Use
+**Manage categories** and **Manage forms** to assign labels, groups and order,
+then select a navigation policy. Free, completed-only and sequential policies
+control which nodes visitors can open; the screenshot shows one configured state,
+not every policy.
+
+This approved SharePoint Online demo is cropped to the navigator and stored
+locally. It is not SharePoint SE deployment verification.
+
 ## October 14, 2026 release
 
 - npm version: `1.0.4`

@@ -2,6 +2,22 @@
 
 SPFx 1.5.1 web part that displays a responsive collection of navigation tiles.
 
+## Visual example
+
+![Three rounded navigation tiles: a text label, an image beside a label, and an image-only tile](docs/images/tiles-navigation.png)
+
+Mix text-only, image-and-text, and image-only links in one navigation collection.
+This narrow-column demo stacks rounded tiles vertically and uses a shared dark
+red background; each tile can still override its image and color.
+
+In the tile editor, supply a title and destination URL for each entry. Use
+`imageUrl`, `imagePosition`, and `imageOnly` to vary the presentation, then set the
+collection's dimensions, layout and border/corner styling. Hover images and
+transitions are configured separately; a still screenshot does not show motion.
+
+This locally stored image is from an approved SharePoint Online demo, not an
+on-premises deployment verification.
+
 ## October 26, 2026 tile-editor validation fix
 
 - npm version: `2.0.6`; SharePoint solution and feature version: `2.1.0.22`.

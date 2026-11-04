@@ -1,3 +1,46 @@
+.lc-library-navigation nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.lc-library-folder-link,
+.lc-library-path-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  text-align: left;
+}
+.lc-library-folder-link {
+  line-height: 1.4;
+}
+.lc-library-folder-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.lc-library-navigation .lc-library-up {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-right: 6px;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.lc-library-navigation .lc-library-up:disabled {
+  opacity: 0.5;
+  text-decoration: none;
+  cursor: default;
+}
+.lc-library-folder-link:focus,
+.lc-library-navigation .lc-library-up:focus {
+  outline: 1px dotted currentColor;
+  outline-offset: 2px;
+}
 .lc-root {
   background-color: var(--lc-webpart-bg-color);
   border: var(--lc-webpart-border-width) solid var(--lc-webpart-border-color);
@@ -219,10 +262,46 @@
   padding: 10px;
 }
 
+.lc-navigation-header,
+.lc-navigation-cell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.lc-navigation-error {
+  width: 220px;
+  white-space: normal;
+  font-weight: normal;
+}
+
 .lc-filter-label {
   display: block;
   font-size: 12px;
   margin-bottom: 4px;
+}
+
+.lc-filter-options {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+
+.lc-filter-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 0;
+  font-weight: normal;
+  text-align: left;
+  overflow-wrap: break-word;
+}
+
+.lc-filter-option input {
+  flex-shrink: 0;
+}
+
+.lc-filter-option span {
+  min-width: 0;
 }
 
 .lc-filter-select,

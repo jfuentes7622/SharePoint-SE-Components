@@ -1,5 +1,6 @@
 /// <reference types="react" />
 import * as React from 'react';
+import { ILibraryFolder } from './LibraryBrowser';
 import './GridControl.css';
 export interface IGridControlViewOption {
     key: string;
@@ -24,6 +25,7 @@ export interface IGridControlProps {
     showViewSelector: boolean;
     showViewAsDropdown: boolean;
     showRefresh: boolean;
+    matchingDocumentFolders?: boolean;
     showAdd: boolean;
     showDelete: boolean;
     showHistory: boolean;
@@ -89,6 +91,8 @@ export interface IGridControlProps {
     externalSearchExecutionMode?: string;
     conditionalStyleJson?: string;
     onSelectionChange: (itemId: number, mode: string) => void;
+    navigationTargetInstanceId?: string;
+    onNavigateToTarget?: () => void;
     onFilteredCountChange: (count: number) => void;
 }
 export interface IListFieldDefinition {
@@ -120,7 +124,17 @@ export interface IGridLookupOption {
     id: number;
     text: string;
 }
+export interface IFilterOption {
+    value: string;
+    text: string;
+}
 export interface IGridControlState {
+    libraryDocuments?: any[];
+    libraryRoot?: string;
+    libraryFolder?: string;
+    libraryFolders?: ILibraryFolder[];
+    libraryNotice?: string;
+    libraryError?: string;
     selectedViewId: string;
     fields: IListFieldDefinition[];
     fieldMetadataByName: {
@@ -138,6 +152,7 @@ export interface IGridControlState {
     selectedItemId: number;
     selectedItemIds: number[];
     selectedMode: string;
+    navigationError: string;
     deleting: boolean;
     deleteMessage: string;
     sortFieldName: string;
@@ -145,8 +160,13 @@ export interface IGridControlState {
     activeFilterFieldName: string;
     filterPopoverStyle: any;
     activeFilterIsDate: boolean;
+    activeFilterIsMultiSelect: boolean;
+    activeFilterOptions: IFilterOption[];
+    activeFilterOptionsLoading: boolean;
+    activeFilterOptionsError: string;
     draftFilterOperator: FilterOperator;
     draftFilterValue: string;
+    draftFilterValues: string[];
     draftFilterEndValue: string;
     datePickerTarget: 'start' | 'end' | '';
     datePickerMonth: string;
@@ -211,6 +231,15 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private _refreshEventHandler;
     private _runtimeConfigEventHandler;
     private _loadRowsRequestId;
+    private _libraryRefreshTimer;
+    private _libraryLoading;
+    private _libraryRefreshPending;
+    private _libraryTypeKey;
+    private _libraryTypePromise;
+    private _libraryIsDocumentLibrary;
+    private _libraryDeferredQuery;
+    private _libraryDeferredSource;
+    private _filterReferenceTime;
     private _listItemEntityTypeName;
     private _listItemEntityTypeListName;
     private _listId;
@@ -221,6 +250,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private _stickyHeaderSourceHtml;
     private _stickyHeaderVisible;
     private _filterAnchorEl;
+    private _filterOptionsRequestId;
     private _pagingEndpoint;
     private _pagingRequestBody;
     private _pagingSchemaFieldNames;
@@ -260,8 +290,8 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private getWebUrl();
     private loadAccessAndRows();
     private isReadOnly();
-    private getCommandButtonClass(className?);
-    private renderCommandContent(iconName, label);
+    private getCommandButtonClass(className?, forceIconText?);
+    private renderCommandContent(iconName, label, forceIconText?);
     private getJsonWithFallback(url);
     private logPostAttempt(label, url, response, payload);
     private postJsonWithFallback(url, body, baseHeaders?, verboseBody?, allowFallback?);
@@ -290,7 +320,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private loadListFieldTitleMap();
     private loadGridFieldMetadata();
     private loadListItemEntityTypeName();
-    private loadLookupOptions(metadata);
+    private loadLookupOptions(metadata, throwOnError?);
     private loadLookupOptionsByField(metadataByName, visibleFields);
     private applyFieldDisplayNames(fields, titleMap);
     private applyFieldTypes(fields, metadataByName);
@@ -302,6 +332,14 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private filterRenderableRows(rows, visibleFields);
     private loadRowsFromItemsEndpoint(viewFieldNames, itemIds?);
     private loadAttachmentCounts(itemIds);
+    private isLibraryBrowsing();
+    private loadLibraryType();
+    private updateLibraryRefreshTimer();
+    private loadLibraryRows();
+    private navigateLibraryFolder(path);
+    private renderLibraryNavigation();
+    private renderLibraryFolderLink(path, label, current?, showIcon?);
+    private renderLibraryFolderRow(row, columnCount);
     private loadRows();
     private applyFetchBatchSize(viewXml);
     private loadNextBatch();
@@ -309,6 +347,7 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private goToNextPage(currentPage, pageCount);
     private getRowItemId(row);
     private selectRow(row);
+    private renderNavigationCell(isSelected);
     private isItemChecked(itemId);
     private toggleItemChecked(itemId);
     private toggleVisibleItemsChecked(rows);
@@ -358,7 +397,11 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private getAttachmentCountForRow(row, rawAttachmentsValue);
     private getItemLinkUrl(row);
     private getFieldKey(field);
-    private getFilterOperatorOptions();
+    private getFilterOperatorOptions(field?);
+    private isMultiSelectFilterField(field);
+    private toggleFilterValue(value, checked);
+    private getActiveFilterOptions();
+    private loadFilterOptions(field);
     private toggleSort(field);
     private openFilter(field, anchorElement);
     private getFilterPopoverStyle(anchorElement);
@@ -379,8 +422,8 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private mergeHydratedRows(rows, hydratedRows);
     private resolveFieldByReference(fieldsByKey, fieldRef);
     private rowMatchesPresetConditions(row, fieldsByKey, conditions);
-    private resolvePresetFilterValue(condition, field?);
-    private getProcessedRows();
+    private resolvePresetFilterValue(condition, field?, referenceTime?);
+    private getProcessedRows(sourceRows?, sourceFields?);
     private resolveFieldDefinitionByName(fieldName);
     private getGroupValueText(row, fieldName);
     private buildRowGroups(rows, grouping);

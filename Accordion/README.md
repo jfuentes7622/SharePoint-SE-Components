@@ -2,6 +2,21 @@
 
 SPFx 1.5.1 web part that renders SharePoint list items as collapsible accordion sections.
 
+## Visual example
+
+![List-backed accordion with the first heading expanded to show its content and additional headings collapsed below](docs/images/accordion-expanded.png)
+
+Turn a long list into scannable headings that visitors expand when needed. This
+cropped directory example shows one heading's mapped content while keeping the
+following entries compact. The same layout suits FAQs, procedures and reference pages.
+
+Select `listName`, map `itemName` to the heading column and `itemContent` to the
+body column, then choose single- or multiple-section behavior with `optionChoice`.
+Header/content colors and typography can be styled separately.
+
+This locally stored screenshot comes from an approved SharePoint Online demo;
+it is not a SharePoint SE deployment verification.
+
 ## October 14, 2026 release
 
 - npm version: `1.0.4`

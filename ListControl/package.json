@@ -1,6 +1,6 @@
 {
   "name": "list-control-se",
-  "version": "1.0.115",
+  "version": "1.0.124",
   "author": "Jose Fuentes <josefuentes@modulusse.com>",
   "private": true,
   "main": "lib/index.js",

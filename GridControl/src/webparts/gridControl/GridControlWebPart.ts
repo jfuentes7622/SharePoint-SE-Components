@@ -19,8 +19,10 @@ import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/sp
 import * as strings from 'GridControlWebPartStrings';
 import { GridControl, IGridControlColumnConfiguration, IGridControlViewOption } from './components/GridControl';
 import { GridDesigner } from './components/GridDesigner';
+import { getPageNavigationTargets, navigateToPageTarget } from './components/PageNavigation';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
+import { ensureInstanceName } from '../shared/instanceNames';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -43,6 +45,8 @@ export interface IGridControlWebPartProps {
   forceFullWidth?: boolean;
   description: string;
   instanceName?: string;
+  instanceNameGeneratedFor?: string;
+  navigationTargetInstanceId?: string;
   listName: string;
   viewId: string;
   viewColumns?: IGridControlColumnConfiguration[];
@@ -52,6 +56,7 @@ export interface IGridControlWebPartProps {
   showViewSelector: boolean;
   showViewAsDropdown?: boolean;
   showRefresh: boolean;
+  matchingDocumentFolders?: boolean;
   showAdd: boolean;
   showDelete: boolean;
   showHistory?: boolean;
@@ -339,6 +344,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       showViewSelector: this.properties.showViewSelector === true,
       showViewAsDropdown: this.properties.showViewAsDropdown !== false,
       showRefresh: this.properties.showRefresh !== false,
+      matchingDocumentFolders: this.properties.matchingDocumentFolders === true,
       showAdd: this.properties.showAdd !== false,
       showDelete: this.properties.showDelete !== false,
       showHistory: this.properties.showHistory !== false,
@@ -407,6 +413,9 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       externalSearchExecutionMode: this._externalSearchExecutionMode,
       conditionalStyleJson: this.properties.conditionalStyleJson || '',
       onSelectionChange: (itemId: number, mode: string) => this.handleSelectionChange(itemId, mode),
+      navigationTargetInstanceId: this.properties.navigationTargetInstanceId || '',
+      onNavigateToTarget: () => navigateToPageTarget(this.domElement.ownerDocument,
+        this.properties.navigationTargetInstanceId || '', this.context.instanceId),
       onFilteredCountChange: (count: number) => this.handleFilteredCountChange(count)
     });
 
@@ -421,6 +430,29 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
   }
 
   protected onInit(): Promise<void> {
+    return this.ensureDefaultInstanceName().then(() => this.initializeControl()).catch((error) => {
+      console.error('[GridControlWebPart] Initialization failed.', error);
+      throw error;
+    });
+  }
+
+  private ensureDefaultInstanceName(): Promise<boolean> {
+    return ensureInstanceName(this.properties, 'GridControl', this.context, this.domElement, () => this.displayMode).then((changed) => {
+      if (changed) {
+        this.notifyDynamicData('instanceName');
+        this.notifyDynamicSourceChanged();
+        this.context.propertyPane.refresh();
+      }
+      return changed;
+    });
+  }
+
+  protected onDisplayModeChanged(oldDisplayMode: DisplayMode): void {
+    this.ensureDefaultInstanceName().then((changed) => { if (changed) { this.render(); } })
+      .catch((error) => console.error('[GridControlWebPart] Default name allocation failed.', error));
+  }
+
+  private initializeControl(): Promise<void> {
     this.logDiagnostic('onInit started. listName=' + String(this.properties.listName || '(none)'));
     this.properties.linkTargetIdParam = normalizeQueryParamName(this.properties.linkTargetIdParam, 'itemid');
     this.initializeDynamicDataSource();
@@ -441,6 +473,18 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       }
       return Promise.resolve();
     });
+  }
+
+  private getNavigationTargetOptions(): IDropdownOption[] {
+    var options: IDropdownOption[] = [{ key: '', text: strings.PropNavigationNone }];
+    getPageNavigationTargets(this.domElement.ownerDocument, this.context.instanceId).forEach(function(target) {
+      options.push({ key: target.instanceId, text: target.title + ' (' + target.instanceId + ')' });
+    });
+    var selected = this.properties.navigationTargetInstanceId || '';
+    if (selected && !options.some(function(option) { return option.key === selected; })) {
+      options.push({ key: selected, text: strings.PropNavigationUnavailable + ' (' + selected + ')' });
+    }
+    return options;
   }
 
   protected onPropertyPaneConfigurationStart(): void {
@@ -466,6 +510,8 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
     if (propertyPath === 'instanceName' && oldValue !== newValue) {
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      delete this.properties.instanceNameGeneratedFor;
+      this.ensureDefaultInstanceName().catch((error) => console.error('[GridControlWebPart] Default name allocation failed.', error));
       this.notifyDynamicData('instanceName');
       this.notifyDynamicSourceChanged();
       return;
@@ -570,7 +616,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
 
     try {
       var endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-        + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,LookupField,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+        + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,LookupField,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID' or InternalName eq 'Created' or InternalName eq 'Modified')";
       var data = await this.getJsonWithAcceptFallback(endpoint);
       var fields = data && data.value ? data.value : [];
       if (!fields || fields.length === 0) {
@@ -1155,6 +1201,17 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
               ]
             },
             {
+              groupName: strings.PropertyGroupWebPart,
+              groupFields: [
+                PropertyPaneTextField('instanceName', {
+                  label: strings.PropInstanceNameLabel,
+                  description: strings.PropInstanceNameDescription,
+                  placeholder: strings.DynamicSourceTitle,
+                  value: this.properties.instanceName || ''
+                })
+              ]
+            },
+            {
               groupName: 'Appearance',
               groupFields: [
                 PropertyPaneDropdown('appearanceMode', {
@@ -1182,12 +1239,6 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
             {
               groupName: strings.PropertyGroupData,
               groupFields: [
-                PropertyPaneTextField('instanceName', {
-                  label: strings.PropInstanceNameLabel,
-                  description: strings.PropInstanceNameDescription,
-                  placeholder: strings.DynamicSourceTitle,
-                  value: this.properties.instanceName || ''
-                }),
                 PropertyPaneCheckbox('forceFullWidth', { text: 'Force Full Width' }),
                 PropertyPaneDropdown('listName', {
                   label: strings.PropListLabel,
@@ -1251,8 +1302,28 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
               ]
             },
             {
+              groupName: strings.PropertyGroupNavigation,
+              groupFields: [
+                PropertyPaneDropdown('navigationTargetInstanceId', {
+                  label: strings.PropNavigationTarget,
+                  options: this.getNavigationTargetOptions(),
+                  selectedKey: this.properties.navigationTargetInstanceId || ''
+                }),
+                PropertyPaneLabel('navigationHelp', { text: strings.PropNavigationHelp }),
+                PropertyPaneButton('refreshNavigationTargets', {
+                  text: strings.PropNavigationRefresh,
+                  onClick: () => this.context.propertyPane.refresh()
+                })
+              ]
+            },
+            {
               groupName: strings.PropertyGroupButtons,
               groupFields: [
+                PropertyPaneCheckbox('matchingDocumentFolders', {
+                  text: strings.PropMatchingDocumentFolders,
+                  checked: this.properties.matchingDocumentFolders === true
+                }),
+                PropertyPaneLabel('matchingDocumentFoldersHelp', { text: strings.PropMatchingDocumentFoldersHelp }),
                 PropertyPaneCheckbox('showRefresh', {
                   text: strings.PropShowRefreshLabel,
                   checked: this.properties.showRefresh !== false
@@ -2559,6 +2630,8 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
 
   private isSupportedFilterExpression(value: string): boolean {
     var normalized = String(value || '').trim().toLowerCase();
+    var hours = /^now\(\s*([+-]?\d+)h\s*\)$/.exec(normalized);
+    if (hours) { return isFinite(new Date(new Date().getTime() + Number(hours[1]) * 3600000).getTime()); }
     return normalized === 'today'
       || normalized === 'now'
       || normalized === 'me'

@@ -2,6 +2,137 @@
 
 SPFx 1.5.1 editable SharePoint grid for SharePoint Server Subscription Edition.
 
+## Visual example
+
+![Editable grid sample with text and choice columns, row-selection checkboxes, attachment counts, and row action icons](docs/images/grid-list-data.png)
+
+Present list records in a compact table while keeping row-level actions beside
+the data. This demo shows selection checkboxes, a choice column, wrapped text,
+attachment counts, and edit, attachment and history commands.
+
+Select the source list/view and use Grid Designer to choose column order, labels,
+widths and editors. The grid supports inline row creation/editing and validation;
+the screenshot shows the normal browsing state, not an item being saved.
+
+This approved SharePoint Online demo is stored locally for documentation.
+It is not SharePoint SE deployment verification.
+
+## Matching document folders
+
+Current release: npm `1.0.102`, solution/feature `1.0.0.102`.
+
+**Web part name** defaults to `GridControl1`, `GridControl2`, etc. on the page.
+It is the first editable setting, in **Web part** directly below the version banner.
+Existing blanks are filled when editing; save the page to persist the name.
+Custom names and GUID-based connections are preserved. See
+[numbered naming behavior](../README.md#numbered-web-part-names).
+
+Folder names and breadcrumbs are underlined navigation links, not command buttons.
+Breadcrumbs use backslash separators, for example `Documents \ Team \ Reports`.
+Folder rows and the library root use SharePoint's built-in `folder.gif` image rather
+than an outline font icon. Names remain visible with **Icon only** toolbar buttons.
+
+- Document libraries always browse folders inside the control, even with
+  **Matching document folders** off. The checkbox in **Buttons** only controls
+  pruning: off shows all accessible folders, including empty folders; on shows
+  only branches containing matching documents. Standard-list behavior is unchanged.
+- The configured/default source view retains its document restrictions and ordering,
+  while the control searches documents recursively. Use an unfiltered source view
+  when the control should own filtering; excluded documents cannot be restored later.
+- Use the existing filter builder, for example:
+
+  | Field | Operator | Value type | Value | Logical |
+  | --- | --- | --- | --- | --- |
+  | Modified | Greater than or equal | Expression | `now(-24h)` | First |
+  | Modified | Less than or equal | Expression | `now` | AND |
+
+  No dedicated 24-hour option or injected filter exists. `now(nh)` accepts integer
+  elapsed-hour offsets such as `now(-6h)` and `now(-48h)`. Both inclusive bounds use
+  one refresh instant across all pages. `date(-1)` remains yesterday's local calendar
+  date. Created/Modified are filterable without becoming editable. Other filters,
+  including Choice/Lookup multi-selection, determine document matches.
+- With pruning on, only branches with matching descendants appear; the folder's own Modified value
+  does not matter. Folder links always show icons and support keyboard activation.
+  Breadcrumbs and Up provide drill-down navigation. Grouping is inactive in this
+  document-library display, but its saved settings are preserved.
+- Folders have no edit/history/delete/Go-to-details actions and never publish their
+  IDs to forms. Explicit folder navigation clears active and bulk selection.
+  Document selection, document links and **Go to details** remain distinct.
+  **Show link to item** controls document links, which use actual file locations
+  rather than a custom metadata target page.
+- **Add document** uploads to the browsed folder (root when at root). Existing files
+  are not overwritten. Metadata failures clean up only the newly uploaded file.
+  Saves reload the filtered hierarchy; successfully uploaded files can be absent
+  when they do not match the configured filters.
+- Five-minute automatic refresh in page read mode and manual Refresh refetch all
+  pages before replacing the snapshot. Inline drafts/saves defer refresh; folder,
+  view and column-filter changes cannot discard a draft. Background refresh does
+  not republish unchanged selection, change a connected form or move focus.
+  A disappearing selection or folder is explained. Refresh failures retain the last
+  complete snapshot with a visible error.
+- The footer counts matching files in the current folder and all its subfolders,
+  never folder rows: two folders containing three matching files report **3 files**.
+  The navigation count covers the whole library. Pagination still uses immediate
+  folder/document entries and does not change file totals. Both pruning settings
+  use the same filtered file counts. Large libraries require appropriate indexed
+  filters; no indexes, views or permissions are changed.
+  Threshold/permission/paging failures are explicit.
+- Run `node tests\libraryFolders.test.js` and `node tests\libraryRuntime.test.js`
+  from the repository root. Actual SE-farm acceptance remains required for restricted
+  folders, special-character paths, uploads and libraries exceeding 5,000 documents.
+
+Redeploy [sps-grid-control.sppkg](sharepoint/solution/sps-grid-control.sppkg).
+
+## Selected-row navigation
+
+- npm version: `1.0.95`; SharePoint solution and feature version: `1.0.0.95`.
+- Under **Navigation**, choose a **Navigation target** from the controls on this
+  page. **None - disabled** preserves existing behavior and adds no action column.
+  **Refresh page controls** updates the picker after adding controls. Names include
+  instance IDs to distinguish duplicate names; an unavailable saved target is
+  retained until the author changes it.
+- Clicking a row highlights it and publishes the selected item ID/mode for Dynamic
+  Forms. Bulk-delete checkboxes are a separate selection and do not choose the
+  form's active item. Configure the form's Dynamic Data source separately.
+- A **Go to details** button appears only on the active row, with its column space
+  reserved. Only that button scrolls and moves keyboard focus; normal/repeated
+  row clicks and text selection never navigate. Navigation does not republish the
+  item, change View/Edit mode, save, or cancel anything.
+- For several forms organized by SPS Tabs, choose the Tab control: navigation
+  focuses its tab strip and preserves the active tab. A direct form target receives
+  focus on its container, not its first input. Hidden/missing targets show an error
+  on the selected row; navigation never automatically switches tabs.
+- **Go to details** is disabled while an inline edit or new row is open; save or
+  cancel first. Read-only grids can still navigate. Editing rows, bulk selection,
+  grouping, and existing row-action positions retain their layouts.
+- The action follows the existing text/icon button display mode. With navigation
+  enabled, keyboard users can Tab to a row, press Enter/Space to select it, then
+  Tab to **Go to details**.
+- Redeploy [sps-grid-control.sppkg](sharepoint/solution/sps-grid-control.sppkg).
+  Run `node tests\rowNavigation.test.js` from the repository root.
+  Automated tests use mocked SharePoint page hosts; target-farm acceptance remains
+  required, including discovery of the actual page controls.
+
+## Multi-select column filters
+
+- npm version: `1.0.94`; SharePoint solution and feature version: `1.0.0.94`.
+- In the end-user column-header filter popup, Choice/MultiChoice and
+  Lookup/LookupMulti columns show a scrollable checkbox list. **Equals** matches
+  any checked value; **Not equals** excludes every checked value. Filters on
+  different columns still combine with AND.
+- **Apply** commits the selections and resets paging. Reopening restores them;
+  **Close** discards uncommitted changes. **Clear**, or applying no selections,
+  removes only that column's filter.
+- Options use current SharePoint metadata, not stale grid-editor choices.
+  Lookups use IDs for matching and display the configured lookup field, including
+  paged results. Loading and errors are shown; Apply is disabled until options
+  load successfully. Text, numeric, date, Boolean, and Person filters retain their
+  existing behavior. Property-pane rule designers and row editors are unchanged.
+- Redeploy [sps-grid-control.sppkg](sharepoint/solution/sps-grid-control.sppkg).
+  From the repository root, run `node tests\columnFilters.test.js`,
+  `node tests\dateFilters.test.js`, and `node tests\controlMetadata.test.js`.
+  Tests use mocked SharePoint responses; target-farm UI acceptance is still required.
+
 ## October 28, 2026 type-aware rule values
 
 - npm version: `1.0.93`; SharePoint solution and feature version: `1.0.0.93`.

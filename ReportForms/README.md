@@ -2,6 +2,33 @@
 
 Report Forms is a read-only SharePoint Framework web part for displaying a single SharePoint list item with a configurable form-style layout. It is based on DynamicForms' field renderer and visual layout designer, but it does not create or update list items.
 
+## Default report names
+
+Current release: npm `1.0.60`, solution/feature `1.0.0.87`.
+**Web part name** (previously **Report name for navigation**) defaults to
+`ReportForm1`, `ReportForm2`, etc. per page. It is the first editable setting,
+in **Web part** directly below the version banner.
+Existing blanks are filled in page edit mode; save the page to persist them.
+Existing nonblank names, including `Report`, and GUID-based connections are preserved.
+See [numbered naming behavior](../README.md#numbered-web-part-names).
+
+## Visual example
+
+![Report excerpt with a styled notice header, image, Requester section, read-only title and scrollable rich-text content](docs/images/report-layout.png)
+
+Build a formatted record view with headings, images, colored containers and
+read-only list fields. This excerpt shows a custom notice-style report and a
+rich-text field that retains its headings and paragraphs in a scrollable region.
+The image shows the upper portion of a longer report, not a complete printed page.
+
+Select the source list and item-selection method, then arrange fields and custom
+content in the visual designer. Use field/container appearance settings to create
+the desired hierarchy. Add [Print Control](../PrintControl/README.md) to the same
+page when readers need a print command.
+
+This approved SharePoint Online demo is stored locally. It illustrates the report
+layout, not SharePoint SE deployment validation.
+
 ## October 22, 2026 release
 
 - npm version: `1.0.58`

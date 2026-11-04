@@ -1,6 +1,7 @@
 import { assert } from 'chai';
 import { SPHttpClient, SPHttpClientResponse, ISPHttpClientOptions } from '@microsoft/sp-http';
 import SharePointRestClient from '../services/SharePointRestClient';
+import EventRegistrationService from '../services/EventRegistrationService';
 
 describe('Event Registration REST protocol', function(): void {
   var rest: SharePointRestClient;
@@ -52,7 +53,7 @@ describe('Event Registration REST protocol', function(): void {
     var body = { parameters: {
       __metadata: { type: 'SP.XmlSchemaFieldCreationInformation' },
       SchemaXml: '<Field Type="Text" Name="ERLocation" />',
-      Options: 0
+      Options: 8
     } };
     return rest.post("web/lists/getByTitle('Events')/fields/CreateFieldAsXml", body).then(function(): Promise<any> {
       assert.equal(requestOptions.headers['OData-Version'], '3.0');
@@ -66,6 +67,31 @@ describe('Event Registration REST protocol', function(): void {
       assert.equal(requestOptions.headers['X-HTTP-Method'], 'MERGE');
       assert.equal(requestOptions.headers['IF-MATCH'], '"7"');
       assert.deepEqual(JSON.parse(requestOptions.body), { ERStatus: 'claimed' });
+    });
+  });
+
+  it('uses the projected person EMail field for events, registrations and attendees', function(): Promise<void> {
+    var service: any = new EventRegistrationService('https://example.test', undefined, 'Test', false);
+    service.rest = rest;
+    responseBody = JSON.stringify({ value: [{
+      Id: 1,
+      EROrganizer: { Id: 2, Title: 'Organizer', EMail: 'organizer@example.test' },
+      ERRegistrant: { Id: 3, Title: 'Registrant', EMail: 'registrant@example.test' },
+      ERAttendee: { Id: 4, Title: 'Attendee', EMail: 'attendee@example.test' }
+    }] });
+    return service.getEvents(true).then(function(events: any[]): Promise<any[]> {
+      assert.include(requestedUrl, 'EROrganizer/EMail');
+      assert.notInclude(requestedUrl, 'EROrganizer/Email');
+      assert.equal(events[0].EROrganizer.email, 'organizer@example.test');
+      return service.getRegistrations();
+    }).then(function(registrations: any[]): Promise<any[]> {
+      assert.include(requestedUrl, 'ERRegistrant/EMail');
+      assert.equal(registrations[0].ERRegistrant.email, 'registrant@example.test');
+      return service.getAttendees();
+    }).then(function(attendees: any[]): void {
+      assert.include(requestedUrl, 'ERAttendee/EMail');
+      assert.equal(attendees[0].ERAttendee.email, 'attendee@example.test');
+      assert.equal(service.normalizePerson({ Id: 2, Email: 'legacy@example.test' }).email, 'legacy@example.test');
     });
   });
 

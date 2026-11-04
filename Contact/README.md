@@ -2,6 +2,21 @@
 
 SPFx 1.5.1 personnel directory web part for SharePoint Server Subscription Edition.
 
+## Visual example
+
+![Leadership contact card with a blue group heading, rounded photograph, title, email address and two phone numbers](docs/images/contacts-card.png)
+
+Present a leadership or support contact with a prominent group heading, photograph,
+and readable contact details. This example uses a wide card with the image beside
+the information; smaller images and `contactsPerRow` support denser directories.
+
+Choose a SharePoint list or inline entries, map the contact/photo fields, and set
+`imageShape`, `imageWidth`, header colors and information-area appearance. Only
+publish contact information and images that are appropriate for the page audience.
+
+This approved sample is captured from SharePoint Online and stored locally.
+It illustrates presentation, not SharePoint SE deployment validation.
+
 ## October 14, 2026 release
 
 - npm version: `0.0.5`

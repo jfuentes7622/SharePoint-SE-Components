@@ -1,5 +1,6 @@
 /// <reference types="react" />
 import * as React from 'react';
+import { ILibraryFolder } from './LibraryBrowser';
 import './ListControl.css';
 export interface IListControlViewOption {
     key: string;
@@ -24,6 +25,7 @@ export interface IListControlProps {
     showViewSelector: boolean;
     showViewAsDropdown: boolean;
     showRefresh: boolean;
+    matchingDocumentFolders?: boolean;
     showAdd: boolean;
     showEdit: boolean;
     showView: boolean;
@@ -85,6 +87,8 @@ export interface IListControlProps {
     externalSearchExecutionMode?: string;
     conditionalStyleJson?: string;
     onSelectionChange: (itemId: number, mode: string) => void;
+    navigationTargetInstanceId?: string;
+    onNavigateToTarget?: () => void;
     onFilteredCountChange: (count: number) => void;
 }
 export interface IListFieldDefinition {
@@ -106,6 +110,12 @@ export interface IFilterOption {
     text: string;
 }
 export interface IListControlState {
+    libraryDocuments?: any[];
+    libraryRoot?: string;
+    libraryFolder?: string;
+    libraryFolders?: ILibraryFolder[];
+    libraryNotice?: string;
+    libraryError?: string;
     selectedViewId: string;
     fields: IListFieldDefinition[];
     rows: any[];
@@ -115,12 +125,14 @@ export interface IListControlState {
     error: string | null;
     selectedItemId: number;
     selectedMode: string;
+    navigationError: string;
     deleting: boolean;
     sortFieldName: string;
     sortDirection: 'asc' | 'desc' | '';
     activeFilterFieldName: string;
     filterPopoverStyle: any;
     activeFilterIsDate: boolean;
+    activeFilterIsMultiSelect: boolean;
     activeFilterCompareDateOnly: boolean;
     activeFilterFieldType: string;
     activeFilterOptions: IFilterOption[];
@@ -128,6 +140,7 @@ export interface IListControlState {
     activeFilterOptionsError: string;
     draftFilterOperator: FilterOperator;
     draftFilterValue: string;
+    draftFilterValues: string[];
     draftFilterEndValue: string;
     datePickerTarget: 'start' | 'end' | '';
     datePickerMonth: string;
@@ -174,12 +187,20 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private _runtimeConfigEventHandler;
     private _fieldDisplayFormatMap;
     private _loadRowsRequestId;
+    private _libraryRefreshTimer;
+    private _libraryLoading;
+    private _libraryRefreshPending;
+    private _libraryTypeKey;
+    private _libraryTypePromise;
+    private _libraryIsDocumentLibrary;
+    private _filterReferenceTime;
     private _tableWrapEl;
     private _tableHeadEl;
     private _stickyHeaderViewportEl;
     private _stickyHeaderSourceHtml;
     private _stickyHeaderVisible;
     private _filterAnchorEl;
+    private _filterOptionsRequestId;
     private _pagingEndpoint;
     private _pagingRequestBody;
     private _pagingRuntimeFilterFieldNames;
@@ -231,6 +252,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private loadSelectedViewXml(selectedViewId, viewFieldNames);
     private loadSelectedViewFieldNames(selectedViewId);
     private getDisplayFields();
+    private ensureLibraryNameField(fields);
     private getConfiguredColumnStyle(field);
     private getFieldsForConsumption(rawFields, viewFieldNames);
     private loadListFieldTypeMap(viewFieldNames);
@@ -249,6 +271,14 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private getRuntimeFilterFieldNames();
     private mergeHydratedRows(rows, hydratedRows);
     private loadAttachmentCounts(itemIds);
+    private isLibraryBrowsing();
+    private loadLibraryType();
+    private updateLibraryRefreshTimer();
+    private loadLibraryRows();
+    private navigateLibraryFolder(path);
+    private renderLibraryNavigation();
+    private renderLibraryFolderLink(path, label, current?, showIcon?);
+    private renderLibraryFolderRow(row, columnCount);
     private loadRows();
     private applyFetchBatchSize(viewXml);
     private loadNextBatch();
@@ -256,6 +286,7 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private goToNextPage(currentPage, pageCount);
     private getRowItemId(row);
     private selectRow(row);
+    private renderNavigationCell(isSelected);
     private deleteSelected();
     private logDiagnostic(message);
     private resolveAttachmentUrl(serverRelativeUrl);
@@ -273,6 +304,9 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private getFilterOperatorOptions(field?);
     private getStaticFilterOptions(field);
     private isLookupFilterField(field);
+    private isMultiSelectFilterField(field);
+    private toggleFilterValue(value, checked);
+    private getActiveFilterOptions();
     private loadFilterOptions(field);
     private toggleSort(field);
     private openFilter(field, anchorElement);
@@ -293,8 +327,8 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private parsePresetFilterConditions();
     private resolveFieldByReference(fieldsByKey, fieldRef);
     private rowMatchesPresetConditions(row, fieldsByKey, conditions);
-    private resolvePresetFilterValue(condition, field?);
-    private getProcessedRows();
+    private resolvePresetFilterValue(condition, field?, referenceTime?);
+    private getProcessedRows(sourceRows?, sourceFields?);
     private getGroupingConfig();
     private resolveFieldDefinitionByName(fieldName);
     private getGroupValueText(row, fieldName);
@@ -307,8 +341,8 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private evaluateConditionalStyleRule(row, rule, fieldsByKey);
     private getConditionalStyleForRow(row, fieldsByKey, rules);
     private getMatchedConditionalRuleNames(row, fieldsByKey, rules);
-    private getCommandButtonClass(className?);
-    private renderCommandContent(iconName, label);
+    private getCommandButtonClass(className?, forceIconText?);
+    private renderCommandContent(iconName, label, forceIconText?);
     private renderDataRow(row, keySuffix, displayFields, fieldsByKey, conditionalRules);
     private renderGroupHeaderRow(group, keyPath, level, totalColumnCount, groupingConfig);
     private renderRowGroupRows(group, keyPath, level, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules);

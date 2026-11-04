@@ -32,6 +32,7 @@ let failed = 0;
     vm.runInNewContext(output, {
       exports: exports, window: window, document: document, console: console,
       require: function(module) {
+        if (module === './LibraryBrowser') { return require('./loadLibraryBrowser')(root, window); }
         if (module === 'react') { return React; }
         if (module === '@microsoft/sp-http') { return { SPHttpClient: { configurations: { v1: {} } } }; }
         if (module === project + 'WebPartStrings') { return strings; }

@@ -1,0 +1,13 @@
+{
+  "name": "sharepoint-se-repository-validation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dependency-free repository checks; component builds remain independent SPFx 1.5.1 projects.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "validate-se": "node scripts/validate-se.js",
+    "test": "node --test scripts/tests/*.test.js"
+  }
+}

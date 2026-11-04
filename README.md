@@ -4,6 +4,45 @@ A collection of SharePoint Framework (SPFx) components, built for SharePoint SE 
 
 All web-part property panes display the deployed solution version. Components with an **Enable diagnostics logging** setting write optional lifecycle and data-loading details to the browser console; genuine failures remain visible even when diagnostic logging is disabled.
 
+## Numbered web part names
+
+The four controls with editable instance-name fields now assign page-scoped defaults:
+
+| Control | Default names | Solution version |
+|---|---|---|
+| ListControl | `ListControl1`, `ListControl2`, ... | `1.0.0.124` |
+| GridControl | `GridControl1`, `GridControl2`, ... | `1.0.0.102` |
+| DynamicForms | `DynamicForm1`, `DynamicForm2`, ... | `1.0.0.116` |
+| ReportForms | `ReportForm1`, `ReportForm2`, ... | `1.0.0.87` |
+
+All four use the label **Web part name**, in a **Web part** section directly below
+the version banner and before Appearance/data/form settings. DynamicForms' former
+**Form name for linking** and ReportForms' former **Report name for navigation**
+are the same saved `instanceName` property, not new settings. Dynamic Data uses
+the same label; existing connections and custom names are unchanged.
+
+New controls and existing blank names are named in page edit mode. Save the page to
+persist them. Read mode does not rewrite properties. Names remain editable; clearing
+one assigns an available numbered name. Existing nonblank names, including `Report`,
+are preserved. Copying an automatically named control assigns the copy its own number.
+Names do not renumber on refresh, and connection keys remain the original instance GUIDs.
+
+Allocation accounts for saved page canvas metadata, hidden controls and concurrent
+additions. Existing custom names matching a generated name are reserved without
+case sensitivity. Page-metadata failures are logged and do not silently assign a
+potentially conflicting name. Workbench/legacy hosts without a page list item use
+their live canvas metadata and page-local reservations.
+
+All 19 projects were reviewed. Calendar, EventRegistration, FormNavigator,
+SearchControl and Tab use titles/static labels or navigation identities rather than
+this editable instance-name field. Accordion, BannerClock (an application customizer),
+Carousel, Contact, FullWidthControl, LinkButton, Marquee, PrintControl, ScriptEditor
+and Tiles do not expose the same instance-name setting. No new name fields were
+added to these other projects.
+
+Run `node tests\instanceNames.test.js` for allocation and lifecycle regressions.
+Build/package inspection is local validation, not proof of SE-farm deployment.
+
 ## October 26, 2026 theme-loading fix
 
 SharePoint Online can notify a web part of its theme before properties, the DOM,

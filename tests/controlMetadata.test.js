@@ -49,10 +49,12 @@ async function runProject(project) {
       '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData': {},
       './components/ListControl': {}, './components/GridControl': {},
       './components/ListDesigner': {}, './components/GridDesigner': {},
+      './components/PageNavigation': { getPageNavigationTargets: function() { return []; } },
       './DateTime24HourInput': {}, './GridValidation': {}, './GridRichTextEditor': {},
       './ListControl.css': {}, './GridControl.css': {},
       './ListDesigner.css': {}, './GridDesigner.css': {},
       '../shared/deterministicFullWidth': {}, '../shared/overrideCss': {},
+      '../shared/instanceNames': require('./loadInstanceNames')(root),
       '../../../config/package-solution.json': require(path.join(root, 'config', 'package-solution.json'))
     };
     imports[project + 'WebPartStrings'] = {};
@@ -64,6 +66,7 @@ async function runProject(project) {
       },
       console: console, setTimeout: setTimeout, clearTimeout: clearTimeout,
       require: function(name) {
+        if (name === './LibraryBrowser') { return require('./loadLibraryBrowser')(root, window); }
         assert.ok(Object.prototype.hasOwnProperty.call(imports, name), 'Unexpected import: ' + name);
         return imports[name];
       }
@@ -106,6 +109,7 @@ async function runProject(project) {
       spHttpClient: {
         get: function(url, configuration, requestOptions) {
           requests.push({ method: 'GET', url: url, options: requestOptions });
+          if (url.endsWith('?$select=BaseType')) { return response({ BaseType: 0 }); }
           if (url.indexOf('/ViewFields') >= 0) { return response({ value: ['Title', 'Status'] }); }
           if (url.indexOf('/views/') >= 0) {
             return response({ ViewQuery: '<Where><Eq><FieldRef Name="Status"/><Value Type="Choice">Current choice</Value></Eq></Where><OrderBy><FieldRef Name="Title" Ascending="FALSE"/></OrderBy>',

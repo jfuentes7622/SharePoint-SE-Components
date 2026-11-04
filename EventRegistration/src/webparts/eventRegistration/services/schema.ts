@@ -87,7 +87,7 @@ function lookup(name: string, displayName: string, listKey: string, required?: b
     required: required,
     lookupListKey: listKey,
     schemaXml: '<Field Type="Lookup" Name="' + name + '" StaticName="' + name + '" DisplayName="' + displayName
-      + '" Required="' + (required ? 'TRUE' : 'FALSE') + '" List="{LIST_ID}" ShowField="Title" RelationshipDeleteBehavior="Restrict" />'
+      + '" Required="' + (required ? 'TRUE' : 'FALSE') + '" List="{LIST_ID}" ShowField="Title" Indexed="TRUE" />'
   };
 }
 

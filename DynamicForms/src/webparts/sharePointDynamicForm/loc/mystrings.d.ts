@@ -102,6 +102,8 @@ declare interface ISharePointDynamicFormWebPartStrings {
   PropIncludeItemIdOnSubmitLabel: string;
   PropRedirectItemIdQueryParamLabel: string;
   PropInstanceNameLabel: string;
+  PropertyGroupWebPart: string;
+  PropInstanceNameDescription: string;
   PropInstanceNamePlaceholder: string;
   PropWizardPreviousFormLabel: string;
   PropWizardPreviousFormHelp: string;

@@ -2,6 +2,22 @@
 
 SPFx 1.5.1 image carousel backed by a SharePoint document or picture library.
 
+## Visual example
+
+![Portrait library image centered in the carousel with previous and next slide arrows and unused space on both sides](docs/images/carousel-slide.png)
+
+Show library images in a consistent slide area without stretching them. This
+portrait example leaves space on either side while keeping previous/next
+navigation visible. The photograph is demo-library content, not a bundled asset.
+
+Select `carouselSlideLibrary` and its view, map optional title/description/link
+columns, and choose dimensions and playback timing. Rectangular slides preserve
+the image aspect ratio; set height to `0` when the slide should follow the image's
+natural proportions. A still screenshot does not demonstrate automatic playback.
+
+This approved SharePoint Online demo is stored locally for readers without tenant
+access. It is not SharePoint SE deployment verification.
+
 ## October 26, 2026 release
 
 - npm version: `0.0.8`

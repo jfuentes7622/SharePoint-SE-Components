@@ -47,8 +47,10 @@ async function runProject(project) {
     },
     './components/ListControl': {}, './components/GridControl': {},
     './components/ListDesigner': {}, './components/GridDesigner': {},
+    './components/PageNavigation': { getPageNavigationTargets: function() { return []; } },
     '../shared/deterministicFullWidth': {},
     '../shared/overrideCss': { PropertyPaneOverrideCss: field('override') },
+    '../shared/instanceNames': require('./loadInstanceNames')(root),
     '../../../config/package-solution.json': require(path.join(root, 'config', 'package-solution.json'))
   };
   imports[project + 'WebPartStrings'] = strings;
@@ -67,7 +69,14 @@ async function runProject(project) {
     }
   });
   const part = new exports.default();
+  part.domElement = document.createElement('div');
   part.properties = { enableDiagnostics: false };
+  ['now(-24h)', 'now(-6h)', 'now(-48h)', 'now(+2h)', 'now', 'date(-1)'].forEach(function(value) {
+    assert.strictEqual(part.isSupportedFilterExpression(value), true, 'Supported expression: ' + value);
+  });
+  ['now(-1.5h)', 'now(-24)', 'now(999999999999999h)', 'now(noh)'].forEach(function(value) {
+    assert.strictEqual(part.isSupportedFilterExpression(value), false, 'Invalid expression: ' + value);
+  });
   let refreshes = 0;
   part.context = {
     propertyPane: { refresh: function() { refreshes += 1; } },
@@ -333,6 +342,7 @@ async function runProject(project) {
 
   imports.react = require(path.join(root, 'node_modules', 'react'));
   imports['./DateTime24HourInput'] = {};
+  imports['./LibraryBrowser'] = require('./loadLibraryBrowser')(root, document.defaultView);
   imports['./GridValidation'] = {};
   imports['./GridRichTextEditor'] = {};
   imports['./' + project + '.css'] = {};

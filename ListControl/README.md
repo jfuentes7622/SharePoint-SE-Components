@@ -2,6 +2,132 @@
 
 SPFx 1.5.1 list control web part for SharePoint Server Subscription Edition.
 
+## Visual example
+
+![Configured list with a dark header, alternating row surfaces, red text, a highlighted row and a total-item count](docs/images/list-records.png)
+
+Make selected columns easier to scan with custom headers, row colors and
+conditional highlighting. This demo shows four list records, wrapped text,
+a choice column and a highlighted row within a rounded outer surface.
+
+Select the SharePoint list/view, configure `viewColumns`, and use the appearance
+and conditional-style settings to control the presentation. ListControl can also
+publish the selected item to Dynamic Forms or Report Forms for a master/detail page.
+The image is cropped to the table; it does not show the command bar or filter popups.
+
+This approved screenshot comes from a SharePoint Online demo and is stored locally.
+It is not SharePoint SE deployment validation.
+
+## Matching document folders
+
+Current release: npm `1.0.124`, solution/feature `1.0.0.124`.
+
+**Web part name** defaults to `ListControl1`, `ListControl2`, etc. on the page.
+It is the first editable setting, in **Web part** directly below the version banner.
+Existing blanks are filled when editing; save the page to persist the name.
+Custom names and GUID-based connections are preserved. See
+[numbered naming behavior](../README.md#numbered-web-part-names).
+
+Folder names and breadcrumbs are underlined navigation links, not command buttons.
+Breadcrumbs use backslash separators, for example `Documents \ Team \ Reports`.
+Folder rows and the library root use SharePoint's built-in `folder.gif` image rather
+than an outline font icon. Names remain visible with **Icon only** toolbar buttons.
+
+- Document libraries always browse folders inside the control, even with
+  **Matching document folders** off or document links set to **Dialog**.
+  The checkbox in **Buttons** only controls pruning: off shows all accessible
+  folders, including empty folders; on shows only branches containing matching
+  documents. Standard-list behavior is unchanged.
+- The configured/default source view keeps its document restrictions and ordering,
+  but the control searches documents recursively. Use an unfiltered source view if
+  the control should own filtering; it cannot restore documents excluded by that view.
+- Configure ordinary conditions in the existing filter builder. For example:
+
+  | Field | Operator | Value type | Value | Logical |
+  | --- | --- | --- | --- | --- |
+  | Modified | Greater than or equal | Expression | `now(-24h)` | First |
+  | Modified | Less than or equal | Expression | `now` | AND |
+
+  There is no dedicated 24-hour option or injected date filter. `now(nh)` accepts
+  integer elapsed-hour offsets, including `now(-6h)` and `now(-48h)`. One refresh
+  instant is shared by both bounds and all pages; bounds above are inclusive.
+  `date(-1)` still means yesterday's local calendar date, not elapsed 24 hours.
+  Created/Modified are available in the filter builder. Non-date filters and
+  Choice/Lookup multi-selection work too; no filters means all source-view documents.
+- With pruning on, only branches containing matching documents appear. A folder's own date is
+  irrelevant. Folder icons remain visible in every button mode. Open folders with
+  their links; use breadcrumbs/Up to return. Grouping settings are retained but
+  inactive for document libraries.
+- Folder navigation clears document selection and publishes empty selection to
+  connected forms. Document row selection, document links and **Go to details**
+  remain separate actions. **Show link to item** controls document links, which open
+  the actual file using the configured opening behavior, including **Dialog**.
+  Subsite libraries are supported; custom metadata-page links are not used for libraries.
+- Refresh runs every five minutes in page read mode, plus manual Refresh. It
+  refetches all candidate pages and resolves required accessible ancestor folders
+  before replacing results. Failures retain the previous snapshot with an error.
+  Background refresh preserves selection/form binding and focus. If a selected
+  document disappears, a notice appears without choosing another document.
+- The footer counts matching files in the current folder and all its subfolders,
+  never folder rows: two folders containing three matching files report **3 files**.
+  The navigation count covers the whole library. Pagination still uses immediate
+  folder/document entries and does not change file totals. Both pruning settings
+  use the same filtered file counts. Index configured filter fields for large
+  libraries; list threshold failures are explicit. No views, indexes or permissions
+  are modified.
+- Regression commands from the repository root:
+  `node tests\libraryFolders.test.js` and `node tests\libraryRuntime.test.js`.
+  Local mocks do not replace acceptance on the target SE farm, including restricted
+  folders, special-character paths and libraries exceeding 5,000 documents.
+
+Redeploy [SPS-list-control.sppkg](sharepoint/solution/SPS-list-control.sppkg).
+
+## Selected-row navigation
+
+- npm version: `1.0.117`; SharePoint solution and feature version: `1.0.0.117`.
+- Under **Navigation**, choose a **Navigation target** from the controls on this
+  page. **None - disabled** preserves existing behavior and adds no action column.
+  **Refresh page controls** updates the picker after adding controls. Names include
+  instance IDs to distinguish duplicate names; an unavailable saved target is
+  retained until the author changes it.
+- Selecting a row still highlights it and publishes its item ID/mode to connected
+  forms, without moving focus. A **Go to details** button appears only on that row.
+  Its space is reserved so selecting another row does not shift columns. Clicking
+  the button moves keyboard focus and scrolls to the configured control without
+  publishing another selection or changing View/Edit mode.
+- For several forms organized by SPS Tabs, choose the Tab control: navigation
+  focuses its tab strip and preserves the active tab. Direct form targets receive
+  focus on their container, not an editable field. Hidden or missing targets show
+  an error on the selected row; navigation never automatically switches tabs.
+- Navigation does not configure the forms' item sources. Connect Dynamic Forms
+  to this ListControl's selected item ID/mode separately. Text selection and
+  repeated row clicks never navigate. With navigation enabled, keyboard users can
+  Tab to a row, press Enter/Space to select it, then Tab to **Go to details**.
+- The action follows the existing button display mode (text, icon/text, or icon).
+- Redeploy [SPS-list-control.sppkg](sharepoint/solution/SPS-list-control.sppkg).
+  Run `node tests\rowNavigation.test.js` from the repository root.
+  Automated tests use mocked SharePoint page hosts; target-farm acceptance remains
+  required, including discovery of the actual page controls.
+
+## Multi-select column filters
+
+- npm version: `1.0.116`; SharePoint solution and feature version: `1.0.0.116`.
+- In the end-user column-header filter popup, Choice/MultiChoice and
+  Lookup/LookupMulti columns show a scrollable checkbox list. **Equals** matches
+  any checked value; **Not equals** excludes every checked value. Filters on
+  different columns still combine with AND.
+- **Apply** commits the selections and resets paging. Reopening restores them;
+  **Close** discards uncommitted changes. **Clear**, or applying no selections,
+  removes only that column's filter.
+- Lookup options use IDs for matching, display the configured lookup field, and
+  include paged results. Loading and errors are shown; Apply is disabled while
+  lookup options are unavailable. Text, numeric, date, Boolean, and Person
+  filters retain their existing behavior. Property-pane rule designers are unchanged.
+- Redeploy [SPS-list-control.sppkg](sharepoint/solution/SPS-list-control.sppkg).
+  From the repository root, run `node tests\columnFilters.test.js`,
+  `node tests\dateFilters.test.js`, and `node tests\controlMetadata.test.js`.
+  Tests use mocked SharePoint responses; target-farm UI acceptance is still required.
+
 ## October 28, 2026 type-aware rule values
 
 - npm version: `1.0.115`; SharePoint solution and feature version: `1.0.0.115`.

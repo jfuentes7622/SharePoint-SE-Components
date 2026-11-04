@@ -49,6 +49,40 @@ export default class EventRegistrationService {
       });
   }
 
+  public hasRequiredSchema(): Promise<boolean> {
+    return this.hasRequiredLists().then((exists: boolean): Promise<boolean> | boolean => {
+      if (!exists) {
+        return false;
+      }
+      return Promise.all(listSchemas.map((schema: IListSchema): Promise<boolean> => {
+        return this.getFields(schema, schema.fields).then((fields: any[]): Promise<boolean> | boolean => {
+          var ready = schema.fields.every((field: IFieldSchema): boolean => {
+            var existing = fields.filter(function(candidate: any): boolean {
+              return candidate.InternalName === field.internalName;
+            })[0];
+            if (!existing) {
+              return false;
+            }
+            this.validateField(field, existing);
+            return true;
+          });
+          if (!ready) {
+            return false;
+          }
+          return Promise.all(schema.fields.filter(function(field: IFieldSchema): boolean {
+            return !!field.lookupListKey;
+          }).map((field: IFieldSchema): Promise<boolean> => {
+            return this.getLookupState(schema, field).then(function(lookup: any): boolean {
+              return lookup.Indexed === true && Number(lookup.RelationshipDeleteBehavior) === 2;
+            });
+          })).then(function(lookups: boolean[]): boolean {
+            return lookups.every(function(value: boolean): boolean { return value; });
+          });
+        });
+      })).then((ready: boolean[]): boolean => ready.every(function(value: boolean): boolean { return value; }));
+    });
+  }
+
   public getCurrentUser(): Promise<IUserInfo & { isSiteAdmin: boolean }> {
     return this.rest.get('web/currentuser?$select=Id,Title,Email,LoginName,IsSiteAdmin').then((result: IRestResult): any => {
       var item = this.rest.item(result.data);
@@ -113,10 +147,12 @@ export default class EventRegistrationService {
         var result: ISetupResult = { createdLists: [], createdFields: [], validatedLists: [], errors: [] };
         return this.provisionLists(0, result).then((): Promise<ISetupResult> => {
           return this.provisionFields(0, result);
-        }).then((): ISetupResult => {
+        }).then((): Promise<void> => {
           if (result.errors.length > 0) {
             throw new Error('Setup did not complete: ' + result.errors.join(' | '));
           }
+          return this.ensureSessionsCalendarView();
+        }).then((): ISetupResult => {
           return result;
         });
       });
@@ -126,7 +162,7 @@ export default class EventRegistrationService {
   public getEvents(includeAll?: boolean): Promise<IEventItem[]> {
     var filter = includeAll ? '' : "&$filter=ERStatus eq 'open'";
     return this.getRows('events', '?$select=Id,Title,ERDescription,ERLocation,EROrganizerId,EROrganizer/Id,EROrganizer/Title,'
-      + 'EROrganizer/Email,ERStatus,ERRegistrationMode,ERRecurrenceType,ERRecurrenceInterval,ERRecurrenceDays,'
+      + 'EROrganizer/EMail,ERStatus,ERRegistrationMode,ERRecurrenceType,ERRecurrenceInterval,ERRecurrenceDays,'
       + 'ERRecurrenceUntil,ERRegistrationOpen,ERRegistrationClose,ERMaxSeatsPerRegistration&$expand=EROrganizer'
       + filter + '&$orderby=Title').then((rows: any[]): IEventItem[] => {
         return rows.map((row: any): IEventItem => {
@@ -335,7 +371,7 @@ export default class EventRegistrationService {
   public getRegistrations(userId?: number): Promise<IRegistrationItem[]> {
     var filter = userId && userId > 0 ? '&$filter=ERRegistrantId eq ' + String(userId) : '';
     return this.getRows('registrations', '?$select=Id,Title,EREventId,ERSessionId,ERRegistrantId,ERRegistrant/Id,'
-      + 'ERRegistrant/Title,ERRegistrant/Email,ERScope,ERSeatCount,ERStatus,ERConfirmationNumber,ERCreatedAt'
+      + 'ERRegistrant/Title,ERRegistrant/EMail,ERScope,ERSeatCount,ERStatus,ERConfirmationNumber,ERCreatedAt'
       + '&$expand=ERRegistrant' + filter + '&$orderby=ERCreatedAt desc')
       .then((rows: any[]): IRegistrationItem[] => {
         return rows.map((row: any): IRegistrationItem => {
@@ -350,7 +386,7 @@ export default class EventRegistrationService {
   public getAttendees(registrationId?: number): Promise<IAttendeeItem[]> {
     var filter = registrationId && registrationId > 0 ? '&$filter=ERRegistrationId eq ' + String(registrationId) : '';
     return this.getRows('attendees', '?$select=Id,ERRegistrationId,EREventId,ERSessionId,ERAttendeeId,ERAttendee/Id,'
-      + 'ERAttendee/Title,ERAttendee/Email,ERAttendeeKey,ERStatus,ERSlotId&$expand=ERAttendee'
+      + 'ERAttendee/Title,ERAttendee/EMail,ERAttendeeKey,ERStatus,ERSlotId&$expand=ERAttendee'
       + filter + '&$orderby=Id').then((rows: any[]): IAttendeeItem[] => {
         return rows.map((row: any): IAttendeeItem => {
           if (row.ERAttendee) {
@@ -510,31 +546,140 @@ export default class EventRegistrationService {
       });
   }
 
+  private ensureSessionsCalendarView(): Promise<void> {
+    var viewsPath = "web/lists/getByTitle('" + this.rest.escape(listTitle(this.prefix, 'sessions')) + "')/views";
+    var viewPath = viewsPath + "/getByTitle('Registration Sessions Calendar')";
+    var query = '<Where><DateRangesOverlap><FieldRef Name="ERStart" /><FieldRef Name="EREnd" />'
+      + '<Value Type="DateTime"><Month /></Value></DateRangesOverlap></Where>';
+    var viewData = '<FieldRef Name="Title" Type="CalendarMonthTitle" />'
+      + '<FieldRef Name="Title" Type="CalendarWeekTitle" /><FieldRef Name="Title" Type="CalendarWeekLocation" />'
+      + '<FieldRef Name="Title" Type="CalendarDayTitle" /><FieldRef Name="Title" Type="CalendarDayLocation" />';
+    var created = false;
+    return this.rest.get(viewsPath + '?$select=ViewType,ViewQuery,ViewData&$filter='
+      + encodeURIComponent("Title eq 'Registration Sessions Calendar'") + '&$top=1')
+      .then((found: IRestResult): Promise<IRestResult> | IRestResult => {
+      var views = this.rest.rows(found.data);
+      if (views.length > 0) {
+        return { data: views[0], response: found.response };
+      }
+      created = true;
+      return this.rest.post(viewsPath + '/add', {
+        parameters: {
+          __metadata: { type: 'SP.ViewCreationInformation' },
+          Title: 'Registration Sessions Calendar',
+          ViewTypeKind: 524288,
+          ViewFields: { results: ['ERStart', 'EREnd', 'Title'] },
+          Query: query,
+          RowLimit: 0,
+          PersonalView: false,
+          SetAsDefaultView: false
+        }
+      });
+    }).then((result: IRestResult): Promise<void> | void => {
+      var view = this.rest.item(result.data);
+      if (!created && (String(view.ViewType || '').toUpperCase() !== 'CALENDAR'
+        || String(view.ViewQuery || '').replace(/\s+/g, '') !== query.replace(/\s+/g, ''))) {
+        throw new Error('The Sessions view "Registration Sessions Calendar" is incompatible. '
+          + 'Rename it before rerunning setup; existing views will not be replaced.');
+      }
+      if (!created && view.ViewData) {
+        return;
+      }
+      // Complete a new view, or retry setup after its metadata update failed.
+      return this.rest.post(viewPath, {
+        __metadata: { type: 'SP.View' },
+        ViewData: viewData
+      }, { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' }).then((): void => { return; });
+    });
+  }
+
   private ensureFields(schema: IListSchema, index: number, result: ISetupResult): Promise<void> {
     if (index >= schema.fields.length) {
       return Promise.resolve();
     }
     var field = schema.fields[index];
     var title = listTitle(this.prefix, schema.key);
-    return this.rest.get("web/lists/getByTitle('" + this.rest.escape(title) + "')/fields/getByInternalNameOrTitle('"
-      + this.rest.escape(field.internalName) + "')?$select=InternalName,TypeAsString,Required")
-      .then((found: IRestResult): void => {
-        var existing = this.rest.item(found.data);
-        if (String(existing.TypeAsString || '').toLowerCase() !== field.type.toLowerCase()) {
-          throw new Error('Field ' + field.internalName + ' exists as ' + existing.TypeAsString
-            + ', expected ' + field.type + '. Non-destructive setup will not replace it.');
+    return this.getFields(schema, [field])
+      .then((fields: any[]): Promise<void> | void => {
+        if (fields.length === 0) {
+          return this.createField(schema, field).then((): void => {
+            result.createdFields.push(title + '.' + field.internalName);
+          });
         }
-        if (field.required === true && existing.Required !== true) {
-          throw new Error('Field ' + field.internalName + ' exists but is not required. Update it manually or use a new prefix.');
-        }
-      }).catch((error: any): Promise<void> => {
-        if (Number(error.status) !== 404) {
-          throw error;
-        }
-        return this.createField(schema, field).then((): void => {
-          result.createdFields.push(title + '.' + field.internalName);
-        });
+        this.validateField(field, fields[0]);
+        return this.ensureLookupRelationship(schema, field);
       }).then((): Promise<void> => this.ensureFields(schema, index + 1, result));
+  }
+
+  private getFields(schema: IListSchema, fields: IFieldSchema[]): Promise<any[]> {
+    var filter = fields.map((field: IFieldSchema): string => {
+      return "InternalName eq '" + this.rest.escape(field.internalName) + "'";
+    }).join(' or ');
+    return this.rest.get("web/lists/getByTitle('" + this.rest.escape(listTitle(this.prefix, schema.key))
+      + "')/fields?$select=InternalName,TypeAsString,Required&$filter="
+      + encodeURIComponent(filter) + '&$top=' + String(fields.length))
+      .then((found: IRestResult): any[] => this.rest.rows(found.data));
+  }
+
+  private validateField(field: IFieldSchema, existing: any): void {
+    if (existing.InternalName !== field.internalName) {
+      throw new Error('Field ' + field.internalName + ' was returned with internal name ' + String(existing.InternalName)
+        + '. Non-destructive setup will not rename it.');
+    }
+    if (String(existing.TypeAsString || '').toLowerCase() !== field.type.toLowerCase()) {
+      throw new Error('Field ' + field.internalName + ' exists as ' + existing.TypeAsString
+        + ', expected ' + field.type + '. Non-destructive setup will not replace it.');
+    }
+    if (field.required === true && existing.Required !== true) {
+      throw new Error('Field ' + field.internalName + ' exists but is not required. Update it manually or use a new prefix.');
+    }
+  }
+
+  private lookupFieldPath(schema: IListSchema, field: IFieldSchema): string {
+    return "web/lists/getByTitle('" + this.rest.escape(listTitle(this.prefix, schema.key))
+      + "')/fields/getByInternalNameOrTitle('" + this.rest.escape(field.internalName) + "')";
+  }
+
+  private getLookupState(schema: IListSchema, field: IFieldSchema): Promise<any> {
+    return this.rest.get(this.lookupFieldPath(schema, field) + '?$select=Indexed,RelationshipDeleteBehavior')
+      .then((result: IRestResult): any => this.rest.item(result.data));
+  }
+
+  private ensureLookupRelationship(schema: IListSchema, field: IFieldSchema): Promise<void> {
+    if (!field.lookupListKey) {
+      return Promise.resolve();
+    }
+    var path = this.lookupFieldPath(schema, field);
+    var headers = { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' };
+    return this.getLookupState(schema, field).then((lookup: any): Promise<void> | void => {
+      var behavior = Number(lookup.RelationshipDeleteBehavior);
+      if (behavior !== 0 && behavior !== 2) {
+        throw new Error('Lookup ' + field.internalName + ' has incompatible delete behavior '
+          + String(lookup.RelationshipDeleteBehavior) + '. Setup will not replace an existing relationship.');
+      }
+      if (lookup.Indexed === true && behavior === 2) {
+        return;
+      }
+      // SharePoint requires a persisted index before enabling Restrict.
+      var indexReady = lookup.Indexed === true ? Promise.resolve() : this.rest.post(path, {
+        __metadata: { type: 'SP.FieldLookup' }, Indexed: true
+      }, headers).then((): Promise<any> => this.getLookupState(schema, field)).then((indexed: any): void => {
+        if (indexed.Indexed !== true) {
+          throw new Error('Lookup ' + field.internalName + ' could not be indexed. Restrict was not enabled.');
+        }
+      });
+      return indexReady.then((): Promise<void> | void => {
+        if (behavior !== 2) {
+          return this.rest.post(path, {
+            __metadata: { type: 'SP.FieldLookup' }, RelationshipDeleteBehavior: 2
+          }, headers).then((): void => undefined);
+        }
+      }).then((): Promise<any> => this.getLookupState(schema, field)).then((verified: any): void => {
+        if (verified.Indexed !== true || Number(verified.RelationshipDeleteBehavior) !== 2) {
+          throw new Error('Lookup ' + field.internalName + ' did not retain its index and Restrict relationship. Rerun setup.');
+        }
+      });
+    });
   }
 
   private createField(schema: IListSchema, field: IFieldSchema): Promise<void> {
@@ -551,9 +696,16 @@ export default class EventRegistrationService {
       parameters: {
         __metadata: { type: 'SP.XmlSchemaFieldCreationInformation' },
         SchemaXml: xml,
-        Options: 0
+        Options: 8 // AddFieldInternalNameHint: preserve the ER-prefixed internal name.
       }
-    }).then((): void => undefined);
+    }).then((): Promise<any[]> => this.getFields(schema, [field])).then((fields: any[]): Promise<void> => {
+      if (fields.length === 0) {
+        throw new Error('SharePoint did not create ' + title + '.' + field.internalName
+          + ' with its required internal name. Inspect the list columns and rerun setup; existing columns were not renamed or deleted.');
+      }
+      this.validateField(field, fields[0]);
+      return this.ensureLookupRelationship(schema, field);
+    });
   }
 
   private ensureSlots(session: ISessionItem, desiredCapacity: number): Promise<void> {
@@ -823,7 +975,7 @@ export default class EventRegistrationService {
     return {
       id: Number(person.Id || person.id || 0),
       title: String(person.Title || person.title || ''),
-      email: String(person.Email || person.email || ''),
+      email: String(person.EMail || person.Email || person.email || ''),
       loginName: String(person.LoginName || person.loginName || '')
     };
   }

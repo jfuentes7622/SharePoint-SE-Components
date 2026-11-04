@@ -59,6 +59,7 @@ var strings = require("GridControlWebPartStrings");
 var GridValidation_1 = require("./GridValidation");
 var GridRichTextEditor_1 = require("./GridRichTextEditor");
 var DateTime24HourInput_1 = require("./DateTime24HourInput");
+var LibraryBrowser_1 = require("./LibraryBrowser");
 require("./GridControl.css");
 function isCompatibleGridControlType(sharePointType, controlType) {
     var compatibleTypes = {
@@ -322,12 +323,21 @@ var GridControl = (function (_super) {
     function GridControl(props) {
         var _this = _super.call(this, props) || this;
         _this._loadRowsRequestId = 0;
+        _this._libraryRefreshTimer = 0;
+        _this._libraryLoading = false;
+        _this._libraryRefreshPending = false;
+        _this._libraryTypeKey = '';
+        _this._libraryIsDocumentLibrary = false;
+        _this._libraryDeferredQuery = false;
+        _this._libraryDeferredSource = false;
+        _this._filterReferenceTime = new Date().getTime();
         _this._listItemEntityTypeName = '';
         _this._listItemEntityTypeListName = '';
         _this._listId = '';
         _this._listIdListName = '';
         _this._stickyHeaderSourceHtml = '';
         _this._stickyHeaderVisible = false;
+        _this._filterOptionsRequestId = 0;
         _this._pagingEndpoint = '';
         _this._pagingRequestBody = undefined;
         _this._pagingSchemaFieldNames = [];
@@ -399,6 +409,7 @@ var GridControl = (function (_super) {
             selectedItemId: 0,
             selectedItemIds: [],
             selectedMode: 'view',
+            navigationError: '',
             deleting: false,
             deleteMessage: '',
             sortFieldName: '',
@@ -406,8 +417,13 @@ var GridControl = (function (_super) {
             activeFilterFieldName: '',
             filterPopoverStyle: {},
             activeFilterIsDate: false,
+            activeFilterIsMultiSelect: false,
+            activeFilterOptions: [],
+            activeFilterOptionsLoading: false,
+            activeFilterOptionsError: '',
             draftFilterOperator: 'contains',
             draftFilterValue: '',
+            draftFilterValues: [],
             draftFilterEndValue: '',
             datePickerTarget: '',
             datePickerMonth: '',
@@ -472,6 +488,7 @@ var GridControl = (function (_super) {
             window.dispatchEvent(requestEvent);
         }
         this.loadAccessAndRows();
+        this.updateLibraryRefreshTimer();
         if (typeof window !== 'undefined' && window.addEventListener) {
             window.addEventListener('resize', this._scrollArrowResizeHandler);
             window.addEventListener('scroll', this._scrollArrowScrollHandler, true);
@@ -481,6 +498,12 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.componentWillUnmount = function () {
         this._loadRowsRequestId += 1;
+        this._libraryTypeKey = '';
+        this._libraryTypePromise = undefined;
+        this._libraryRefreshPending = false;
+        if (this._libraryRefreshTimer) {
+            window.clearInterval(this._libraryRefreshTimer);
+        }
         this.clearConditionalStyleReevaluationTimer();
         if (typeof window !== 'undefined' && window.removeEventListener) {
             window.removeEventListener(GRID_CONTROL_REFRESH_EVENT, this._refreshEventHandler);
@@ -512,16 +535,80 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.componentDidUpdate = function (prevProps, prevState) {
         var _this = this;
+        if (prevProps.isEditMode !== this.props.isEditMode) {
+            this.updateLibraryRefreshTimer();
+        }
+        if (this.isLibraryBrowsing() && this._libraryRefreshPending
+            && ((prevState.deleting && !this.state.deleting)
+                || (prevState.attachmentUploadingItemId > 0 && this.state.attachmentUploadingItemId <= 0))) {
+            this.loadRows();
+        }
+        if ((this.isLibraryBrowsing() || prevProps.matchingDocumentFolders) && this.state.editingItemId >= 0
+            && (prevProps.listName !== this.props.listName || prevProps.defaultViewId !== this.props.defaultViewId
+                || prevProps.filterJson !== this.props.filterJson || prevProps.gridSchemaJson !== this.props.gridSchemaJson
+                || prevProps.externalFilterJson !== this.props.externalFilterJson
+                || prevProps.matchingDocumentFolders !== this.props.matchingDocumentFolders)) {
+            this._loadRowsRequestId += 1;
+            this._libraryRefreshPending = true;
+            this._libraryDeferredQuery = true;
+            this._libraryDeferredSource = this._libraryDeferredSource || prevProps.listName !== this.props.listName
+                || prevProps.defaultViewId !== this.props.defaultViewId;
+            if (prevProps.matchingDocumentFolders !== this.props.matchingDocumentFolders) {
+                this.updateLibraryRefreshTimer();
+            }
+            this.setState({ libraryNotice: strings.RuntimeLibraryRefreshPending });
+            return;
+        }
+        if (prevState.editingItemId >= 0 && this.state.editingItemId < 0
+            && this._libraryRefreshPending) {
+            this.updateLibraryRefreshTimer();
+            var sourceChanged = this._libraryDeferredSource;
+            var queryChanged = this._libraryDeferredQuery;
+            this._libraryDeferredQuery = false;
+            this._libraryDeferredSource = false;
+            this._libraryRefreshPending = false;
+            this.setState({
+                selectedViewId: sourceChanged ? this.props.defaultViewId || this.getInitialViewId(this.props.views) : this.state.selectedViewId,
+                libraryFolder: queryChanged ? '' : this.state.libraryFolder,
+                libraryRoot: sourceChanged ? '' : this.state.libraryRoot,
+                libraryDocuments: sourceChanged ? [] : this.state.libraryDocuments,
+                rows: sourceChanged ? [] : this.state.rows,
+                currentPage: queryChanged ? 0 : this.state.currentPage
+            }, function () { return _this.loadRows(); });
+            return;
+        }
+        if (prevProps.matchingDocumentFolders !== this.props.matchingDocumentFolders) {
+            this.updateLibraryRefreshTimer();
+            this._loadRowsRequestId += 1;
+            this.setState({ libraryFolder: '', currentPage: 0 }, function () { return _this.loadRows(); });
+            return;
+        }
+        if (this.isLibraryBrowsing() && (prevProps.filterJson !== this.props.filterJson
+            || prevProps.externalFilterJson !== this.props.externalFilterJson
+            || prevState.columnFilters !== this.state.columnFilters || prevState.runtimeFilterJson !== this.state.runtimeFilterJson)) {
+            this._loadRowsRequestId += 1;
+            this.setState({ libraryFolder: '', currentPage: 0 }, function () { return _this.loadRows(); });
+            return;
+        }
+        if (prevProps.navigationTargetInstanceId !== this.props.navigationTargetInstanceId && this.state.navigationError) {
+            this.setState({ navigationError: '' });
+        }
         if (prevProps.conditionalStyleJson !== this.props.conditionalStyleJson) {
             this.updateConditionalStyleReevaluationTimer();
         }
         if (prevProps.readSecurityGroupId !== this.props.readSecurityGroupId
             || prevProps.editSecurityGroupId !== this.props.editSecurityGroupId) {
+            if (this.isLibraryBrowsing()) {
+                this._loadRowsRequestId += 1;
+            }
             this.loadAccessAndRows();
             return;
         }
         if (prevProps.listName !== this.props.listName || prevProps.defaultViewId !== this.props.defaultViewId
             || prevProps.gridSchemaJson !== this.props.gridSchemaJson) {
+            if (this.isLibraryBrowsing()) {
+                this._loadRowsRequestId += 1;
+            }
             this.logDiagnostic('Props changed; resetting selection and reloading rows. listName=' + String(this.props.listName || '(none)') + ', viewId=' + String(this.props.defaultViewId || '(none)'));
             if (prevProps.listName !== this.props.listName) {
                 this._listId = '';
@@ -531,6 +618,10 @@ var GridControl = (function (_super) {
             var selectedViewWillChange = nextSelectedViewId !== this.state.selectedViewId;
             this.setState({
                 selectedViewId: nextSelectedViewId,
+                libraryRoot: '',
+                libraryFolder: '',
+                libraryFolders: [],
+                libraryDocuments: [],
                 selectedItemId: 0,
                 selectedItemIds: [],
                 selectedMode: 'view',
@@ -562,6 +653,12 @@ var GridControl = (function (_super) {
             return;
         }
         if (prevState.selectedViewId !== this.state.selectedViewId) {
+            if (this.isLibraryBrowsing()) {
+                this._loadRowsRequestId += 1;
+            }
+            if (this.isLibraryBrowsing() && this.state.libraryFolder) {
+                this.setState({ libraryFolder: '' });
+            }
             if (this.state.currentPage !== 0) {
                 this.setState({ currentPage: 0 });
             }
@@ -953,20 +1050,20 @@ var GridControl = (function (_super) {
     GridControl.prototype.isReadOnly = function () {
         return this.state.runtimeReadOnly || !this.state.hasEditAccess;
     };
-    GridControl.prototype.getCommandButtonClass = function (className) {
+    GridControl.prototype.getCommandButtonClass = function (className, forceIconText) {
         return joinClassNames([
             className || '',
             'gc-command-button',
-            this.props.buttonDisplayMode === 'icon' ? 'gc-command-button-icon-only' : ''
+            this.props.buttonDisplayMode === 'icon' && !forceIconText ? 'gc-command-button-icon-only' : ''
         ]);
     };
-    GridControl.prototype.renderCommandContent = function (iconName, label) {
-        if (this.props.buttonDisplayMode !== 'icon' && this.props.buttonDisplayMode !== 'iconText') {
+    GridControl.prototype.renderCommandContent = function (iconName, label, forceIconText) {
+        if (!forceIconText && this.props.buttonDisplayMode !== 'icon' && this.props.buttonDisplayMode !== 'iconText') {
             return label;
         }
         return (React.createElement("span", { className: "gc-command-content" },
             React.createElement("i", { className: 'ms-Icon ms-Icon--' + iconName, "aria-hidden": "true" }),
-            React.createElement("span", { className: this.props.buttonDisplayMode === 'icon' ? 'gc-visually-hidden' : '' }, label)));
+            React.createElement("span", { className: this.props.buttonDisplayMode === 'icon' && !forceIconText ? 'gc-visually-hidden' : '' }, label)));
     };
     GridControl.prototype.getJsonWithFallback = function (url) {
         return __awaiter(this, void 0, void 0, function () {
@@ -1588,6 +1685,11 @@ var GridControl = (function (_super) {
         return this.ensureAttachmentDisplayField(schemaDisplayFields);
     };
     GridControl.prototype.ensureAttachmentDisplayField = function (fields) {
+        var _this = this;
+        if (this.isLibraryBrowsing() && !fields.some(function (field) { return _this.isTitleField(field); })) {
+            var nameField = { Name: 'FileLeafRef', DisplayName: strings.RuntimeLibraryDocumentName, TypeAsString: 'File' };
+            fields = [nameField].concat(fields);
+        }
         var attachmentMetadata = this.state.fieldMetadataByName['attachments'];
         if (!attachmentMetadata || attachmentMetadata.typeAsString !== 'Attachments') {
             return fields;
@@ -1641,6 +1743,9 @@ var GridControl = (function (_super) {
             ? advancedValidation.rules : [];
     };
     GridControl.prototype.getGridGroupingConfig = function () {
+        if (this.isLibraryBrowsing()) {
+            return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true };
+        }
         var schema = this.getGridSchema();
         var grouping = schema && schema.grouping;
         var field1 = grouping ? String(grouping.field1 || '') : '';
@@ -1885,9 +1990,10 @@ var GridControl = (function (_super) {
             });
         });
     };
-    GridControl.prototype.loadLookupOptions = function (metadata) {
+    GridControl.prototype.loadLookupOptions = function (metadata, throwOnError) {
+        if (throwOnError === void 0) { throwOnError = false; }
         return __awaiter(this, void 0, void 0, function () {
-            var typeName, endpoint, lookupField, lookupListSegment, response, data, items, error_5;
+            var typeName, endpoint, lookupField, lookupListSegment, items, response, data, page, error_5;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -1905,44 +2011,56 @@ var GridControl = (function (_super) {
                                 + encodeURIComponent('Id,' + lookupField) + '&$top=5000';
                         }
                         if (!endpoint) {
+                            if (throwOnError) {
+                                throw new Error(strings.RuntimeFilterOptionsLoadFailed);
+                            }
                             return [2 /*return*/, []];
                         }
                         _a.label = 1;
                     case 1:
-                        _a.trys.push([1, 4, , 5]);
-                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                        _a.trys.push([1, 6, , 7]);
+                        items = [];
+                        _a.label = 2;
                     case 2:
+                        if (!endpoint) return [3 /*break*/, 5];
+                        return [4 /*yield*/, this.getJsonWithFallback(endpoint)];
+                    case 3:
                         response = _a.sent();
                         if (!response.ok) {
-                            this.logDiagnostic('Lookup options unavailable for field ' + metadata.internalName + '. Status=' + String(response.status));
-                            return [2 /*return*/, []];
+                            throw new Error(strings.RuntimeFilterOptionsLoadFailed + ' HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
                         }
                         return [4 /*yield*/, response.json()];
-                    case 3:
-                        data = _a.sent();
-                        items = toArray(data.value);
-                        if (items.length === 0) {
-                            items = toArray(data && data.d && data.d.results);
-                        }
-                        return [2 /*return*/, items.filter(function (item) {
-                                if (!item || toPositiveInt(item.Id) <= 0) {
-                                    return false;
-                                }
-                                if (typeName !== 'User' && typeName !== 'UserMulti') {
-                                    return true;
-                                }
-                                return parseInt(String(item.PrincipalType || '0'), 10) > 0;
-                            }).map(function (item) {
-                                return {
-                                    id: toPositiveInt(item.Id),
-                                    text: String(item[metadata.lookupField] || item.Title || item.Email || item.Id)
-                                };
-                            })];
                     case 4:
+                        data = _a.sent();
+                        page = toArray(data.value);
+                        if (page.length === 0) {
+                            page = toArray(data && data.d && data.d.results);
+                        }
+                        items = items.concat(page);
+                        endpoint = String(data['@odata.nextLink'] || data['odata.nextLink'] || (data.d && data.d.__next) || '');
+                        return [3 /*break*/, 2];
+                    case 5: return [2 /*return*/, items.filter(function (item) {
+                            if (!item || toPositiveInt(item.Id) <= 0) {
+                                return false;
+                            }
+                            if (typeName !== 'User' && typeName !== 'UserMulti') {
+                                return true;
+                            }
+                            return parseInt(String(item.PrincipalType || '0'), 10) > 0;
+                        }).map(function (item) {
+                            return {
+                                id: toPositiveInt(item.Id),
+                                text: String(item[metadata.lookupField] || item.Title || item.Email || item.Id)
+                            };
+                        })];
+                    case 6:
                         error_5 = _a.sent();
+                        if (throwOnError) {
+                            throw error_5;
+                        }
                         this.logDiagnostic('Lookup options failed for field ' + metadata.internalName + ': ' + (error_5 && error_5.message ? error_5.message : String(error_5)));
                         return [2 /*return*/, []];
-                    case 5: return [2 /*return*/];
+                    case 7: return [2 /*return*/];
                 }
             });
         });
@@ -2361,12 +2479,257 @@ var GridControl = (function (_super) {
             });
         });
     };
+    GridControl.prototype.isLibraryBrowsing = function () {
+        return this.props.matchingDocumentFolders === true || !!this.state.libraryRoot
+            || (this._libraryTypeKey === this.getWebUrl() + '|' + this.props.listName && this._libraryIsDocumentLibrary);
+    };
+    GridControl.prototype.loadLibraryType = function () {
+        var _this = this;
+        var key = this.getWebUrl() + '|' + this.props.listName;
+        if (this._libraryTypeKey !== key || !this._libraryTypePromise) {
+            this._libraryTypeKey = key;
+            this._libraryIsDocumentLibrary = false;
+            this._libraryTypePromise = LibraryBrowser_1.detectDocumentLibrary(this.getWebUrl(), this.props.listName, function (url) { return _this.getJsonWithFallback(url); })
+                .then(function (isLibrary) {
+                if (_this._libraryTypeKey === key) {
+                    _this._libraryIsDocumentLibrary = isLibrary;
+                    _this.updateLibraryRefreshTimer();
+                }
+                return isLibrary;
+            }, function (error) {
+                if (_this._libraryTypeKey === key) {
+                    _this._libraryTypePromise = undefined;
+                }
+                throw error;
+            });
+        }
+        return this._libraryTypePromise;
+    };
+    GridControl.prototype.updateLibraryRefreshTimer = function () {
+        var _this = this;
+        if (this._libraryRefreshTimer) {
+            window.clearInterval(this._libraryRefreshTimer);
+            this._libraryRefreshTimer = 0;
+        }
+        if (this.isLibraryBrowsing() && !this.props.isEditMode) {
+            this._libraryRefreshTimer = window.setInterval(function () { return _this.loadRows(); }, 300000);
+        }
+    };
+    GridControl.prototype.loadLibraryRows = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var _this = this;
+            var requestId, prune, previousTime, time, selectedViewId, _a, names, schemaFields, schemaNames, supportNames, conditions, viewXml, snapshot, fields, needed, neededKeys, metadata, matches, folders, _b, lookupOptions, current, notice, ids, error_6;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        if (this._libraryLoading || this.state.editingItemId >= 0 || this.state.saving || this.state.deleting
+                            || this.state.attachmentUploadingItemId > 0) {
+                            this._libraryRefreshPending = true;
+                            this.setState({ libraryNotice: strings.RuntimeLibraryRefreshPending });
+                            return [2 /*return*/];
+                        }
+                        requestId = ++this._loadRowsRequestId;
+                        prune = this.props.matchingDocumentFolders === true;
+                        previousTime = this._filterReferenceTime;
+                        time = new Date().getTime();
+                        this._libraryLoading = true;
+                        this._libraryRefreshPending = false;
+                        this.setState({ loading: !this.state.libraryRoot, libraryError: '', error: null });
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 13, 14, 15]);
+                        LibraryBrowser_1.validateLibraryFilterJson([this.props.filterJson, this.state.runtimeFilterJson, this.props.externalFilterJson]);
+                        _a = this.state.selectedViewId;
+                        if (_a) return [3 /*break*/, 3];
+                        return [4 /*yield*/, LibraryBrowser_1.defaultLibraryViewId(this.getWebUrl(), this.props.listName, function (url) { return _this.getJsonWithFallback(url); })];
+                    case 2:
+                        _a = (_c.sent());
+                        _c.label = 3;
+                    case 3:
+                        selectedViewId = _a;
+                        return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
+                    case 4:
+                        names = _c.sent();
+                        if (!names.length) {
+                            throw new Error('Unable to load source library view columns.');
+                        }
+                        (this.props.viewColumns || []).forEach(function (column) {
+                            if (selectedViewId === _this.props.defaultViewId && column.fieldName && names.indexOf(column.fieldName) < 0) {
+                                names.push(column.fieldName);
+                            }
+                        });
+                        schemaFields = this.getGridSchemaFields().filter(function (field) { return field.visible !== false; });
+                        schemaNames = schemaFields.map(function (field) { return field.fieldName; });
+                        if (schemaNames.length) {
+                            names = schemaNames;
+                        }
+                        supportNames = this.getRuntimeFilterFieldNames().concat(Object.keys(this.state.columnFilters));
+                        conditions = this.parsePresetFilterConditions();
+                        return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, names)];
+                    case 5:
+                        viewXml = _c.sent();
+                        if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
+                            viewXml = this.applyExternalServerSearchToViewXml(viewXml || '<View/>');
+                        }
+                        return [4 /*yield*/, LibraryBrowser_1.loadLibraryDocuments({
+                                webUrl: this.getWebUrl(), listName: this.props.listName, fields: names.concat(supportNames),
+                                viewXml: viewXml, conditions: conditions, time: time, batchSize: this.props.fetchBatchSize,
+                                get: function (url) { return _this.getJsonWithFallback(url); }, post: function (url, body) { return _this.postJsonWithFallback(url, body); },
+                                extract: extractRenderRowsAndFields, current: function () { return requestId === _this._loadRowsRequestId && _this.state.hasReadAccess; }
+                            })];
+                    case 6:
+                        snapshot = _c.sent();
+                        fields = this.getFieldsForConsumption(snapshot.fields, names);
+                        needed = supportNames.concat(conditions.map(function (condition) { return condition.field; }));
+                        neededKeys = needed.map(function (name) { return name.toLowerCase(); });
+                        snapshot.metadata.forEach(function (source) {
+                            if ((neededKeys.indexOf(String(source.InternalName).toLowerCase()) >= 0 || neededKeys.indexOf(String(source.Title).toLowerCase()) >= 0)
+                                && !fields.some(function (field) {
+                                    return String(field.RealFieldName || field.Name).toLowerCase() === String(source.InternalName).toLowerCase();
+                                })) {
+                                fields.push({ Name: source.InternalName, RuntimeFilterOnly: true });
+                            }
+                        });
+                        return [4 /*yield*/, this.loadGridFieldMetadata()];
+                    case 7:
+                        metadata = _c.sent();
+                        fields = this.applyFieldTypes(fields, metadata);
+                        fields.forEach(function (field) {
+                            var source = snapshot.metadata.filter(function (item) {
+                                return String(item.InternalName).toLowerCase() === String(field.RealFieldName || field.Name).toLowerCase();
+                            })[0];
+                            if (source) {
+                                field.TypeAsString = source.TypeAsString;
+                                field.DisplayFormat = source.DisplayFormat;
+                                field.DisplayName = source.Title;
+                            }
+                        });
+                        conditions.forEach(function (condition) {
+                            var known = fields.some(function (field) { return String(field.RealFieldName || field.Name).toLowerCase() === condition.field.toLowerCase()
+                                || String(field.DisplayName).toLowerCase() === condition.field.toLowerCase(); });
+                            if (!known) {
+                                throw new Error('Unknown filter field: ' + condition.field);
+                            }
+                        });
+                        this._filterReferenceTime = time;
+                        try {
+                            matches = this.getProcessedRows(snapshot.rows, fields);
+                        }
+                        finally {
+                            this._filterReferenceTime = previousTime;
+                        }
+                        if (!prune) return [3 /*break*/, 9];
+                        return [4 /*yield*/, LibraryBrowser_1.loadAncestorFolders(this.getWebUrl(), snapshot.root, matches, function (url) { return _this.getJsonWithFallback(url); })];
+                    case 8:
+                        _b = _c.sent();
+                        return [3 /*break*/, 11];
+                    case 9: return [4 /*yield*/, LibraryBrowser_1.loadLibraryFolders(this.getWebUrl(), this.props.listName, snapshot.root, matches, function (url) { return _this.getJsonWithFallback(url); }, function () { return requestId === _this._loadRowsRequestId && _this.state.hasReadAccess; }, this.props.fetchBatchSize)];
+                    case 10:
+                        _b = _c.sent();
+                        _c.label = 11;
+                    case 11:
+                        folders = _b;
+                        return [4 /*yield*/, this.loadLookupOptionsByField(metadata, fields)];
+                    case 12:
+                        lookupOptions = _c.sent();
+                        if (requestId !== this._loadRowsRequestId || !this.state.hasReadAccess) {
+                            return [2 /*return*/];
+                        }
+                        if (this.state.editingItemId >= 0 || this.state.saving || this.state.deleting || this.state.attachmentUploadingItemId > 0) {
+                            this._libraryRefreshPending = true;
+                            this.setState({ libraryNotice: strings.RuntimeLibraryRefreshPending });
+                            return [2 /*return*/];
+                        }
+                        current = LibraryBrowser_1.nearestFolder(snapshot.root, this.state.libraryFolder || snapshot.root, folders.map(function (folder) { return folder.path; }));
+                        notice = this.state.libraryFolder && current !== this.state.libraryFolder ? strings.RuntimeLibraryFolderGone : '';
+                        if (this.state.selectedItemId > 0 && !matches.some(function (row) { return _this.getRowItemId(row) === _this.state.selectedItemId; })) {
+                            notice += (notice ? ' ' : '') + strings.RuntimeLibrarySelectionGone;
+                        }
+                        this._filterReferenceTime = time;
+                        ids = matches.map(function (row) { return _this.getRowItemId(row); });
+                        this.setState({ fields: fields, rows: snapshot.rows, libraryDocuments: matches, fieldMetadataByName: metadata, lookupOptionsByField: lookupOptions,
+                            isDocumentLibrary: true, selectedItemIds: this.state.selectedItemIds.filter(function (id) { return ids.indexOf(id) >= 0; }),
+                            libraryRoot: snapshot.root, libraryFolder: current, libraryFolders: folders, libraryNotice: notice,
+                            libraryError: '', loading: false, nextPageHref: '',
+                            currentPage: current === this.state.libraryFolder ? this.state.currentPage : 0 }, function () { return _this.reportFilteredCount(); });
+                        return [3 /*break*/, 15];
+                    case 13:
+                        error_6 = _c.sent();
+                        if (requestId !== this._loadRowsRequestId) {
+                            return [2 /*return*/];
+                        }
+                        console.error('[GridControl] Library refresh failed.', error_6);
+                        this.setState({ loading: false, libraryError: strings.RuntimeLibraryRefreshFailed + ' ' + String(error_6 && error_6.message || error_6) });
+                        return [3 /*break*/, 15];
+                    case 14:
+                        this._libraryLoading = false;
+                        if (this._libraryRefreshPending && this.isLibraryBrowsing() && this.state.editingItemId < 0
+                            && !this.state.saving && !this.state.deleting && this.state.attachmentUploadingItemId <= 0) {
+                            this._libraryRefreshPending = false;
+                            this.loadRows();
+                        }
+                        return [7 /*endfinally*/];
+                    case 15: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    GridControl.prototype.navigateLibraryFolder = function (path) {
+        if (this.state.editingItemId >= 0 || this.state.saving || this.state.deleting) {
+            this.setState({ libraryNotice: strings.RuntimeLibraryFinishEditing });
+            return;
+        }
+        this.setState({ libraryFolder: path, currentPage: 0, selectedItemId: 0, selectedItemIds: [], selectedMode: 'view', libraryNotice: '', navigationError: '' });
+        this.props.onSelectionChange(0, 'view');
+    };
+    GridControl.prototype.renderLibraryNavigation = function () {
+        var _this = this;
+        if (!this.isLibraryBrowsing() || !this.state.libraryRoot) {
+            return undefined;
+        }
+        var root = this.state.libraryRoot;
+        var current = this.state.libraryFolder || root;
+        var fileCount = this.getProcessedRows().length;
+        var parts = current.substring(root.length).split('/').filter(function (part) { return !!part; });
+        var paths = [root];
+        parts.forEach(function (part) { paths.push(paths[paths.length - 1] + '/' + part); });
+        return React.createElement("div", { className: "lc-library-navigation" },
+            React.createElement("nav", { "aria-label": strings.RuntimeLibraryBreadcrumb },
+                React.createElement("button", { type: "button", className: this.getCommandButtonClass('lc-library-up', true), disabled: current === root, title: strings.RuntimeLibraryUp, "aria-label": strings.RuntimeLibraryUp, onClick: function () { return _this.navigateLibraryFolder(current.substring(0, current.lastIndexOf('/'))); } }, this.renderCommandContent('Up', strings.RuntimeLibraryUp, true)),
+                paths.map(function (path, index) { return React.createElement("span", { key: path, className: "lc-library-path-part" },
+                    index > 0 && React.createElement("span", { className: "lc-library-separator", "aria-hidden": "true" }, '\\'),
+                    _this.renderLibraryFolderLink(path, index === 0 ? _this.props.listName : parts[index - 1], path === current, index === 0)); })),
+            React.createElement("div", { role: "status" }, formatString(fileCount === 1 ? strings.RuntimeLibraryDocumentCountSingular : strings.RuntimeLibraryDocumentCount, fileCount)));
+    };
+    GridControl.prototype.renderLibraryFolderLink = function (path, label, current, showIcon) {
+        var _this = this;
+        if (current === void 0) { current = false; }
+        if (showIcon === void 0) { showIcon = true; }
+        return React.createElement("a", { className: "lc-item-link lc-library-folder-link", href: LibraryBrowser_1.documentUrl(this.getWebUrl(), path), title: label, "aria-label": label, "aria-current": current ? 'page' : undefined, onClick: function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                _this.navigateLibraryFolder(path);
+            }, onKeyDown: function (event) {
+                if (event.key === ' ' || event.key === 'Spacebar') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    _this.navigateLibraryFolder(path);
+                }
+            } },
+            showIcon && React.createElement("img", { className: "lc-library-folder-icon", src: this.getWebUrl() + '/_layouts/15/images/folder.gif', alt: "", "aria-hidden": "true" }),
+            React.createElement("span", null, label));
+    };
+    GridControl.prototype.renderLibraryFolderRow = function (row, columnCount) {
+        var folder = row.libraryFolder;
+        return React.createElement("tr", { key: 'folder-' + folder.path, className: "lc-row lc-library-folder" },
+            React.createElement("td", { colSpan: Math.max(1, columnCount) }, this.renderLibraryFolderLink(folder.path, folder.name)));
+    };
     GridControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, configuredFieldNames, selectedViewXml, runtimeFilterFieldNames, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, isDocumentLibrary, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _a, error_6, loadError;
-            return __generator(this, function (_b) {
-                switch (_b.label) {
+            var sourceName, sourceRequestId, isLibrary, _a, error_7, requestId, baseEndpoint, selectedViewId, schemaFields, schemaFieldNames, groupingConfig, viewFieldNames, configuredFieldNames, selectedViewXml, runtimeFilterFieldNames, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, filteredItemIds, filteredSchemaItems, schemaItems, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, normalizedRuntimeFieldNames, fieldTitleMap, fieldMetadataByName, isDocumentLibrary, lookupOptionsByField, renderableRows, renderableItemIds, selectedItemIds, hasAttachmentsField, attachmentCountsByItemId, _b, error_8, loadError;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
                     case 0:
                         if (this.state.accessLoading || !this.state.hasReadAccess) {
                             this.setState({ loading: false, error: null, fields: [], rows: [] });
@@ -2376,12 +2739,44 @@ var GridControl = (function (_super) {
                             this.setState({ loading: false, error: null, fields: [], rows: [] });
                             return [2 /*return*/];
                         }
+                        sourceName = this.props.listName;
+                        sourceRequestId = this._loadRowsRequestId;
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 6, , 7]);
+                        _a = this.props.matchingDocumentFolders === true;
+                        if (_a) return [3 /*break*/, 3];
+                        return [4 /*yield*/, this.loadLibraryType()];
+                    case 2:
+                        _a = (_c.sent());
+                        _c.label = 3;
+                    case 3:
+                        isLibrary = _a;
+                        if (sourceName !== this.props.listName || sourceRequestId !== this._loadRowsRequestId || !this.state.hasReadAccess) {
+                            return [2 /*return*/];
+                        }
+                        if (!isLibrary) return [3 /*break*/, 5];
+                        return [4 /*yield*/, this.loadLibraryRows()];
+                    case 4:
+                        _c.sent();
+                        return [2 /*return*/];
+                    case 5: return [3 /*break*/, 7];
+                    case 6:
+                        error_7 = _c.sent();
+                        if (sourceName !== this.props.listName || sourceRequestId !== this._loadRowsRequestId) {
+                            return [2 /*return*/];
+                        }
+                        console.error('[GridControl] List type discovery failed.', error_7);
+                        this.setState({ loading: false, error: String(error_7 && error_7.message || error_7) });
+                        return [2 /*return*/];
+                    case 7:
+                        this._filterReferenceTime = new Date().getTime();
                         requestId = ++this._loadRowsRequestId;
                         this.logDiagnostic('Starting loadRows. requestId=' + String(requestId) + ', listName=' + String(this.props.listName) + ', selectedViewId=' + String(this.state.selectedViewId || '(none)'));
                         this.setState({ loading: true, loadingMore: false, nextPageHref: '', error: null });
-                        _b.label = 1;
-                    case 1:
-                        _b.trys.push([1, 31, , 32]);
+                        _c.label = 8;
+                    case 8:
+                        _c.trys.push([8, 38, , 39]);
                         baseEndpoint = this.getWebUrl() + "/_api/web/lists/getByTitle('" + escapeODataText(this.props.listName) + "')/RenderListDataAsStream";
                         selectedViewId = this.state.selectedViewId;
                         schemaFields = this.getGridSchemaFields();
@@ -2398,8 +2793,8 @@ var GridControl = (function (_super) {
                             }
                         });
                         return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
-                    case 2:
-                        viewFieldNames = _b.sent();
+                    case 9:
+                        viewFieldNames = _c.sent();
                         configuredFieldNames = schemaFields.length > 0 ? schemaFieldNames
                             : (selectedViewId === this.props.defaultViewId ? (this.props.viewColumns || []).map(function (column) {
                                 return String(column.fieldName || '');
@@ -2412,8 +2807,8 @@ var GridControl = (function (_super) {
                             }
                         });
                         return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, viewFieldNames)];
-                    case 3:
-                        selectedViewXml = _b.sent();
+                    case 10:
+                        selectedViewXml = _c.sent();
                         runtimeFilterFieldNames = this.getRuntimeFilterFieldNames();
                         this._pagingRuntimeFilterFieldNames = runtimeFilterFieldNames.slice(0);
                         body = {
@@ -2437,34 +2832,34 @@ var GridControl = (function (_super) {
                         hadSuccessfulResponse = false;
                         requestUrls = [baseEndpoint];
                         requestIndex = 0;
-                        _b.label = 4;
-                    case 4:
-                        if (!(requestIndex < requestUrls.length)) return [3 /*break*/, 13];
+                        _c.label = 11;
+                    case 11:
+                        if (!(requestIndex < requestUrls.length)) return [3 /*break*/, 20];
                         requestUrl = requestUrls[requestIndex];
                         return [4 /*yield*/, this.postJsonWithFallback(requestUrl, body)];
-                    case 5:
-                        response = _b.sent();
-                        if (!!response.ok) return [3 /*break*/, 10];
+                    case 12:
+                        response = _c.sent();
+                        if (!!response.ok) return [3 /*break*/, 17];
                         errorText = '';
-                        _b.label = 6;
-                    case 6:
-                        _b.trys.push([6, 8, , 9]);
+                        _c.label = 13;
+                    case 13:
+                        _c.trys.push([13, 15, , 16]);
                         return [4 /*yield*/, response.text()];
-                    case 7:
-                        errorText = _b.sent();
-                        return [3 /*break*/, 9];
-                    case 8:
-                        _readError_1 = _b.sent();
+                    case 14:
+                        errorText = _c.sent();
+                        return [3 /*break*/, 16];
+                    case 15:
+                        _readError_1 = _c.sent();
                         errorText = '';
-                        return [3 /*break*/, 9];
-                    case 9:
+                        return [3 /*break*/, 16];
+                    case 16:
                         lastError = 'Failed to load list view data. HTTP ' + String(response.status) + ' ' + response.statusText + (errorText ? (': ' + errorText) : '');
-                        return [3 /*break*/, 12];
-                    case 10:
+                        return [3 /*break*/, 19];
+                    case 17:
                         hadSuccessfulResponse = true;
                         return [4 /*yield*/, response.json()];
-                    case 11:
-                        data = _b.sent();
+                    case 18:
+                        data = _c.sent();
                         extracted = extractRenderRowsAndFields(data);
                         nextPageHref = this.props.isEditMode ? '' : extracted.nextHref;
                         if (selectedFields.length === 0 && extracted.fields.length > 0) {
@@ -2475,65 +2870,65 @@ var GridControl = (function (_super) {
                             if (selectedFields.length === 0) {
                                 selectedFields = extracted.fields;
                             }
-                            return [3 /*break*/, 13];
+                            return [3 /*break*/, 20];
                         }
-                        _b.label = 12;
-                    case 12:
+                        _c.label = 19;
+                    case 19:
                         requestIndex += 1;
-                        return [3 /*break*/, 4];
-                    case 13:
+                        return [3 /*break*/, 11];
+                    case 20:
                         if (!hadSuccessfulResponse) {
                             throw new Error(lastError || 'Failed to load list view data.');
                         }
                         rows = selectedRows;
                         fields = selectedFields;
-                        if (!(schemaFields.length > 0)) return [3 /*break*/, 19];
+                        if (!(schemaFields.length > 0)) return [3 /*break*/, 26];
                         viewFieldNames = schemaFieldNames;
-                        if (!(selectedViewId && rows.length > 0)) return [3 /*break*/, 16];
+                        if (!(selectedViewId && rows.length > 0)) return [3 /*break*/, 23];
                         filteredItemIds = rows.map(function (row) { return _this.getRowItemId(row); }).filter(function (itemId, index, values) {
                             return itemId > 0 && values.indexOf(itemId) === index;
                         });
-                        if (!(filteredItemIds.length > 0)) return [3 /*break*/, 15];
+                        if (!(filteredItemIds.length > 0)) return [3 /*break*/, 22];
                         return [4 /*yield*/, this.loadRowsFromItemsEndpoint(schemaFieldNames, filteredItemIds)];
-                    case 14:
-                        filteredSchemaItems = _b.sent();
+                    case 21:
+                        filteredSchemaItems = _c.sent();
                         if (filteredSchemaItems.rows.length > 0) {
                             rows = filteredSchemaItems.rows;
                             fields = filteredSchemaItems.fields;
                             this.logDiagnostic('Hydrated selected view rows with grid schema fields. rows=' + String(rows.length));
                         }
-                        _b.label = 15;
-                    case 15: return [3 /*break*/, 18];
-                    case 16:
-                        if (!(!selectedViewId && rows.length === 0)) return [3 /*break*/, 18];
+                        _c.label = 22;
+                    case 22: return [3 /*break*/, 25];
+                    case 23:
+                        if (!(!selectedViewId && rows.length === 0)) return [3 /*break*/, 25];
                         return [4 /*yield*/, this.loadRowsFromItemsEndpoint(schemaFieldNames)];
-                    case 17:
-                        schemaItems = _b.sent();
+                    case 24:
+                        schemaItems = _c.sent();
                         rows = schemaItems.rows;
                         fields = schemaItems.fields;
-                        _b.label = 18;
-                    case 18: return [3 /*break*/, 21];
-                    case 19:
-                        if (!(rows.length === 0 && !selectedViewId)) return [3 /*break*/, 21];
+                        _c.label = 25;
+                    case 25: return [3 /*break*/, 28];
+                    case 26:
+                        if (!(rows.length === 0 && !selectedViewId)) return [3 /*break*/, 28];
                         return [4 /*yield*/, this.loadRowsFromItemsEndpoint(viewFieldNames)];
-                    case 20:
-                        itemsFallback = _b.sent();
+                    case 27:
+                        itemsFallback = _c.sent();
                         rows = itemsFallback.rows;
                         if (fields.length === 0) {
                             fields = itemsFallback.fields;
                         }
-                        _b.label = 21;
-                    case 21:
+                        _c.label = 28;
+                    case 28:
                         runtimeSupportFields = [];
-                        if (!(runtimeFilterFieldNames.length > 0 && rows.length > 0)) return [3 /*break*/, 23];
+                        if (!(runtimeFilterFieldNames.length > 0 && rows.length > 0)) return [3 /*break*/, 30];
                         runtimeItemIds = rows.map(function (row) { return _this.getRowItemId(row); }).filter(function (itemId) { return itemId > 0; });
                         return [4 /*yield*/, this.loadRowsFromItemsEndpoint(runtimeFilterFieldNames, runtimeItemIds)];
-                    case 22:
-                        runtimeItems = _b.sent();
+                    case 29:
+                        runtimeItems = _c.sent();
                         rows = this.mergeHydratedRows(rows, runtimeItems.rows);
                         runtimeSupportFields = runtimeItems.fields;
-                        _b.label = 23;
-                    case 23:
+                        _c.label = 30;
+                    case 30:
                         visibleFields = this.getFieldsForConsumption(fields, viewFieldNames);
                         existingFieldNames = {};
                         visibleFields.forEach(function (field) {
@@ -2549,17 +2944,17 @@ var GridControl = (function (_super) {
                             }
                         });
                         return [4 /*yield*/, this.loadListFieldTitleMap()];
-                    case 24:
-                        fieldTitleMap = _b.sent();
+                    case 31:
+                        fieldTitleMap = _c.sent();
                         return [4 /*yield*/, this.loadGridFieldMetadata()];
-                    case 25:
-                        fieldMetadataByName = _b.sent();
+                    case 32:
+                        fieldMetadataByName = _c.sent();
                         return [4 /*yield*/, this.loadIsDocumentLibrary()];
-                    case 26:
-                        isDocumentLibrary = _b.sent();
+                    case 33:
+                        isDocumentLibrary = _c.sent();
                         return [4 /*yield*/, this.loadLookupOptionsByField(fieldMetadataByName, visibleFields)];
-                    case 27:
-                        lookupOptionsByField = _b.sent();
+                    case 34:
+                        lookupOptionsByField = _c.sent();
                         visibleFields = this.applyFieldDisplayNames(visibleFields, fieldTitleMap);
                         visibleFields = this.applyFieldTypes(visibleFields, fieldMetadataByName);
                         renderableRows = this.filterRenderableRows(rows, visibleFields);
@@ -2573,16 +2968,16 @@ var GridControl = (function (_super) {
                         });
                         hasAttachmentsField = !!fieldMetadataByName['attachments']
                             && fieldMetadataByName['attachments'].typeAsString === 'Attachments';
-                        if (!hasAttachmentsField) return [3 /*break*/, 29];
+                        if (!hasAttachmentsField) return [3 /*break*/, 36];
                         return [4 /*yield*/, this.loadAttachmentCounts(renderableItemIds)];
-                    case 28:
-                        _a = _b.sent();
-                        return [3 /*break*/, 30];
-                    case 29:
-                        _a = {};
-                        _b.label = 30;
-                    case 30:
-                        attachmentCountsByItemId = _a;
+                    case 35:
+                        _b = _c.sent();
+                        return [3 /*break*/, 37];
+                    case 36:
+                        _b = {};
+                        _c.label = 37;
+                    case 37:
+                        attachmentCountsByItemId = _b;
                         if (requestId !== this._loadRowsRequestId) {
                             this.logDiagnostic('Ignoring stale loadRows result after attachment count fetch. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
                             return [2 /*return*/];
@@ -2610,10 +3005,10 @@ var GridControl = (function (_super) {
                             }
                         });
                         this.logDiagnostic('loadRows completed. visibleFields=' + String(visibleFields.length) + ', renderableRows=' + String(renderableRows.length));
-                        return [3 /*break*/, 32];
-                    case 31:
-                        error_6 = _b.sent();
-                        loadError = error_6;
+                        return [3 /*break*/, 39];
+                    case 38:
+                        error_8 = _c.sent();
+                        loadError = error_8;
                         if (requestId !== this._loadRowsRequestId) {
                             this.logDiagnostic('Ignoring stale loadRows failure. requestId=' + String(requestId) + ', latestRequestId=' + String(this._loadRowsRequestId));
                             return [2 /*return*/];
@@ -2630,8 +3025,8 @@ var GridControl = (function (_super) {
                             rows: []
                         });
                         this.logDiagnostic('loadRows failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)));
-                        return [3 /*break*/, 32];
-                    case 32: return [2 /*return*/];
+                        return [3 /*break*/, 39];
+                    case 39: return [2 /*return*/];
                 }
             });
         });
@@ -2655,7 +3050,7 @@ var GridControl = (function (_super) {
     GridControl.prototype.loadNextBatch = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, parameters, sourceParameters, parameterName, response, extracted, _a, nextRows, itemIds, hydrated, runtimeItemIds, runtimeItems, existingIds, uniqueRows, nextAttachmentCounts, hasAttachments, nextPageHref, error_7;
+            var requestId, parameters, sourceParameters, parameterName, response, extracted, _a, nextRows, itemIds, hydrated, runtimeItemIds, runtimeItems, existingIds, uniqueRows, nextAttachmentCounts, hasAttachments, nextPageHref, error_9;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -2734,8 +3129,8 @@ var GridControl = (function (_super) {
                         _b.sent();
                         return [2 /*return*/, uniqueRows.length > 0 || !!nextPageHref];
                     case 11:
-                        error_7 = _b.sent();
-                        this.logDiagnostic('Loading next batch failed: ' + (error_7 && error_7.message ? error_7.message : String(error_7)));
+                        error_9 = _b.sent();
+                        this.logDiagnostic('Loading next batch failed: ' + (error_9 && error_9.message ? error_9.message : String(error_9)));
                         this.setState({ loadingMore: false });
                         return [2 /*return*/, false];
                     case 12: return [2 /*return*/];
@@ -2778,9 +3173,31 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.selectRow = function (row) {
         var itemId = this.getRowItemId(row);
-        this.setState({ selectedItemId: itemId, selectedMode: 'view' });
+        this.setState({ selectedItemId: itemId, selectedMode: 'view', navigationError: '' });
         this.logDiagnostic('Row selected. itemId=' + String(itemId));
         this.props.onSelectionChange(itemId, 'view');
+    };
+    GridControl.prototype.renderNavigationCell = function (isSelected) {
+        var _this = this;
+        return (React.createElement("td", { className: "lc-navigation-cell" },
+            React.createElement("button", { type: "button", className: this.getCommandButtonClass('lc-navigation-button'), style: { visibility: isSelected ? 'visible' : 'hidden' }, disabled: !isSelected || this.state.editingItemId >= 0, tabIndex: isSelected ? 0 : -1, "aria-hidden": !isSelected, title: this.state.editingItemId >= 0 ? strings.RuntimeNavigationFinishEditing : strings.RuntimeGoToDetails, "aria-label": strings.RuntimeGoToDetails, onClick: function (event) {
+                    event.stopPropagation();
+                    if (!isSelected || _this.state.editingItemId >= 0) {
+                        return;
+                    }
+                    try {
+                        if (!_this.props.onNavigateToTarget) {
+                            throw new Error(strings.RuntimeNavigationFailed);
+                        }
+                        _this.props.onNavigateToTarget();
+                        _this.setState({ navigationError: '' });
+                    }
+                    catch (error) {
+                        console.error('[GridControl] Unable to navigate to details.', error);
+                        _this.setState({ navigationError: error && error.message ? error.message : strings.RuntimeNavigationFailed });
+                    }
+                } }, this.renderCommandContent('Forward', strings.RuntimeGoToDetails)),
+            isSelected && !!this.state.navigationError && React.createElement("div", { className: "lc-navigation-error", role: "alert" }, this.state.navigationError)));
     };
     GridControl.prototype.isItemChecked = function (itemId) {
         return this.state.selectedItemIds.indexOf(itemId) >= 0;
@@ -3225,7 +3642,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.saveEditingRow = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var validationErrors, listUrl, payload, entityTypeName, verbosePayload, response, createdItemId, pendingAttachments, uploadedDocument, metadataResponseText, metadataError_1, responseText, failedAttachmentNames, _a, error_8, saveError;
+            var validationErrors, listUrl, payload, entityTypeName, verbosePayload, response, createdItemId, pendingAttachments, uploadedDocument, metadataResponseText, metadataError_1, responseText, failedAttachmentNames, _a, error_10, saveError;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -3332,6 +3749,7 @@ var GridControl = (function (_super) {
                             pendingDocumentFile: undefined,
                             saving: false,
                             selectedMode: 'view',
+                            deleteMessage: this.isLibraryBrowsing() ? strings.RuntimeLibrarySavedOutsideFilter : this.state.deleteMessage,
                             attachmentUploadError: failedAttachmentNames.length > 0
                                 ? formatString(strings.RuntimeAttachmentsCreatedUploadFailed, failedAttachmentNames.join(', '))
                                 : ''
@@ -3341,8 +3759,8 @@ var GridControl = (function (_super) {
                         _b.sent();
                         return [3 /*break*/, 26];
                     case 25:
-                        error_8 = _b.sent();
-                        saveError = error_8;
+                        error_10 = _b.sent();
+                        saveError = error_10;
                         this.setState({
                             saving: false,
                             error: saveError && saveError.message ? saveError.message : strings.RuntimeSaveFailed
@@ -3358,7 +3776,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.loadIsDocumentLibrary = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, data, source, baseType, error_9;
+            var endpoint, response, data, source, baseType, error_11;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3378,9 +3796,9 @@ var GridControl = (function (_super) {
                         baseType = source && source.BaseType;
                         return [2 /*return*/, Number(baseType) === 1 || String(baseType || '').toLowerCase() === 'documentlibrary'];
                     case 3:
-                        error_9 = _a.sent();
+                        error_11 = _a.sent();
                         this.logDiagnostic('Unable to determine whether the selected list is a document library: '
-                            + (error_9 && error_9.message ? error_9.message : String(error_9)));
+                            + (error_11 && error_11.message ? error_11.message : String(error_11)));
                         return [2 /*return*/, false];
                     case 4: return [2 /*return*/];
                 }
@@ -3418,17 +3836,24 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.uploadDocumentFile = function (file) {
         return __awaiter(this, void 0, void 0, function () {
-            var rootFolderUrl, serverRelativeUrl, endpoint, response, responseText, responseData, uploadedFile, itemId, itemEndpoint, itemResponse, itemData, item;
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0: return [4 /*yield*/, this.loadDocumentLibraryRootFolder()];
-                    case 1:
-                        rootFolderUrl = _a.sent();
+            var rootFolderUrl, _a, serverRelativeUrl, endpoint, response, responseText, responseData, uploadedFile, itemId, itemEndpoint, itemResponse, itemData, item;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
+                    case 0:
+                        if (!(this.isLibraryBrowsing() && this.state.libraryFolder)) return [3 /*break*/, 1];
+                        _a = this.state.libraryFolder;
+                        return [3 /*break*/, 3];
+                    case 1: return [4 /*yield*/, this.loadDocumentLibraryRootFolder()];
+                    case 2:
+                        _a = _b.sent();
+                        _b.label = 3;
+                    case 3:
+                        rootFolderUrl = _a;
                         serverRelativeUrl = rootFolderUrl + '/' + file.name;
-                        endpoint = this.getWebUrl() + "/_api/web/GetFolderByServerRelativeUrl('" + escapeODataText(rootFolderUrl)
-                            + "')/Files/Add(url='" + escapeODataText(file.name) + "',overwrite=false)"
+                        endpoint = this.getWebUrl() + "/_api/web/GetFolderByServerRelativeUrl('" + encodeURIComponent(escapeODataText(rootFolderUrl))
+                            + "')/Files/Add(url='" + encodeURIComponent(escapeODataText(file.name)) + "',overwrite=false)"
                             + '?$select=ServerRelativeUrl,ListItemAllFields/Id&$expand=ListItemAllFields';
-                        this.logDiagnostic('Uploading document to library root. file=' + file.name);
+                        this.logDiagnostic('Uploading document. folder=' + rootFolderUrl + ', file=' + file.name);
                         return [4 /*yield*/, this.props.context.spHttpClient.post(endpoint, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     'OData-Version': '3.0',
@@ -3437,53 +3862,53 @@ var GridControl = (function (_super) {
                                 },
                                 body: file
                             })];
-                    case 2:
-                        response = _a.sent();
-                        if (!!response.ok) return [3 /*break*/, 4];
+                    case 4:
+                        response = _b.sent();
+                        if (!!response.ok) return [3 /*break*/, 6];
                         return [4 /*yield*/, response.text()];
-                    case 3:
-                        responseText = _a.sent();
-                        throw new Error(responseText || strings.RuntimeDocumentUploadFailed);
-                    case 4: return [4 /*yield*/, response.json()];
                     case 5:
-                        responseData = _a.sent();
+                        responseText = _b.sent();
+                        throw new Error(responseText || strings.RuntimeDocumentUploadFailed);
+                    case 6: return [4 /*yield*/, response.json()];
+                    case 7:
+                        responseData = _b.sent();
                         uploadedFile = responseData && responseData.d ? responseData.d : responseData;
                         serverRelativeUrl = String(uploadedFile && (uploadedFile.ServerRelativeUrl
                             || (uploadedFile.ServerRelativePath && uploadedFile.ServerRelativePath.DecodedUrl)) || serverRelativeUrl);
                         itemId = toPositiveInt(uploadedFile && uploadedFile.ListItemAllFields
                             && (uploadedFile.ListItemAllFields.Id || uploadedFile.ListItemAllFields.ID));
-                        if (!(itemId <= 0)) return [3 /*break*/, 8];
+                        if (!(itemId <= 0)) return [3 /*break*/, 10];
                         itemEndpoint = this.getWebUrl() + "/_api/web/GetFileByServerRelativeUrl('"
-                            + escapeODataText(serverRelativeUrl) + "')/ListItemAllFields?$select=Id";
+                            + encodeURIComponent(escapeODataText(serverRelativeUrl)) + "')/ListItemAllFields?$select=Id";
                         return [4 /*yield*/, this.getJsonWithFallback(itemEndpoint)];
-                    case 6:
-                        itemResponse = _a.sent();
-                        if (!itemResponse.ok) return [3 /*break*/, 8];
+                    case 8:
+                        itemResponse = _b.sent();
+                        if (!itemResponse.ok) return [3 /*break*/, 10];
                         return [4 /*yield*/, itemResponse.json()];
-                    case 7:
-                        itemData = _a.sent();
+                    case 9:
+                        itemData = _b.sent();
                         item = itemData && itemData.d ? itemData.d : itemData;
                         itemId = toPositiveInt(item && (item.Id || item.ID));
-                        _a.label = 8;
-                    case 8:
-                        if (!(itemId <= 0)) return [3 /*break*/, 10];
+                        _b.label = 10;
+                    case 10:
+                        if (!(itemId <= 0)) return [3 /*break*/, 12];
                         return [4 /*yield*/, this.deleteUploadedDocument(serverRelativeUrl)];
-                    case 9:
-                        _a.sent();
+                    case 11:
+                        _b.sent();
                         throw new Error(strings.RuntimeDocumentItemResolveFailed);
-                    case 10: return [2 /*return*/, { itemId: itemId, serverRelativeUrl: serverRelativeUrl }];
+                    case 12: return [2 /*return*/, { itemId: itemId, serverRelativeUrl: serverRelativeUrl }];
                 }
             });
         });
     };
     GridControl.prototype.deleteUploadedDocument = function (serverRelativeUrl) {
         return __awaiter(this, void 0, void 0, function () {
-            var endpoint, response, error_10;
+            var endpoint, response, error_12;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
                         endpoint = this.getWebUrl() + "/_api/web/GetFileByServerRelativeUrl('"
-                            + escapeODataText(serverRelativeUrl) + "')";
+                            + encodeURIComponent(escapeODataText(serverRelativeUrl)) + "')";
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 3, , 4]);
@@ -3501,9 +3926,9 @@ var GridControl = (function (_super) {
                         }
                         return [3 /*break*/, 4];
                     case 3:
-                        error_10 = _a.sent();
+                        error_12 = _a.sent();
                         console.error('[GridControl] Unable to remove document after its metadata save failed: '
-                            + (error_10 && error_10.message ? error_10.message : String(error_10)));
+                            + (error_12 && error_12.message ? error_12.message : String(error_12)));
                         return [3 /*break*/, 4];
                     case 4: return [2 /*return*/];
                 }
@@ -3669,6 +4094,7 @@ var GridControl = (function (_super) {
                 React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: this.state.saving, title: strings.RuntimeDocumentChange, "aria-label": strings.RuntimeDocumentChange, onClick: function () { return _this.openDocumentPicker(); } }, this.renderCommandContent('OpenFile', strings.RuntimeDocumentChange)))),
             this.state.editingErrors['__form'] && React.createElement("div", { className: "gc-field-error" }, this.state.editingErrors['__form'])));
         return (React.createElement("tr", { className: "lc-row gc-row-editing", onClick: function (ev) { return ev.stopPropagation(); } },
+            !!this.props.navigationTargetInstanceId && this.renderNavigationCell(false),
             this.props.showDelete && !this.isReadOnly() && React.createElement("td", { className: "gc-selection-cell" }),
             this.props.actionButtonsPosition === 'beginning' && actions,
             displayFields.map(function (field) {
@@ -3684,7 +4110,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.openVersionHistory = function (row) {
         return __awaiter(this, void 0, void 0, function () {
-            var itemId, listName, endpoint, response, data, listId, historyUrl, error_11, historyError;
+            var itemId, listName, endpoint, response, data, listId, historyUrl, error_13, historyError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3726,8 +4152,8 @@ var GridControl = (function (_super) {
                         this.setState({ historyDialogUrl: historyUrl, historyDialogLoading: false });
                         return [3 /*break*/, 6];
                     case 5:
-                        error_11 = _a.sent();
-                        historyError = error_11;
+                        error_13 = _a.sent();
+                        historyError = error_13;
                         this.setState({
                             historyDialogLoading: false,
                             historyDialogError: historyError && historyError.message ? historyError.message : strings.RuntimeHistoryLoadFailed
@@ -3800,7 +4226,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.openAttachmentDialog = function (row) {
         return __awaiter(this, void 0, void 0, function () {
-            var itemId, files, error_12, attachmentError;
+            var itemId, files, error_14, attachmentError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3825,8 +4251,8 @@ var GridControl = (function (_super) {
                         this.setState({ attachmentDialogFiles: files, attachmentDialogLoading: false });
                         return [3 /*break*/, 4];
                     case 3:
-                        error_12 = _a.sent();
-                        attachmentError = error_12;
+                        error_14 = _a.sent();
+                        attachmentError = error_14;
                         this.setState({
                             attachmentDialogLoading: false,
                             attachmentDialogError: attachmentError && attachmentError.message ? attachmentError.message : strings.RuntimeAttachmentsLoadFailed
@@ -3914,7 +4340,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.handleAttachmentInputChange = function (event) {
         return __awaiter(this, void 0, void 0, function () {
-            var files, selectedFiles, index, itemId, failedNames, error_13, uploadError;
+            var files, selectedFiles, index, itemId, failedNames, error_15, uploadError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -3948,8 +4374,8 @@ var GridControl = (function (_super) {
                         _a.sent();
                         return [3 /*break*/, 6];
                     case 5:
-                        error_13 = _a.sent();
-                        uploadError = error_13;
+                        error_15 = _a.sent();
+                        uploadError = error_15;
                         this.setState({
                             attachmentUploadingItemId: 0,
                             attachmentUploadError: uploadError && uploadError.message ? uploadError.message : strings.RuntimeAttachmentsUploadFailed
@@ -4030,7 +4456,7 @@ var GridControl = (function (_super) {
     };
     GridControl.prototype.deleteSelected = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var itemIds, failedItemIds, itemIndex, itemId, endpoint, response, _itemDeleteError_1, remainingSelectedItemId, error_14, deleteError;
+            var itemIds, failedItemIds, itemIndex, itemId, endpoint, response, _itemDeleteError_1, remainingSelectedItemId, error_16, deleteError;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -4096,8 +4522,8 @@ var GridControl = (function (_super) {
                         }
                         return [3 /*break*/, 10];
                     case 9:
-                        error_14 = _a.sent();
-                        deleteError = error_14;
+                        error_16 = _a.sent();
+                        deleteError = error_16;
                         this.setState({
                             deleting: false,
                             deleteMessage: deleteError && deleteError.message ? deleteError.message : strings.RuntimeDeleteFailed,
@@ -4160,6 +4586,9 @@ var GridControl = (function (_super) {
         return rawAttachmentsValue === true ? 1 : 0;
     };
     GridControl.prototype.getItemLinkUrl = function (row) {
+        if (this.isLibraryBrowsing()) {
+            return LibraryBrowser_1.documentUrl(this.getWebUrl(), row.FileRef);
+        }
         var itemId = this.getRowItemId(row);
         var targetPageUrl = String(this.props.linkTargetPageUrl || '').trim();
         var targetIdParam = String(this.props.linkTargetIdParam || 'itemid').trim() || 'itemid';
@@ -4205,12 +4634,18 @@ var GridControl = (function (_super) {
         var fileRef = String(row.FileRef || '').trim();
         if (fileRef) {
             if (/^https?:\/\//i.test(fileRef)) {
-                return fileRef;
+                return LibraryBrowser_1.documentUrl(this.getWebUrl(), fileRef);
             }
             // List item pseudo files usually end with _.000; avoid those and use form URL instead.
             if (fileRef.charAt(0) === '/' && !/\/\d+_\.000$/i.test(fileRef)) {
-                return this.getWebUrl() + fileRef;
+                return LibraryBrowser_1.documentUrl(this.getWebUrl(), fileRef);
             }
+        }
+        if (fileRef && !/\/\d+_\.000$/i.test(fileRef)) {
+            return '';
+        }
+        if (this.state.isDocumentLibrary) {
+            return '';
         }
         if (itemId > 0) {
             return this.getWebUrl() + '/Lists/' + encodeURIComponent(this.props.listName) + '/DispForm.aspx?ID=' + itemId;
@@ -4220,8 +4655,8 @@ var GridControl = (function (_super) {
     GridControl.prototype.getFieldKey = function (field) {
         return String(field.Name || field.RealFieldName || '').trim();
     };
-    GridControl.prototype.getFilterOperatorOptions = function () {
-        return [
+    GridControl.prototype.getFilterOperatorOptions = function (field) {
+        var options = [
             { key: 'eq', label: strings.RuntimeFilterOperatorEquals },
             { key: 'ne', label: strings.RuntimeFilterOperatorNotEquals },
             { key: 'contains', label: strings.RuntimeFilterOperatorContains },
@@ -4233,6 +4668,50 @@ var GridControl = (function (_super) {
             { key: 'lt', label: strings.RuntimeFilterOperatorLessThan },
             { key: 'le', label: strings.RuntimeFilterOperatorLessThanOrEqual }
         ];
+        return field && this.isMultiSelectFilterField(field)
+            ? options.filter(function (option) { return option.key === 'eq' || option.key === 'ne'; }) : options;
+    };
+    GridControl.prototype.isMultiSelectFilterField = function (field) {
+        var fieldType = String(field.TypeAsString || '').toLowerCase();
+        return fieldType === 'choice' || fieldType === 'multichoice' || fieldType === 'lookup' || fieldType === 'lookupmulti';
+    };
+    GridControl.prototype.toggleFilterValue = function (value, checked) {
+        this.setState(function (state) { return ({
+            draftFilterValues: state.draftFilterValues.filter(function (selected) { return selected !== value; }).concat(checked ? [value] : [])
+        }); });
+    };
+    GridControl.prototype.getActiveFilterOptions = function () {
+        var options = this.state.activeFilterOptions.slice(0);
+        this.state.draftFilterValues.forEach(function (value) {
+            if (!options.some(function (option) { return option.value === value; })) {
+                options.push({ value: value, text: value });
+            }
+        });
+        return options;
+    };
+    GridControl.prototype.loadFilterOptions = function (field) {
+        return __awaiter(this, void 0, void 0, function () {
+            var metadata, fieldType, options;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        metadata = this.state.fieldMetadataByName[String(field.RealFieldName || field.Name || '').toLowerCase()];
+                        if (!metadata) {
+                            throw new Error(strings.RuntimeFilterOptionsLoadFailed);
+                        }
+                        fieldType = String(field.TypeAsString || '').toLowerCase();
+                        if (fieldType === 'choice' || fieldType === 'multichoice') {
+                            return [2 /*return*/, metadata.choices.map(function (choice) { return { value: choice, text: choice }; })];
+                        }
+                        return [4 /*yield*/, this.loadLookupOptions(metadata, true)];
+                    case 1:
+                        options = _a.sent();
+                        return [2 /*return*/, options.map(function (option) {
+                                return { value: String(option.id), text: option.text };
+                            }).sort(function (left, right) { return left.text.localeCompare(right.text); })];
+                }
+            });
+        });
     };
     GridControl.prototype.toggleSort = function (field) {
         var fieldKey = this.getFieldKey(field);
@@ -4253,6 +4732,7 @@ var GridControl = (function (_super) {
         });
     };
     GridControl.prototype.openFilter = function (field, anchorElement) {
+        var _this = this;
         var fieldKey = this.getFieldKey(field);
         if (!fieldKey) {
             return;
@@ -4260,17 +4740,40 @@ var GridControl = (function (_super) {
         this._filterAnchorEl = anchorElement;
         var popoverStyle = this.getFilterPopoverStyle(anchorElement);
         var existing = this.state.columnFilters[fieldKey];
+        var isMultiSelect = this.isMultiSelectFilterField(field);
+        var existingValues = existing ? (Array.isArray(existing.value) ? existing.value : [existing.value]) : [];
+        var requestId = ++this._filterOptionsRequestId;
         var isDateField = String(field.TypeAsString || '').toLowerCase() === 'datetime';
         this.setState({
             activeFilterFieldName: fieldKey,
             filterPopoverStyle: popoverStyle,
             activeFilterIsDate: isDateField,
-            draftFilterOperator: isDateField ? 'eq' : (existing ? existing.operator : 'contains'),
-            draftFilterValue: existing ? existing.value : '',
+            activeFilterIsMultiSelect: isMultiSelect,
+            activeFilterOptions: [],
+            activeFilterOptionsLoading: isMultiSelect,
+            activeFilterOptionsError: '',
+            draftFilterOperator: isDateField ? 'eq' : (isMultiSelect ? (existing && existing.operator === 'ne' ? 'ne' : 'eq') : (existing ? existing.operator : 'contains')),
+            draftFilterValue: existing && !isMultiSelect ? existing.value : '',
+            draftFilterValues: isMultiSelect ? existingValues.map(function (value) { return String(value); }).filter(function (value) { return !!value.trim(); }) : [],
             draftFilterEndValue: existing ? String(existing.endValue || '') : '',
             datePickerTarget: '',
             datePickerMonth: ''
         });
+        if (isMultiSelect) {
+            this.loadFilterOptions(field).then(function (options) {
+                if (_this.state.activeFilterFieldName !== fieldKey || _this._filterOptionsRequestId !== requestId) {
+                    return;
+                }
+                _this.setState({ activeFilterOptions: options, activeFilterOptionsLoading: false, activeFilterOptionsError: '' });
+            }).catch(function (error) {
+                if (_this.state.activeFilterFieldName !== fieldKey || _this._filterOptionsRequestId !== requestId) {
+                    return;
+                }
+                var message = error && error.message ? error.message : strings.RuntimeFilterOptionsLoadFailed;
+                console.error('[GridControl] Filter options failed for ' + fieldKey + '.', error);
+                _this.setState({ activeFilterOptions: [], activeFilterOptionsLoading: false, activeFilterOptionsError: message });
+            });
+        }
     };
     GridControl.prototype.getFilterPopoverStyle = function (anchorElement) {
         var anchorRect = anchorElement.getBoundingClientRect();
@@ -4385,8 +4888,15 @@ var GridControl = (function (_super) {
             React.createElement("div", { className: "lc-date-picker-days" }, cells)));
     };
     GridControl.prototype.applyActiveFilter = function () {
+        if (this.isLibraryBrowsing() && this.state.editingItemId >= 0) {
+            this.setState({ libraryNotice: strings.RuntimeLibraryFinishEditing });
+            return;
+        }
         var fieldKey = String(this.state.activeFilterFieldName || '');
         if (!fieldKey) {
+            return;
+        }
+        if (this.state.activeFilterIsMultiSelect && (this.state.activeFilterOptionsLoading || this.state.activeFilterOptionsError)) {
             return;
         }
         var nextFilters = {};
@@ -4398,7 +4908,15 @@ var GridControl = (function (_super) {
         }
         var value = String(this.state.draftFilterValue || '').trim();
         var endValue = String(this.state.draftFilterEndValue || '').trim();
-        if (!value) {
+        if (this.state.activeFilterIsMultiSelect) {
+            if (this.state.draftFilterValues.length === 0) {
+                delete nextFilters[fieldKey];
+            }
+            else {
+                nextFilters[fieldKey] = { operator: this.state.draftFilterOperator, value: this.state.draftFilterValues.slice(0) };
+            }
+        }
+        else if (!value) {
             delete nextFilters[fieldKey];
         }
         else if (this.state.activeFilterIsDate) {
@@ -4427,6 +4945,10 @@ var GridControl = (function (_super) {
         });
     };
     GridControl.prototype.clearActiveFilter = function () {
+        if (this.isLibraryBrowsing() && this.state.editingItemId >= 0) {
+            this.setState({ libraryNotice: strings.RuntimeLibraryFinishEditing });
+            return;
+        }
         var fieldKey = String(this.state.activeFilterFieldName || '');
         if (!fieldKey) {
             return;
@@ -4442,6 +4964,7 @@ var GridControl = (function (_super) {
             columnFilters: nextFilters,
             draftFilterOperator: 'contains',
             draftFilterValue: '',
+            draftFilterValues: [],
             draftFilterEndValue: '',
             activeFilterFieldName: '',
             currentPage: 0
@@ -4505,8 +5028,10 @@ var GridControl = (function (_super) {
         var normalizedQuery = query.toLowerCase();
         var compareResult = this.compareComparableValues(candidate, query);
         var hasDiscreteValues = fieldType.indexOf('lookup') >= 0 || fieldType.indexOf('user') >= 0 || fieldType === 'multichoice';
+        var choiceValues = fieldType === 'multichoice' ? toArray(this.getRowFieldValue(row, field)) : [];
         var lookupCandidates = hasDiscreteValues
-            ? normalizedCandidate.split(';').map(function (value) { return value.trim(); }).filter(function (value) { return !!value; })
+            ? (choiceValues.length > 0 ? choiceValues : candidate.split(fieldType === 'multichoice' && candidate.indexOf(';#') >= 0 ? ';#' : ';'))
+                .map(function (value) { return String(value).trim().toLowerCase(); }).filter(function (value) { return !!value; })
             : [];
         if (filter.compareDateOnly) {
             var candidateDate = new Date(candidate);
@@ -4759,7 +5284,7 @@ var GridControl = (function (_super) {
         }
         return aggregate === null ? true : aggregate;
     };
-    GridControl.prototype.resolvePresetFilterValue = function (condition, field) {
+    GridControl.prototype.resolvePresetFilterValue = function (condition, field, referenceTime) {
         var rawValue = Array.isArray(condition.value) ? condition.value : (condition.value === undefined || condition.value === null ? '' : String(condition.value).trim());
         if (String(condition.valueType || '').toLowerCase() !== 'expression') {
             return {
@@ -4769,18 +5294,19 @@ var GridControl = (function (_super) {
             };
         }
         var expression = rawValue.toLowerCase();
+        var time = referenceTime === undefined ? this._filterReferenceTime : referenceTime;
         var pageContext = this.props.context && this.props.context.pageContext;
         var user = pageContext && pageContext.user;
         var legacyContext = pageContext && pageContext.legacyPageContext;
         if (expression === 'today') {
-            return { value: formatLocalDate(new Date()), compareDateOnly: true };
+            return { value: formatLocalDate(new Date(referenceTime !== undefined || this.isLibraryBrowsing() ? time : new Date().getTime())), compareDateOnly: true };
         }
-        if (expression === 'now') {
-            return { value: new Date().toISOString(), compareDateOnly: false };
+        if (/^now(?:\(|$)/.test(expression)) {
+            return { value: LibraryBrowser_1.resolveNowExpression(expression, time), compareDateOnly: false };
         }
         var dateMatch = /^date\(\s*([+-]?\d+)\s*\)$/.exec(expression);
         if (dateMatch) {
-            var dateValue = new Date();
+            var dateValue = new Date(referenceTime !== undefined || this.isLibraryBrowsing() ? time : new Date().getTime());
             dateValue.setDate(dateValue.getDate() + parseInt(dateMatch[1], 10));
             return { value: formatLocalDate(dateValue), compareDateOnly: true };
         }
@@ -4798,24 +5324,26 @@ var GridControl = (function (_super) {
         }
         return { value: rawValue, compareDateOnly: false };
     };
-    GridControl.prototype.getProcessedRows = function () {
+    GridControl.prototype.getProcessedRows = function (sourceRows, sourceFields) {
         var _this = this;
-        var rows = this.state.rows.slice(0);
+        var useLibrarySnapshot = !sourceRows && this.isLibraryBrowsing() && !!this.state.libraryDocuments;
+        var rows = (sourceRows || (useLibrarySnapshot ? this.state.libraryDocuments : this.state.rows)).slice(0);
+        var fields = sourceFields || this.state.fields;
         var fieldsByKey = {};
-        for (var i = 0; i < this.state.fields.length; i += 1) {
-            var field = this.state.fields[i];
+        for (var i = 0; i < fields.length; i += 1) {
+            var field = fields[i];
             var fieldKey = this.getFieldKey(field);
             if (fieldKey) {
                 fieldsByKey[fieldKey] = field;
             }
         }
-        var presetConditions = this.parsePresetFilterConditions();
+        var presetConditions = useLibrarySnapshot ? [] : this.parsePresetFilterConditions();
         if (presetConditions.length > 0) {
             rows = rows.filter(function (row) {
                 return _this.rowMatchesPresetConditions(row, fieldsByKey, presetConditions);
             });
         }
-        var filterKeys = Object.keys(this.state.columnFilters || {});
+        var filterKeys = useLibrarySnapshot ? [] : Object.keys(this.state.columnFilters || {});
         if (filterKeys.length > 0) {
             rows = rows.filter(function (row) {
                 for (var index = 0; index < filterKeys.length; index += 1) {
@@ -5057,7 +5585,7 @@ var GridControl = (function (_super) {
             if (!field) {
                 continue;
             }
-            var resolvedValue = this.resolvePresetFilterValue(condition, field);
+            var resolvedValue = this.resolvePresetFilterValue(condition, field, new Date().getTime());
             var matches = this.rowMatchesFilter(row, field, {
                 operator: condition.operator,
                 value: resolvedValue.value,
@@ -5133,7 +5661,14 @@ var GridControl = (function (_super) {
         if (this.state.editingItemId === rowItemId) {
             return React.cloneElement(this.renderEditingRow(displayFields, row, fieldsByKey, conditionalRules), { key: String(rowItemId) });
         }
-        return (React.createElement("tr", { key: rowItemId > 0 ? String(rowItemId) : keySuffix, onClick: function () { return _this.selectRow(row); }, className: joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '', this.isItemChecked(rowItemId) ? 'gc-row-delete-selected' : '']) },
+        return (React.createElement("tr", { key: rowItemId > 0 ? String(rowItemId) : keySuffix, onClick: function () { return _this.selectRow(row); }, tabIndex: this.props.navigationTargetInstanceId ? 0 : undefined, onKeyDown: function (event) {
+                if (_this.props.navigationTargetInstanceId && event.target === event.currentTarget
+                    && (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar')) {
+                    event.preventDefault();
+                    _this.selectRow(row);
+                }
+            }, className: joinClassNames(['lc-row', isSelected ? 'lc-row-selected' : '', this.isItemChecked(rowItemId) ? 'gc-row-delete-selected' : '']) },
+            !!this.props.navigationTargetInstanceId && this.renderNavigationCell(isSelected),
             this.props.showDelete && !isReadOnly && (React.createElement("td", { className: "gc-selection-cell" },
                 React.createElement("input", { type: "checkbox", checked: this.isItemChecked(rowItemId), disabled: this.state.deleting || isEditingRow, title: strings.RuntimeSelectRowForDelete, "aria-label": strings.RuntimeSelectRowForDelete, onClick: function (ev) { return ev.stopPropagation(); }, onChange: function () { return _this.toggleItemChecked(rowItemId); } }))),
             showRowActions && this.props.actionButtonsPosition === 'beginning' && this.renderRowActionCell(row, isEditingRow, isReadOnly),
@@ -5201,6 +5736,11 @@ var GridControl = (function (_super) {
         var isEditingRow = this.state.editingItemId >= 0;
         var isReadOnly = this.isReadOnly();
         var processedRows = this.getProcessedRows();
+        var libraryFileCount = 0;
+        if (this.isLibraryBrowsing() && this.state.libraryRoot) {
+            libraryFileCount = LibraryBrowser_1.folderDocumentCount(this.state.libraryFolder || this.state.libraryRoot, processedRows);
+            processedRows = LibraryBrowser_1.folderLevel(this.state.libraryRoot, this.state.libraryFolder || this.state.libraryRoot, processedRows, this.state.libraryFolders || [], this.props.matchingDocumentFolders === true);
+        }
         var groupingConfig = this.getGridGroupingConfig();
         var pageSize = this.props.pageSize > 0 ? this.props.pageSize : 0;
         var pageCount = pageSize > 0 ? Math.max(1, Math.ceil(processedRows.length / pageSize)) : 1;
@@ -5209,7 +5749,8 @@ var GridControl = (function (_super) {
             ? processedRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
             : processedRows;
         var rowGroups = groupingConfig.enabled ? this.buildRowGroups(visibleRows, groupingConfig) : [];
-        var allVisibleItemsChecked = visibleRows.length > 0 && visibleRows.every(function (row) {
+        var visibleDocuments = visibleRows.filter(function (row) { return !row.libraryFolder; });
+        var allVisibleItemsChecked = visibleDocuments.length > 0 && visibleDocuments.every(function (row) {
             return _this.isItemChecked(_this.getRowItemId(row));
         });
         var conditionalRules = this.parseConditionalStyleRules();
@@ -5217,6 +5758,7 @@ var GridControl = (function (_super) {
         var hasActiveFilters = Object.keys(this.state.columnFilters || {}).length > 0;
         var displayFields = this.getDisplayFields();
         var totalColumnCount = displayFields.length
+            + (this.props.navigationTargetInstanceId ? 1 : 0)
             + (this.props.showDelete && !isReadOnly ? 1 : 0)
             + (showRowActions ? 1 : 0);
         var fieldsByKey = {};
@@ -5286,14 +5828,17 @@ var GridControl = (function (_super) {
                 : '0px'
         };
         return (React.createElement("div", { className: "lc-root gc-root", style: containerStyle },
+            this.renderLibraryNavigation(),
+            !!this.state.libraryNotice && React.createElement("div", { role: "status", className: "lc-status" }, this.state.libraryNotice),
+            !!this.state.libraryError && React.createElement("div", { role: "alert", className: "lc-navigation-error" }, this.state.libraryError),
             React.createElement("div", { className: "lc-toolbar" },
                 this.props.showViewSelector && (React.createElement("label", null,
                     React.createElement("span", { style: { marginRight: '6px' } }, strings.RuntimeViewLabel),
-                    this.props.showViewAsDropdown !== false ? (React.createElement("select", { value: this.state.selectedViewId, onChange: function (ev) { return _this.setState({ selectedViewId: ev.currentTarget.value }); } }, this.props.views.map(function (view) {
+                    this.props.showViewAsDropdown !== false ? (React.createElement("select", { value: this.state.selectedViewId, disabled: this.isLibraryBrowsing() && isEditingRow, onChange: function (ev) { return _this.setState({ selectedViewId: ev.currentTarget.value }); } }, this.props.views.map(function (view) {
                         return React.createElement("option", { key: view.key, value: view.key }, view.text);
                     }))) : (React.createElement("span", { className: "gc-view-static-label" }, this.getSelectedViewLabel())))),
                 this.props.showRefresh && React.createElement("button", { type: "button", className: this.getCommandButtonClass(), title: strings.RuntimeRefresh, "aria-label": strings.RuntimeRefresh, onClick: function () { return _this.loadRows(); } }, this.renderCommandContent('Refresh', strings.RuntimeRefresh)),
-                this.props.showAdd && !isReadOnly && (React.createElement("button", { type: "button", className: this.getCommandButtonClass('gc-add-row'), disabled: isEditingRow, title: this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow, "aria-label": this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow, onClick: function () { return _this.isDocumentLibrary() ? _this.openDocumentPicker() : _this.beginNewRow(); } }, this.renderCommandContent(this.isDocumentLibrary() ? 'Upload' : 'Add', this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow))),
+                this.props.showAdd && !isReadOnly && (React.createElement("button", { type: "button", className: this.getCommandButtonClass('gc-add-row'), disabled: isEditingRow || (this.isLibraryBrowsing() && !this.state.libraryRoot), title: this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow, "aria-label": this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow, onClick: function () { return _this.isDocumentLibrary() ? _this.openDocumentPicker() : _this.beginNewRow(); } }, this.renderCommandContent(this.isDocumentLibrary() ? 'Upload' : 'Add', this.isDocumentLibrary() ? strings.RuntimeAddDocument : strings.RuntimeAddRow))),
                 this.props.showDelete && !isReadOnly && (React.createElement("button", { type: "button", className: this.getCommandButtonClass(), disabled: this.state.selectedItemIds.length === 0 || this.state.deleting || isEditingRow, title: this.state.deleting ? strings.RuntimeDeleting : formatString(strings.RuntimeDeleteSelected, this.state.selectedItemIds.length), "aria-label": this.state.deleting ? strings.RuntimeDeleting : formatString(strings.RuntimeDeleteSelected, this.state.selectedItemIds.length), onClick: function () { return _this.deleteSelected(); } }, this.renderCommandContent('Delete', this.state.deleting
                     ? strings.RuntimeDeleting
                     : formatString(strings.RuntimeDeleteSelected, this.state.selectedItemIds.length))))),
@@ -5307,7 +5852,7 @@ var GridControl = (function (_super) {
             !!this.state.deleteMessage && React.createElement("div", { className: "gc-delete-message" }, this.state.deleteMessage),
             !!this.state.attachmentUploadError && React.createElement("div", { className: "gc-delete-message" }, this.state.attachmentUploadError),
             !!this.state.error && React.createElement("div", null, this.state.error),
-            !this.state.loading && !this.state.error && processedRows.length === 0 && !isEditingRow && (React.createElement("div", null, hasActiveFilters ? strings.RuntimeNoItemsAfterFilter : strings.RuntimeNoItems)),
+            !this.state.loading && !this.state.error && (!this.state.libraryError || !!this.state.libraryRoot) && processedRows.length === 0 && !isEditingRow && (React.createElement("div", null, hasActiveFilters ? strings.RuntimeNoItemsAfterFilter : strings.RuntimeNoItems)),
             !this.state.loading && !this.state.error && (processedRows.length > 0 || hasActiveFilters || isEditingRow) && (React.createElement("div", { className: "lc-table-container" },
                 React.createElement("div", { className: "lc-sticky-header-viewport", ref: this._setStickyHeaderViewportRef }),
                 React.createElement("div", { className: "lc-table-wrap", ref: this._setTableWrapRef },
@@ -5316,8 +5861,10 @@ var GridControl = (function (_super) {
                     React.createElement("table", { className: "lc-table" },
                         React.createElement("thead", { ref: this._setTableHeadRef },
                             React.createElement("tr", null,
+                                !!this.props.navigationTargetInstanceId && React.createElement("th", { className: "lc-navigation-header", scope: "col" },
+                                    React.createElement("span", { className: "gc-visually-hidden" }, strings.RuntimeGoToDetails)),
                                 this.props.showDelete && !isReadOnly && (React.createElement("th", { className: "gc-selection-header" },
-                                    React.createElement("input", { type: "checkbox", checked: allVisibleItemsChecked, disabled: visibleRows.length === 0 || this.state.deleting || isEditingRow, title: strings.RuntimeSelectVisibleRows, "aria-label": strings.RuntimeSelectVisibleRows, onChange: function () { return _this.toggleVisibleItemsChecked(visibleRows); } }))),
+                                    React.createElement("input", { type: "checkbox", checked: allVisibleItemsChecked, disabled: visibleDocuments.length === 0 || this.state.deleting || isEditingRow, title: strings.RuntimeSelectVisibleRows, "aria-label": strings.RuntimeSelectVisibleRows, onChange: function () { return _this.toggleVisibleItemsChecked(visibleDocuments); } }))),
                                 showRowActions && this.props.actionButtonsPosition === 'beginning' && React.createElement("th", { className: "gc-actions-header" }, strings.RuntimeActions),
                                 displayFields.map(function (field) {
                                     var fieldKey = _this.getFieldKey(field);
@@ -5366,17 +5913,24 @@ var GridControl = (function (_super) {
                                                             React.createElement("i", { className: "ms-Icon ms-Icon--Calendar", "aria-hidden": "true" }))),
                                                     _this.renderDatePicker())) : (React.createElement("div", null,
                                                     React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterOperatorLabel),
-                                                    React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterOperator, onChange: function (ev) { return _this.setState({ draftFilterOperator: ev.currentTarget.value }); } }, _this.getFilterOperatorOptions().map(function (option) {
+                                                    React.createElement("select", { className: "lc-filter-select", value: _this.state.draftFilterOperator, onChange: function (ev) { return _this.setState({ draftFilterOperator: ev.currentTarget.value }); } }, _this.getFilterOperatorOptions(field).map(function (option) {
                                                         return React.createElement("option", { key: option.key, value: option.key }, option.label);
                                                     })),
                                                     React.createElement("label", { className: "lc-filter-label" }, strings.RuntimeFilterValueLabel),
-                                                    React.createElement("input", { className: "lc-filter-input", type: "text", value: _this.state.draftFilterValue, placeholder: strings.RuntimeFilterValuePlaceholder, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); }, onKeyDown: function (ev) {
+                                                    _this.state.activeFilterOptionsLoading && React.createElement("div", { role: "status" }, strings.RuntimeLoading),
+                                                    !!_this.state.activeFilterOptionsError && React.createElement("div", { role: "alert" }, _this.state.activeFilterOptionsError),
+                                                    _this.state.activeFilterIsMultiSelect && !_this.state.activeFilterOptionsLoading && !_this.state.activeFilterOptionsError && (React.createElement("div", { className: "lc-filter-options", role: "group", "aria-label": strings.RuntimeFilterValueLabel },
+                                                        _this.getActiveFilterOptions().length === 0 && React.createElement("div", null, strings.RuntimeFilterNoOptions),
+                                                        _this.getActiveFilterOptions().map(function (option) { return (React.createElement("label", { key: option.value, className: "lc-filter-option" },
+                                                            React.createElement("input", { type: "checkbox", checked: _this.state.draftFilterValues.indexOf(option.value) >= 0, onChange: function (ev) { return _this.toggleFilterValue(option.value, ev.currentTarget.checked); } }),
+                                                            React.createElement("span", null, option.text))); }))),
+                                                    !_this.state.activeFilterIsMultiSelect && React.createElement("input", { className: "lc-filter-input", type: "text", value: _this.state.draftFilterValue, placeholder: strings.RuntimeFilterValuePlaceholder, onChange: function (ev) { return _this.setState({ draftFilterValue: ev.currentTarget.value }); }, onKeyDown: function (ev) {
                                                             if (ev.key === 'Enter') {
                                                                 _this.applyActiveFilter();
                                                             }
                                                         } }))),
                                                 React.createElement("div", { className: "lc-filter-actions" },
-                                                    React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterApply, "aria-label": strings.RuntimeFilterApply, onClick: function () { return _this.applyActiveFilter(); } }, _this.renderCommandContent('CheckMark', strings.RuntimeFilterApply)),
+                                                    React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterApply, "aria-label": strings.RuntimeFilterApply, disabled: _this.state.activeFilterIsMultiSelect && (_this.state.activeFilterOptionsLoading || !!_this.state.activeFilterOptionsError), onClick: function () { return _this.applyActiveFilter(); } }, _this.renderCommandContent('CheckMark', strings.RuntimeFilterApply)),
                                                     React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterClear, "aria-label": strings.RuntimeFilterClear, onClick: function () { return _this.clearActiveFilter(); } }, _this.renderCommandContent('ClearFilter', strings.RuntimeFilterClear)),
                                                     React.createElement("button", { type: "button", className: _this.getCommandButtonClass(), title: strings.RuntimeFilterClose, "aria-label": strings.RuntimeFilterClose, onClick: function () { return _this.closeFilter(); } }, _this.renderCommandContent('Cancel', strings.RuntimeFilterClose))))))));
                                 }),
@@ -5385,9 +5939,11 @@ var GridControl = (function (_super) {
                             this.state.editingItemId === 0 && this.renderEditingRow(displayFields, {}, fieldsByKey, conditionalRules),
                             groupingConfig.enabled
                                 ? rowGroups.reduce(function (accumulated, group) { return accumulated.concat(_this.renderRowGroupRows(group, group.key, 0, groupingConfig, totalColumnCount, isEditingRow, isReadOnly, displayFields, fieldsByKey, conditionalRules)); }, [])
-                                : visibleRows.map(function (row, index) { return _this.renderDataRow(row, String(index), isEditingRow, isReadOnly, displayFields, fieldsByKey, conditionalRules); })))))),
-            !this.state.loading && !this.state.error && (React.createElement("div", { className: "lc-footer" },
-                React.createElement("div", { className: "lc-total-items" }, this.state.nextPageHref
+                                : visibleRows.map(function (row, index) { return row.libraryFolder ? _this.renderLibraryFolderRow(row, totalColumnCount)
+                                    : _this.renderDataRow(row, String(index), isEditingRow, isReadOnly, displayFields, fieldsByKey, conditionalRules); })))))),
+            !this.state.loading && !this.state.error && (!this.isLibraryBrowsing() || !!this.state.libraryRoot) && (React.createElement("div", { className: "lc-footer" },
+                React.createElement("div", { className: "lc-total-items" }, this.isLibraryBrowsing()
+                    ? formatString(libraryFileCount === 1 ? strings.RuntimeLibraryFileCountSingular : strings.RuntimeLibraryFileCount, libraryFileCount) : this.state.nextPageHref
                     ? strings.RuntimeLoadedItemsLabel.replace('{0}', String(processedRows.length))
                     : formatString(strings.RuntimeTotalItemsLabel, processedRows.length)),
                 pageSize > 0 && (pageCount > 1 || !!this.state.nextPageHref) && (React.createElement("div", { className: "lc-pagination" },

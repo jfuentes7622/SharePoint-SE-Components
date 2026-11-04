@@ -1,5 +1,32 @@
 # SharePoint Dynamic Form
 
+## Default form names
+
+Current release: npm `1.0.49`, solution/feature `1.0.0.116`.
+**Web part name** (previously **Form name for linking**) defaults to
+`DynamicForm1`, `DynamicForm2`, etc. per page. It is the first editable setting,
+in **Web part** directly below the version banner.
+Existing blanks are filled in page edit mode; save the page to persist them.
+Custom names and existing GUID-based connections are preserved. See
+[numbered naming behavior](../README.md#numbered-web-part-names).
+
+## Visual example
+
+![Configured form showing named containers, a choice dropdown, a selected item's text value, and an Edit action](docs/images/dynamic-form-record.png)
+
+Arrange related fields into named containers instead of a single long column.
+This demo combines a choice selector, text fields, field guidance and a custom
+multi-column layout. It is shown in View mode after selecting a record in the
+page's ListControl; the displayed Edit action belongs to the form.
+
+To create a similar experience, choose the source list, use the visual designer
+to arrange fields and containers, and connect the form's dynamic item selection
+to the list control. Check label widths and field sizing at the intended page width;
+this screenshot represents the demo's saved layout, not a default template.
+
+The approved screenshot is stored locally and was captured on SharePoint Online.
+It is a visual example, not SharePoint SE deployment validation.
+
 ## October 26, 2026 theme-loading fix
 
 - SharePoint solution and feature version: `1.0.0.114`.

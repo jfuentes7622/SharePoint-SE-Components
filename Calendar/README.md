@@ -2,6 +2,32 @@
 
 SPFx 1.5.1 SharePoint events calendar powered by the free, MIT-licensed FullCalendar library.
 
+## Visual example
+
+![Calendar month view with recurring Monday events, date navigation, and Month, Week, Day and List view buttons](docs/images/calendar-month.png)
+
+The configured demo shows recurring events across a month, with a recurrence icon
+beside each occurrence. Visitors can move between date ranges, return to Today,
+or switch presentation using the view buttons.
+
+To build a similar calendar, configure `dataSources` with the source list and date
+columns, choose `defaultView`, and set the source/event colors. Recurrence expansion
+requires an Events list using its built-in date columns. Generic calendar-view lists
+can also supply non-recurring items.
+
+This is a SharePoint Online demo screenshot, not evidence of deployment to
+SharePoint SE. The image is stored locally so readers need no tenant access.
+
+## EventRegistration integration update
+
+- npm version: `1.1.10`
+- SharePoint solution and feature version: `1.1.0.43`
+- Recognizes the Sessions `EREventId` lookup in registration links and Dynamic Data.
+- Uses the calendar view automatically provisioned by EventRegistration setup.
+- Regression tests: from the repository root, with the component dependencies
+  and Node 10.24.1, run `node .\scripts\test-event-registration.js`. SharePoint/PnP
+  host controls are mocked; on-farm verification remains required.
+
 ## October 28, 2026 release
 
 - SharePoint solution and feature version: `1.1.0.42`
@@ -84,10 +110,25 @@ In the **Registration** property-pane group, enable registration and configure t
 The details-panel **Register** action sends:
 
 - `sessionid` (configurable): the selected Calendar SharePoint item ID.
-- `eventid` (configurable): the parent Event lookup ID from `EventId` or `EventLookupId`, when available; otherwise this parameter is omitted.
+- `eventid` (configurable): the parent Event lookup ID from EventRegistration's `EREventId`, or legacy `EventId` / `EventLookupId`, when available; otherwise this parameter is omitted.
 - `return`: the current page URL when **Include the current page as the return parameter** is enabled.
 
-For Dynamic Data consumers, Calendar continues to publish `selectedItemId` and `selectedMode` unchanged. It additionally publishes scalar `selectedSessionId` (the selected SharePoint item ID) and `selectedEventKey` (the stable source-and-item key used to distinguish identical item IDs across multiple Calendar sources). Calendar does not publish mutable event objects.
+For Dynamic Data consumers, Calendar continues to publish `selectedItemId` and `selectedMode` unchanged. It additionally publishes scalar `selectedSessionId` (the selected SharePoint item ID), `selectedEventId` (the parent registration Event lookup ID, or zero when unavailable), and `selectedEventKey` (the stable source-and-item key used to distinguish identical item IDs across multiple Calendar sources). Calendar does not publish mutable event objects.
+
+For EventRegistration, use its **Sessions** list, not its **Events** list: sessions
+contain the occurrence dates. EventRegistration setup automatically creates the
+public **Registration Sessions Calendar** view using `ERStart`, `EREnd`, and
+`Title`. For an existing installation, rerun **Validate / provision** to add it.
+Then open Calendar's **Manage data sources**, select `<prefix> Sessions`, and use
+**Defaults** for the date columns (or explicitly select `ERStart` / `EREnd`).
+Enable the event details panel and registration, then set the registration page
+URL. Server-relative URLs such as `/sites/events/SitePages/Register.aspx` and
+web-relative URLs such as `SitePages/Register.aspx` are supported.
+For same-page connections, select this Calendar as EventRegistration's
+**Preferred Calendar instance**. Both web parts must use the same site's
+registration lists. Sessions are already expanded occurrences; do not enable
+SharePoint recurrence expansion for this custom list. Use an `ERStatus = open`
+Calendar filter if closed/cancelled sessions should be hidden.
 
 The current user needs read access to the selected Events list. Calendar reads the item fields so filters and style rules can use standard or custom field internal names.
 

@@ -1,6 +1,15 @@
 declare interface IGridControlWebPartStrings {
   PropMatchingDocumentFolders: string;
   PropMatchingDocumentFoldersHelp: string;
+  PropLibraryLoadingMode: string;
+  PropLibraryLoadingFolder: string;
+  PropLibraryLoadingRecursive: string;
+  RuntimeLibraryFolderFileCount: string;
+  RuntimeLibraryFolderFileCountSingular: string;
+  RuntimeLibraryFolderNotLoaded: string;
+  RuntimeLibraryBrowseFolders: string;
+  RuntimeLibraryViewFileCount: string;
+  RuntimeLibraryViewFileCountSingular: string;
   RuntimeLibraryBreadcrumb: string;
   RuntimeLibraryDocumentName: string;
   RuntimeLibraryUp: string;
@@ -27,6 +36,7 @@ declare interface IGridControlWebPartStrings {
   PropNavigationTabs: string;
   PropNavigationForm: string;
   PropNavigationPageControl: string;
+  PropNavigationText: string;
   PropNavigationRefresh: string;
   PropNavigationHelp: string;
   RuntimeGoToDetails: string;

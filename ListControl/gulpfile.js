@@ -31,4 +31,5 @@ build.rig.addPreBuildTask(build.task('version-sync', syncVersionsSubtask));
 
 build.tslint.enabled = false;
 
+require('../scripts/collect-solution-package')(build, __dirname);
 build.initialize(require('gulp'));

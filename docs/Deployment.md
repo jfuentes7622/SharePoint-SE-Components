@@ -62,6 +62,33 @@ references, and verifies that the package exists and opens as a ZIP. CI uploads 
 `.sppkg` as an artifact; validation never publishes a package or deploys it.
 Do not mistake validation of a checked-in package for a fresh-build check.
 
+## Central package copies
+
+All independent projects attach the shared
+[package collector](../scripts/collect-solution-package.js) to successful
+`gulp package-solution --ship` completion. It runs under the existing Node 10
+toolchain and copies the configured package into a sibling `SharePoint-SE-Packages`
+folder outside the repository. For `D:\Source\SharePoint-SE-Components`, the
+collection is `D:\Source\SharePoint-SE-Packages`.
+
+- Source packages remain in each project's configured output location. Existing
+  CI artifact uploads and package inspection continue to use those originals.
+- The original package filename is retained. Each successful rebuild replaces
+  only that filename, not other packages; this is a latest-copy collection,
+  not a version archive.
+- Debug packaging and ordinary build/bundle do not copy existing packages.
+  Packaging failures do not run the collector. Copying stages a temporary file
+  in the destination and renames it only after the copy completes.
+- Missing/empty packages, invalid configuration and filesystem/copy errors fail
+  explicitly. A failed copy/replacement leaves the previous central package intact.
+- `npm run collect-packages` at the repository root copies all existing project
+  packages without rebuilding or certifying them. Missing packages fail explicitly.
+  The collection command discovers projects rather than maintaining a second list.
+
+The collection folder is resolved relative to the repository's parent, not a
+hard-coded drive. It must be writable. Central copies are not App Catalog
+deployment, package inspection or on-premises acceptance evidence.
+
 ## On-premises acceptance
 
 - Record farm build/CU, App Catalog scope and target page/site.

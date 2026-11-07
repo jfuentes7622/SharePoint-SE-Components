@@ -517,10 +517,12 @@ var ListControl = (function (_super) {
     };
     ListControl.prototype.componentDidUpdate = function (prevProps, prevState) {
         var _this = this;
-        if (prevProps.matchingDocumentFolders !== this.props.matchingDocumentFolders) {
+        if (prevProps.matchingDocumentFolders !== this.props.matchingDocumentFolders
+            || prevProps.libraryLoadingMode !== this.props.libraryLoadingMode) {
             this.updateLibraryRefreshTimer();
             this._loadRowsRequestId += 1;
-            this.setState({ libraryFolder: '', currentPage: 0 }, function () { return _this.loadRows(); });
+            this.setState({ libraryFolder: '', libraryFolderLoaded: '', libraryFolderScoped: undefined,
+                libraryDocuments: [], libraryFolders: [], rows: [], loading: true, currentPage: 0 }, function () { return _this.loadRows(); });
             return;
         }
         if (this.isLibraryBrowsing() && (prevProps.filterJson !== this.props.filterJson
@@ -584,14 +586,14 @@ var ListControl = (function (_super) {
         if (prevState.selectedViewId !== this.state.selectedViewId) {
             if (this.isLibraryBrowsing()) {
                 this._loadRowsRequestId += 1;
+                this.setState({ libraryFolder: '', currentPage: 0, sortFieldName: '', sortDirection: '', collapsedGroupKeys: {} }, function () { return _this.loadRows(); });
             }
-            if (this.isLibraryBrowsing() && this.state.libraryFolder) {
-                this.setState({ libraryFolder: '' });
+            else {
+                if (this.state.currentPage !== 0) {
+                    this.setState({ currentPage: 0 });
+                }
+                this.loadRows();
             }
-            if (this.state.currentPage !== 0) {
-                this.setState({ currentPage: 0 });
-            }
-            this.loadRows();
             return;
         }
         if (prevProps.pageSize !== this.props.pageSize || prevProps.filterJson !== this.props.filterJson) {
@@ -908,12 +910,16 @@ var ListControl = (function (_super) {
                     case 1:
                         response = _a.sent();
                         this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
+                        if (!response.ok && response.status !== 406 && response.status !== 415) {
+                            return [2 /*return*/, response];
+                        }
                         if (!!response.ok) return [3 /*break*/, 3];
                         this.logDiagnostic('REST retry (verbose): GET ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 cache: 'no-store',
                                 headers: {
                                     Accept: 'application/json;odata=verbose',
+                                    'OData-Version': '3.0',
                                     'Cache-Control': 'no-cache, no-store',
                                     Pragma: 'no-cache'
                                 }
@@ -922,6 +928,9 @@ var ListControl = (function (_super) {
                         response = _a.sent();
                         this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
                             + String(response.status) + ' ' + response.statusText);
+                        if (!response.ok && response.status !== 406 && response.status !== 415) {
+                            return [2 /*return*/, response];
+                        }
                         _a.label = 3;
                     case 3:
                         if (!!response.ok) return [3 /*break*/, 5];
@@ -938,6 +947,9 @@ var ListControl = (function (_super) {
                         response = _a.sent();
                         this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
                             + String(response.status) + ' ' + response.statusText);
+                        if (!response.ok && response.status !== 406 && response.status !== 415) {
+                            return [2 /*return*/, response];
+                        }
                         _a.label = 5;
                     case 5:
                         if (!!response.ok) return [3 /*break*/, 7];
@@ -977,12 +989,16 @@ var ListControl = (function (_super) {
                     case 1:
                         response = _a.sent();
                         this.logDiagnostic('REST response: POST ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
+                        if (!response.ok && response.status !== 406 && response.status !== 415) {
+                            return [2 /*return*/, response];
+                        }
                         if (!!response.ok) return [3 /*break*/, 3];
                         this.logDiagnostic('REST retry (verbose): POST ' + url);
                         return [4 /*yield*/, this.props.context.spHttpClient.post(url, sp_http_1.SPHttpClient.configurations.v1, {
                                 headers: {
                                     Accept: 'application/json;odata=verbose',
-                                    'Content-Type': 'application/json;odata=verbose'
+                                    'Content-Type': 'application/json;odata=verbose',
+                                    'OData-Version': '3.0'
                                 },
                                 body: payload
                             })];
@@ -990,6 +1006,9 @@ var ListControl = (function (_super) {
                         response = _a.sent();
                         this.logDiagnostic('REST response (verbose): POST ' + url + ' -> HTTP '
                             + String(response.status) + ' ' + response.statusText);
+                        if (!response.ok && response.status !== 406 && response.status !== 415) {
+                            return [2 /*return*/, response];
+                        }
                         _a.label = 3;
                     case 3:
                         if (!!response.ok) return [3 /*break*/, 5];
@@ -1005,6 +1024,9 @@ var ListControl = (function (_super) {
                         response = _a.sent();
                         this.logDiagnostic('REST response (minimalmetadata): POST ' + url + ' -> HTTP '
                             + String(response.status) + ' ' + response.statusText);
+                        if (!response.ok && response.status !== 406 && response.status !== 415) {
+                            return [2 /*return*/, response];
+                        }
                         _a.label = 5;
                     case 5:
                         if (!!response.ok) return [3 /*break*/, 7];
@@ -1049,6 +1071,13 @@ var ListControl = (function (_super) {
         var existingQuery = xmlDocument.getElementsByTagName('Query')[0];
         var queryElement = xmlDocument.importNode(queryDocument.getElementsByTagName('Query')[0], true);
         viewElement.replaceChild(queryElement, existingQuery);
+        // The List renders Designer groups from item rows, not SharePoint group summaries.
+        ['GroupBy', 'Aggregations'].forEach(function (tag) {
+            var nodes = viewElement.getElementsByTagName(tag);
+            while (nodes.length) {
+                nodes[0].parentNode.removeChild(nodes[0]);
+            }
+        });
         var viewFieldsElement = xmlDocument.getElementsByTagName('ViewFields')[0];
         for (var fieldIndex = 0; fieldIndex < viewFieldNames.length; fieldIndex += 1) {
             var fieldName = String(viewFieldNames[fieldIndex] || '');
@@ -2053,9 +2082,9 @@ var ListControl = (function (_super) {
     ListControl.prototype.loadLibraryRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var requestId, prune, previousTime, time, selectedViewId, _a, names, supportNames, conditions, viewXml, snapshot, fields, needed, neededKeys, metadata, matches, folders, _b, current, notice, error_3;
-            return __generator(this, function (_c) {
-                switch (_c.label) {
+            var requestId, scoped, prune, previousTime, time, selectedViewId, _a, names, supportNames, groupingConfig, conditions, viewXml, snapshot, fields, needed, neededKeys, metadata, matches, folders, _b, _c, current, notice, error_3;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
                     case 0:
                         if (this._libraryLoading || this.state.deleting) {
                             this._libraryRefreshPending = true;
@@ -2063,27 +2092,28 @@ var ListControl = (function (_super) {
                             return [2 /*return*/];
                         }
                         requestId = ++this._loadRowsRequestId;
-                        prune = this.props.matchingDocumentFolders === true;
+                        scoped = this.isFolderScopedLibrary();
+                        prune = !scoped && this.props.matchingDocumentFolders === true;
                         previousTime = this._filterReferenceTime;
                         time = new Date().getTime();
                         this._libraryLoading = true;
                         this._libraryRefreshPending = false;
                         this.setState({ loading: !this.state.libraryRoot, libraryError: '', error: null });
-                        _c.label = 1;
+                        _d.label = 1;
                     case 1:
-                        _c.trys.push([1, 12, 13, 14]);
+                        _d.trys.push([1, 15, 16, 17]);
                         LibraryBrowser_1.validateLibraryFilterJson([this.props.filterJson, this.state.runtimeFilterJson, this.props.externalFilterJson]);
                         _a = this.state.selectedViewId;
                         if (_a) return [3 /*break*/, 3];
                         return [4 /*yield*/, LibraryBrowser_1.defaultLibraryViewId(this.getWebUrl(), this.props.listName, function (url) { return _this.getJsonWithFallback(url); })];
                     case 2:
-                        _a = (_c.sent());
-                        _c.label = 3;
+                        _a = (_d.sent());
+                        _d.label = 3;
                     case 3:
                         selectedViewId = _a;
                         return [4 /*yield*/, this.loadSelectedViewFieldNames(selectedViewId)];
                     case 4:
-                        names = _c.sent();
+                        names = _d.sent();
                         if (!names.length) {
                             throw new Error('Unable to load source library view columns.');
                         }
@@ -2093,21 +2123,30 @@ var ListControl = (function (_super) {
                             }
                         });
                         supportNames = this.getRuntimeFilterFieldNames().concat(Object.keys(this.state.columnFilters));
+                        groupingConfig = this.getGroupingConfig();
+                        if (groupingConfig.enabled) {
+                            [groupingConfig.field1, groupingConfig.field2].forEach(function (fieldName) {
+                                if (fieldName && supportNames.indexOf(fieldName) < 0) {
+                                    supportNames.push(fieldName);
+                                }
+                            });
+                        }
                         conditions = this.parsePresetFilterConditions();
                         return [4 /*yield*/, this.loadSelectedViewXml(selectedViewId, names)];
                     case 5:
-                        viewXml = _c.sent();
+                        viewXml = _d.sent();
                         if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
                             viewXml = this.applyExternalServerSearchToViewXml(viewXml || '<View/>');
                         }
                         return [4 /*yield*/, LibraryBrowser_1.loadLibraryDocuments({
                                 webUrl: this.getWebUrl(), listName: this.props.listName, fields: names.concat(supportNames),
                                 viewXml: viewXml, conditions: conditions, time: time, batchSize: this.props.fetchBatchSize,
+                                folder: scoped ? this.state.libraryFolder || '' : undefined,
                                 get: function (url) { return _this.getJsonWithFallback(url); }, post: function (url, body) { return _this.postJsonWithFallback(url, body); },
                                 extract: extractRenderRowsAndFields, current: function () { return requestId === _this._loadRowsRequestId; }
                             })];
                     case 6:
-                        snapshot = _c.sent();
+                        snapshot = _d.sent();
                         fields = this.getFieldsForConsumption(snapshot.fields, names);
                         needed = supportNames.concat(conditions.map(function (condition) { return condition.field; }));
                         neededKeys = needed.map(function (name) { return name.toLowerCase(); });
@@ -2121,7 +2160,7 @@ var ListControl = (function (_super) {
                         });
                         return [4 /*yield*/, this.loadListFieldMetadataMap(fields.map(function (field) { return _this.getFieldKey(field); }))];
                     case 7:
-                        metadata = _c.sent();
+                        metadata = _d.sent();
                         fields = this.applyFieldMetadata(fields, metadata);
                         fields.forEach(function (field) {
                             var source = snapshot.metadata.filter(function (item) {
@@ -2147,57 +2186,98 @@ var ListControl = (function (_super) {
                         finally {
                             this._filterReferenceTime = previousTime;
                         }
-                        if (!prune) return [3 /*break*/, 9];
-                        return [4 /*yield*/, LibraryBrowser_1.loadAncestorFolders(this.getWebUrl(), snapshot.root, matches, function (url) { return _this.getJsonWithFallback(url); })];
+                        if (!scoped) return [3 /*break*/, 9];
+                        return [4 /*yield*/, LibraryBrowser_1.loadChildFolders(this.getWebUrl(), snapshot.root, snapshot.folder, function (url) { return _this.getJsonWithFallback(url); }, function () { return requestId === _this._loadRowsRequestId; }, this.props.fetchBatchSize)];
                     case 8:
-                        _b = _c.sent();
-                        return [3 /*break*/, 11];
-                    case 9: return [4 /*yield*/, LibraryBrowser_1.loadLibraryFolders(this.getWebUrl(), this.props.listName, snapshot.root, matches, function (url) { return _this.getJsonWithFallback(url); }, function () { return requestId === _this._loadRowsRequestId; }, this.props.fetchBatchSize)];
+                        _b = _d.sent();
+                        return [3 /*break*/, 14];
+                    case 9:
+                        if (!prune) return [3 /*break*/, 11];
+                        return [4 /*yield*/, LibraryBrowser_1.loadAncestorFolders(this.getWebUrl(), snapshot.root, matches, function (url) { return _this.getJsonWithFallback(url); })];
                     case 10:
-                        _b = _c.sent();
-                        _c.label = 11;
-                    case 11:
+                        _c = _d.sent();
+                        return [3 /*break*/, 13];
+                    case 11: return [4 /*yield*/, LibraryBrowser_1.loadLibraryFolders(this.getWebUrl(), this.props.listName, snapshot.root, matches, function (url) { return _this.getJsonWithFallback(url); }, function () { return requestId === _this._loadRowsRequestId; }, this.props.fetchBatchSize)];
+                    case 12:
+                        _c = _d.sent();
+                        _d.label = 13;
+                    case 13:
+                        _b = _c;
+                        _d.label = 14;
+                    case 14:
                         folders = _b;
                         if (requestId !== this._loadRowsRequestId) {
                             return [2 /*return*/];
                         }
-                        current = LibraryBrowser_1.nearestFolder(snapshot.root, this.state.libraryFolder || snapshot.root, folders.map(function (folder) { return folder.path; }));
+                        current = scoped ? snapshot.folder
+                            : LibraryBrowser_1.nearestFolder(snapshot.root, this.state.libraryFolder || snapshot.root, folders.map(function (folder) { return folder.path; }));
                         notice = this.state.libraryFolder && current !== this.state.libraryFolder ? strings.RuntimeLibraryFolderGone : '';
                         if (this.state.selectedItemId > 0 && !matches.some(function (row) { return _this.getRowItemId(row) === _this.state.selectedItemId; })) {
                             notice += (notice ? ' ' : '') + strings.RuntimeLibrarySelectionGone;
                         }
                         this._filterReferenceTime = time;
                         this.setState({ fields: fields, rows: snapshot.rows, libraryDocuments: matches, libraryRoot: snapshot.root, libraryFolder: current,
-                            libraryFolders: folders, libraryNotice: notice, libraryError: '', loading: false, nextPageHref: '',
+                            libraryFolders: folders, libraryFolderLoaded: current, libraryFolderScoped: scoped, libraryViewFlat: snapshot.flat,
+                            libraryNotice: notice, libraryError: '', loading: false, nextPageHref: '',
                             currentPage: current === this.state.libraryFolder ? this.state.currentPage : 0 }, function () { return _this.reportFilteredCount(); });
-                        return [3 /*break*/, 14];
-                    case 12:
-                        error_3 = _c.sent();
+                        return [3 /*break*/, 17];
+                    case 15:
+                        error_3 = _d.sent();
                         if (requestId !== this._loadRowsRequestId) {
                             return [2 /*return*/];
                         }
                         console.error('[ListControl] Library refresh failed.', error_3);
                         this.setState({ loading: false, libraryError: strings.RuntimeLibraryRefreshFailed + ' ' + String(error_3 && error_3.message || error_3) });
-                        return [3 /*break*/, 14];
-                    case 13:
+                        return [3 /*break*/, 17];
+                    case 16:
                         this._libraryLoading = false;
                         if (this._libraryRefreshPending && this.isLibraryBrowsing()) {
                             this._libraryRefreshPending = false;
                             this.loadRows();
                         }
                         return [7 /*endfinally*/];
-                    case 14: return [2 /*return*/];
+                    case 17: return [2 /*return*/];
                 }
             });
         });
     };
     ListControl.prototype.navigateLibraryFolder = function (path) {
+        var _this = this;
         if (this.state.deleting) {
             this.setState({ libraryNotice: strings.RuntimeLibraryRefreshPending });
             return;
         }
-        this.setState({ libraryFolder: path, currentPage: 0, selectedItemId: 0, selectedMode: 'view', libraryNotice: '', navigationError: '' });
+        if (this.isFolderScopedLibrary()) {
+            this._loadRowsRequestId += 1;
+        }
+        this.setState({ libraryFolder: path, currentPage: 0, selectedItemId: 0, selectedMode: 'view', libraryNotice: '', navigationError: '',
+            rows: this.isFolderScopedLibrary() ? [] : this.state.rows,
+            libraryDocuments: this.isFolderScopedLibrary() ? [] : this.state.libraryDocuments,
+            libraryFolders: this.isFolderScopedLibrary() ? [] : this.state.libraryFolders,
+            loading: this.isFolderScopedLibrary() }, function () { if (_this.isFolderScopedLibrary()) {
+            _this.loadRows();
+        } });
         this.props.onSelectionChange(0, 'view');
+    };
+    ListControl.prototype.isFolderScopedLibrary = function () {
+        return this.props.libraryLoadingMode ? this.props.libraryLoadingMode === 'folder' : this.props.matchingDocumentFolders !== true;
+    };
+    ListControl.prototype.getLibraryCountLabel = function (count, footer) {
+        if (this.state.libraryViewFlat) {
+            if (this.state.libraryFolderScoped && this.state.libraryFolderLoaded !== this.state.libraryFolder) {
+                return strings.RuntimeLibraryFolderNotLoaded;
+            }
+            return formatString(count === 1 ? strings.RuntimeLibraryViewFileCountSingular : strings.RuntimeLibraryViewFileCount, count);
+        }
+        if (this.state.libraryFolderScoped === true || (this.state.libraryFolderScoped === undefined && this.isFolderScopedLibrary())) {
+            if (this.state.libraryFolderLoaded !== this.state.libraryFolder) {
+                return strings.RuntimeLibraryFolderNotLoaded;
+            }
+            return formatString(count === 1 ? strings.RuntimeLibraryFolderFileCountSingular : strings.RuntimeLibraryFolderFileCount, count);
+        }
+        return formatString(footer
+            ? (count === 1 ? strings.RuntimeLibraryFileCountSingular : strings.RuntimeLibraryFileCount)
+            : (count === 1 ? strings.RuntimeLibraryDocumentCountSingular : strings.RuntimeLibraryDocumentCount), count);
     };
     ListControl.prototype.renderLibraryNavigation = function () {
         var _this = this;
@@ -2216,7 +2296,12 @@ var ListControl = (function (_super) {
                 paths.map(function (path, index) { return React.createElement("span", { key: path, className: "lc-library-path-part" },
                     index > 0 && React.createElement("span", { className: "lc-library-separator", "aria-hidden": "true" }, '\\'),
                     _this.renderLibraryFolderLink(path, index === 0 ? _this.props.listName : parts[index - 1], path === current, index === 0)); })),
-            React.createElement("div", { role: "status" }, formatString(fileCount === 1 ? strings.RuntimeLibraryDocumentCountSingular : strings.RuntimeLibraryDocumentCount, fileCount)));
+            React.createElement("details", { className: "lc-library-folders" },
+                React.createElement("summary", null, strings.RuntimeLibraryBrowseFolders),
+                React.createElement("ul", null, LibraryBrowser_1.folderLevel(root, current, [], this.state.libraryFolders || [], false).map(function (row) {
+                    return React.createElement("li", { key: row.libraryFolder.path }, _this.renderLibraryFolderLink(row.libraryFolder.path, row.libraryFolder.name));
+                }))),
+            React.createElement("div", { role: "status" }, this.getLibraryCountLabel(fileCount, false)));
     };
     ListControl.prototype.renderLibraryFolderLink = function (path, label, current, showIcon) {
         var _this = this;
@@ -2236,15 +2321,10 @@ var ListControl = (function (_super) {
             showIcon && React.createElement("img", { className: "lc-library-folder-icon", src: this.getWebUrl() + '/_layouts/15/images/folder.gif', alt: "", "aria-hidden": "true" }),
             React.createElement("span", null, label));
     };
-    ListControl.prototype.renderLibraryFolderRow = function (row, columnCount) {
-        var folder = row.libraryFolder;
-        return React.createElement("tr", { key: 'folder-' + folder.path, className: "lc-row lc-library-folder" },
-            React.createElement("td", { colSpan: Math.max(1, columnCount) }, this.renderLibraryFolderLink(folder.path, folder.name)));
-    };
     ListControl.prototype.loadRows = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
-            var sourceName, sourceRequestId, isLibrary, _a, error_4, requestId, baseEndpoint, selectedViewId, viewFieldNames, configuredFieldNames, selectedViewXml, runtimeFilterFieldNames, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, fieldTitleMap, visibleFieldNames, fieldTypeMap, fieldMetadataMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _b, error_5, loadError;
+            var sourceName, sourceRequestId, isLibrary, _a, error_4, requestId, baseEndpoint, selectedViewId, viewFieldNames, configuredFieldNames, selectedViewXml, runtimeFilterFieldNames, groupingConfig, body, requestViewXml, selectedRows, selectedFields, nextPageHref, lastError, hadSuccessfulResponse, requestUrls, requestIndex, requestUrl, response, errorText, _readError_1, data, extracted, rows, fields, itemsFallback, runtimeSupportFields, runtimeItemIds, runtimeItems, visibleFields, existingFieldNames, fieldTitleMap, visibleFieldNames, fieldTypeMap, fieldMetadataMap, renderableRows, hasAttachmentsField, attachmentCountsByItemId, _b, error_5, loadError;
             return __generator(this, function (_c) {
                 switch (_c.label) {
                     case 0:
@@ -2315,6 +2395,16 @@ var ListControl = (function (_super) {
                     case 10:
                         selectedViewXml = _c.sent();
                         runtimeFilterFieldNames = this.getRuntimeFilterFieldNames();
+                        groupingConfig = this.getGroupingConfig();
+                        if (groupingConfig.enabled) {
+                            [groupingConfig.field1, groupingConfig.field2].forEach(function (fieldName) {
+                                if (fieldName && runtimeFilterFieldNames.indexOf(fieldName) < 0 && !viewFieldNames.some(function (name) {
+                                    return name.toLowerCase() === fieldName.toLowerCase();
+                                })) {
+                                    runtimeFilterFieldNames.push(fieldName);
+                                }
+                            });
+                        }
                         this._pagingRuntimeFilterFieldNames = runtimeFilterFieldNames.slice(0);
                         body = {
                             parameters: {
@@ -3667,6 +3757,9 @@ var ListControl = (function (_super) {
         var _this = this;
         var useLibrarySnapshot = !sourceRows && this.isLibraryBrowsing() && !!this.state.libraryDocuments;
         var rows = (sourceRows || (useLibrarySnapshot ? this.state.libraryDocuments : this.state.rows)).slice(0);
+        if (useLibrarySnapshot && this.state.libraryViewFlat && this.state.libraryRoot) {
+            rows = LibraryBrowser_1.folderDocuments(this.state.libraryFolder || this.state.libraryRoot, rows, true);
+        }
         var fields = sourceFields || this.state.fields;
         var fieldsByKey = {};
         for (var i = 0; i < fields.length; i += 1) {
@@ -3713,9 +3806,6 @@ var ListControl = (function (_super) {
         return rows;
     };
     ListControl.prototype.getGroupingConfig = function () {
-        if (this.isLibraryBrowsing()) {
-            return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true };
-        }
         var json = String(this.props.groupingJson || '').trim();
         if (!json) {
             return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true };
@@ -4112,8 +4202,11 @@ var ListControl = (function (_super) {
         var processedRows = this.getProcessedRows();
         var libraryFileCount = 0;
         if (this.isLibraryBrowsing() && this.state.libraryRoot) {
-            libraryFileCount = LibraryBrowser_1.folderDocumentCount(this.state.libraryFolder || this.state.libraryRoot, processedRows);
-            processedRows = LibraryBrowser_1.folderLevel(this.state.libraryRoot, this.state.libraryFolder || this.state.libraryRoot, processedRows, this.state.libraryFolders || [], this.props.matchingDocumentFolders === true);
+            libraryFileCount = this.state.libraryViewFlat ? processedRows.length
+                : LibraryBrowser_1.folderDocumentCount(this.state.libraryFolder || this.state.libraryRoot, processedRows);
+            if (!this.state.libraryViewFlat) {
+                processedRows = LibraryBrowser_1.folderDocuments(this.state.libraryFolder || this.state.libraryRoot, processedRows);
+            }
         }
         var pageSize = this.props.pageSize > 0 ? this.props.pageSize : 0;
         var pageCount = pageSize > 0 ? Math.max(1, Math.ceil(processedRows.length / pageSize)) : 1;
@@ -4328,11 +4421,10 @@ var ListControl = (function (_super) {
                                 }))),
                         React.createElement("tbody", null, groupingConfig.enabled
                             ? rowGroups.reduce(function (accumulated, group) { return accumulated.concat(_this.renderRowGroupRows(group, group.key, 0, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules)); }, [])
-                            : visibleRows.map(function (row, index) { return row.libraryFolder ? _this.renderLibraryFolderRow(row, totalColumnCount)
-                                : _this.renderDataRow(row, String(index), displayFields, fieldsByKey, conditionalRules); })))))),
+                            : visibleRows.map(function (row, index) { return _this.renderDataRow(row, String(index), displayFields, fieldsByKey, conditionalRules); })))))),
             !this.state.loading && !this.state.error && (!this.isLibraryBrowsing() || !!this.state.libraryRoot) && (React.createElement("div", { className: "lc-footer" },
                 React.createElement("div", { className: "lc-total-items" }, this.isLibraryBrowsing()
-                    ? formatString(libraryFileCount === 1 ? strings.RuntimeLibraryFileCountSingular : strings.RuntimeLibraryFileCount, libraryFileCount) : this.state.nextPageHref
+                    ? this.getLibraryCountLabel(libraryFileCount, true) : this.state.nextPageHref
                     ? strings.RuntimeLoadedItemsLabel.replace('{0}', String(processedRows.length))
                     : formatString(strings.RuntimeTotalItemsLabel, processedRows.length)),
                 pageSize > 0 && (pageCount > 1 || !!this.state.nextPageHref) && (React.createElement("div", { className: "lc-pagination" },

@@ -19,6 +19,9 @@ function createElement() {
     },
     children: [],
     attributes: {},
+    getAttribute: function(name) {
+      return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+    },
     setAttribute: function(name, value) { this.attributes[name] = value; },
     appendChild: function(child) { this.children.push(child); },
     addEventListener: function() {}

@@ -26,6 +26,7 @@ export interface IGridControlProps {
     showViewAsDropdown: boolean;
     showRefresh: boolean;
     matchingDocumentFolders?: boolean;
+    libraryLoadingMode?: string;
     showAdd: boolean;
     showDelete: boolean;
     showHistory: boolean;
@@ -132,6 +133,9 @@ export interface IGridControlState {
     libraryDocuments?: any[];
     libraryRoot?: string;
     libraryFolder?: string;
+    libraryFolderLoaded?: string;
+    libraryFolderScoped?: boolean;
+    libraryViewFlat?: boolean;
     libraryFolders?: ILibraryFolder[];
     libraryNotice?: string;
     libraryError?: string;
@@ -337,9 +341,10 @@ export declare class GridControl extends React.Component<IGridControlProps, IGri
     private updateLibraryRefreshTimer();
     private loadLibraryRows();
     private navigateLibraryFolder(path);
+    private isFolderScopedLibrary();
+    private getLibraryCountLabel(count, footer);
     private renderLibraryNavigation();
     private renderLibraryFolderLink(path, label, current?, showIcon?);
-    private renderLibraryFolderRow(row, columnCount);
     private loadRows();
     private applyFetchBatchSize(viewXml);
     private loadNextBatch();

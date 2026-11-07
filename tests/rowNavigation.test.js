@@ -8,6 +8,57 @@ const vm = require('vm');
 let passed = 0;
 let failed = 0;
 
+function loadRegistrations(document) {
+  const repositoryRoot = path.join(__dirname, '..');
+  const registrations = [];
+  function findWebParts(directory) {
+    return fs.readdirSync(directory).reduce(function(files, name) {
+      const file = path.join(directory, name);
+      return files.concat(fs.statSync(file).isDirectory() ? findWebParts(file)
+        : /WebPart\.ts$/.test(name) ? [file] : []);
+    }, []);
+  }
+  fs.readdirSync(repositoryRoot).forEach(function(project) {
+    const projectRoot = path.join(repositoryRoot, project);
+    const sourceRoot = path.join(projectRoot, 'src', 'webparts');
+    if (!fs.existsSync(path.join(projectRoot, 'config', 'package-solution.json')) || !fs.existsSync(sourceRoot)) { return; }
+    const ts = require(path.join(projectRoot, 'node_modules', 'typescript'));
+    findWebParts(sourceRoot).forEach(function(file) {
+      const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.ES5, true);
+      const declaration = source.statements.filter(function(statement) { return statement.kind === ts.SyntaxKind.ClassDeclaration; })[0];
+      const methodName = project === 'ListControl' ? 'renderContent' : 'render';
+      const method = declaration.members.filter(function(member) { return member.name && member.name.text === methodName; })[0];
+      assert.ok(method && method.body, project + ' has a rendering entry point');
+      if (project === 'ListControl') {
+        const render = declaration.members.filter(function(member) { return member.name && member.name.text === 'render'; })[0];
+        assert.ok(render.getText(source).indexOf('this.renderContent()') >= 0);
+      }
+      const registration = method.body.statements.slice(0, 2).map(function(statement) { return statement.getText(source); }).join('\n');
+      assert.ok(registration.indexOf('data-spse-instance-id') >= 0, project + ' registers an instance ID before rendering content');
+      assert.ok(registration.indexOf('data-spse-control-title') >= 0, project + ' registers its framework-provided title');
+      const manifestFile = file.replace(/\.ts$/, '.manifest.json');
+      const parsed = ts.parseConfigFileTextToJson(manifestFile, fs.readFileSync(manifestFile, 'utf8'));
+      assert.strictEqual(parsed.error, undefined);
+      const manifest = parsed.config;
+      const instanceId = ('00000000' + (registrations.length + 1).toString(16)).slice(-8) + '-abcd-4abc-8abc-123456789012';
+      const element = document.createElement('div');
+      const exports = {};
+      vm.runInNewContext(ts.transpileModule('exports.register = function() {' + registration + '};', {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES5 }
+      }).outputText, { exports: exports }, { filename: file });
+      exports.register.call({
+        domElement: element, context: { instanceId: instanceId },
+        title: manifest.preconfiguredEntries[0].title.default
+      });
+      assert.strictEqual(element.getAttribute('data-spse-instance-id'), instanceId);
+      assert.strictEqual(element.getAttribute('data-spse-control-title'), manifest.preconfiguredEntries[0].title.default);
+      assert.ok(element.getAttribute('data-spse-control-title'));
+      registrations.push({ project: project, instanceId: instanceId, element: element, title: manifest.preconfiguredEntries[0].title.default });
+    });
+  });
+  return registrations;
+}
+
 ['ListControl', 'GridControl'].forEach(function(project) {
   const root = path.join(__dirname, '..', project);
   const base = path.join(root, 'src', 'webparts', project === 'ListControl' ? 'listControl' : 'gridControl');
@@ -272,6 +323,49 @@ let failed = 0;
     assert.strictEqual(targets.filter(function(target) { return target.instanceId === sourceId; }).length, 0);
   });
 
+  test('all 18 repository page web parts register discoverable targets without SharePoint wrapper metadata', function() {
+    document.body.innerHTML = '';
+    const registrations = loadRegistrations(document);
+    assert.strictEqual(registrations.length, 18);
+    registrations.forEach(function(registration) { document.body.appendChild(registration.element); });
+    const targets = navigation.getPageNavigationTargets(document, sourceId);
+    assert.strictEqual(targets.length, registrations.length);
+    registrations.forEach(function(registration) {
+      const target = targets.filter(function(candidate) { return candidate.instanceId === registration.instanceId; })[0];
+      assert.ok(target, registration.project + ' is a navigation target');
+      assert.strictEqual(target.element, registration.element);
+      assert.strictEqual(target.title, registration.title);
+    });
+  });
+
+  test('metadata-free Tab is selectable and receives focus without changing the active tab', function() {
+    const page = fixture(tabId);
+    document.getElementById('tab-host').removeAttribute('data-sp-controldata');
+    page.tabs.setAttribute('data-spse-instance-id', tabId);
+    page.tabs.setAttribute('data-spse-control-title', 'SPS Tabs');
+    const options = page.part.getNavigationTargetOptions();
+    assert.ok(options.some(function(option) { return option.key === tabId && option.text.indexOf('SPS Tabs') >= 0; }));
+    rows(page.instance)[0].props.onClick();
+    visibleButtons(page.instance)[0].props.onClick({ stopPropagation: function() {} });
+    assert.strictEqual(document.activeElement, page.tabs.querySelector('[role="tablist"]'));
+    assert.strictEqual(page.tabs.querySelector('[role="tab"].selected').textContent, 'General');
+    assert.strictEqual(page.scrolls.length, 1);
+    assert.strictEqual(page.instance.state.navigationError, '');
+  });
+
+  test('manifest fallback titles preserve custom names and deduplicate canvas wrappers', function() {
+    fixture(tabId);
+    const form = document.getElementById('form');
+    form.setAttribute('data-spse-instance-id', formId);
+    form.setAttribute('data-spse-control-title', 'SPS Report Forms');
+    const targets = navigation.getPageNavigationTargets(document, sourceId);
+    assert.strictEqual(targets.length, 2);
+    assert.strictEqual(targets.filter(function(target) { return target.instanceId === formId; })[0].title, 'Details form');
+    form.setAttribute('data-spse-instance-name', 'Custom report');
+    assert.strictEqual(navigation.getPageNavigationTargets(document, sourceId)
+      .filter(function(target) { return target.instanceId === formId; })[0].title, 'Custom report');
+  });
+
   test('two controls with the same title remain separately selectable by instance ID', function() {
     const page = fixture(tabId);
     document.getElementById('form-host').setAttribute('data-sp-controldata', metadata(formId, 'Record tabs'));
@@ -301,6 +395,177 @@ let failed = 0;
     const before = errors.length;
     assert.strictEqual(navigation.getPageNavigationTargets(document, sourceId).length, 2);
     assert.ok(errors.length > before);
+  });
+
+  test('built-in and third-party web-part metadata uses page instance IDs, not shared component IDs', function() {
+    const page = fixture();
+    const componentId = '55555555-5555-4555-8555-555555555555';
+    const secondId = '66666666-6666-4666-8666-666666666666';
+    const vendorId = '77777777-7777-4777-8777-777777777777';
+    [missingId, secondId, vendorId].forEach(function(id, index) {
+      const wrapper = document.createElement('section');
+      wrapper.setAttribute('data-sp-canvascontrol', '');
+      const host = document.createElement('div');
+      host.setAttribute('data-sp-webpart', '');
+      host.setAttribute('data-sp-webpartdata', JSON.stringify({
+        id: componentId, instanceId: id, title: index < 2 ? 'Image' : 'Vendor dashboard'
+      }));
+      wrapper.appendChild(host);
+      document.body.appendChild(wrapper);
+    });
+    const targets = navigation.getPageNavigationTargets(document, sourceId);
+    assert.strictEqual(targets.length, 5);
+    assert.strictEqual(targets.filter(function(target) { return target.title === 'Image'; }).length, 2);
+    assert.ok(!targets.some(function(target) { return target.instanceId === componentId; }));
+    const options = page.part.getNavigationTargetOptions();
+    [missingId, secondId, vendorId].forEach(function(id) {
+      assert.ok(options.some(function(option) { return option.key === id && option.text.indexOf(id) >= 0; }));
+    });
+    const unidentified = document.createElement('div');
+    unidentified.setAttribute('data-sp-webpartdata', JSON.stringify({ id: componentId, title: 'No instance ID' }));
+    document.body.appendChild(unidentified);
+    assert.strictEqual(navigation.getPageNavigationTargets(document, sourceId).length, 5,
+      'Never use the reusable component GUID as a page-instance navigation key.');
+  });
+
+  test('Text canvas controls appear in the dropdown and receive focus through Go to details', function() {
+    const page = fixture(missingId);
+    const text = document.createElement('section');
+    text.setAttribute('data-sp-canvascontrol', '');
+    text.setAttribute('data-sp-controldata', JSON.stringify({ id: missingId, controlType: 4 }));
+    text.innerHTML = '<h2>Customer instructions</h2><p>Read these instructions before entering a record.</p>';
+    let scrolls = 0;
+    text.scrollIntoView = function() { scrolls++; };
+    document.body.appendChild(text);
+    const option = page.part.getNavigationTargetOptions().filter(function(candidate) { return candidate.key === missingId; })[0];
+    assert.ok(option && option.text.indexOf('Customer instructions') >= 0);
+    rows(page.instance)[0].props.onClick();
+    visibleButtons(page.instance)[0].props.onClick({ stopPropagation: function() {} });
+    assert.strictEqual(document.activeElement, text);
+    assert.strictEqual(scrolls, 1);
+    assert.strictEqual(text.getAttribute('tabindex'), '-1');
+    assert.strictEqual(page.part.getPropertyValue('selectedItemId'), 1);
+    assert.strictEqual(page.part.properties.navigationTargetInstanceId, missingId);
+    document.getElementById('stay').focus();
+    assert.strictEqual(text.hasAttribute('tabindex'), false);
+  });
+
+  test('Text labels use bounded rendered previews, with a localized fallback for empty blocks', function() {
+    fixture();
+    const text = document.createElement('div');
+    text.setAttribute('data-sp-controldata', JSON.stringify({ id: missingId, controlType: 4 }));
+    text.textContent = 'Customer instructions '.repeat(20);
+    document.body.appendChild(text);
+    let target = navigation.getPageNavigationTargets(document, sourceId).filter(function(candidate) {
+      return candidate.instanceId === missingId;
+    })[0];
+    assert.strictEqual(target.title.length, 80);
+    assert.ok(target.title.indexOf('Customer instructions') === 0);
+    text.textContent = '';
+    target = navigation.getPageNavigationTargets(document, sourceId).filter(function(candidate) {
+      return candidate.instanceId === missingId;
+    })[0];
+    assert.strictEqual(target.title, strings.PropNavigationText);
+  });
+
+  test('standard host labels identify native controls without repository markers or Dynamic Data', function() {
+    fixture();
+    const identities = [
+      [missingId, 'data-sp-feature-instance-id', 'data-sp-feature-tag', 'Quick links'],
+      ['55555555-5555-4555-8555-555555555555', 'data-sp-webpart-instance-id', 'aria-label', 'Customer contacts']
+    ];
+    identities.forEach(function(entry) {
+      const host = document.createElement('div');
+      host.setAttribute(entry[1], entry[0]);
+      host.setAttribute(entry[2], entry[3]);
+      document.body.appendChild(host);
+    });
+    const targets = navigation.getPageNavigationTargets(document, sourceId);
+    identities.forEach(function(entry) {
+      assert.strictEqual(targets.filter(function(target) { return target.instanceId === entry[0]; })[0].title, entry[3]);
+    });
+  });
+
+  test('legacy underscore IDs and classic WebPartID hosts are discoverable and focusable', function() {
+    fixture();
+    const identities = [missingId, '55555555-5555-4555-8555-555555555555', '66666666-6666-4666-8666-666666666666'];
+    const elements = identities.map(function(id, index) {
+      const host = document.createElement('div');
+      host.id = index === 0 ? 'WebPart_' + id : index === 1 ? 'webpart_' + id : 'WebPartWPQ2';
+      if (index === 2) { host.setAttribute('WebPartID', '{' + id.toUpperCase() + '}'); }
+      host.setAttribute('aria-label', 'Native control ' + index);
+      host.scrollIntoView = function() {};
+      document.body.appendChild(host);
+      return host;
+    });
+    const targets = navigation.getPageNavigationTargets(document, sourceId);
+    identities.forEach(function(id, index) {
+      const target = targets.filter(function(candidate) { return candidate.instanceId === id; })[0];
+      assert.strictEqual(target.title, 'Native control ' + index);
+      navigation.navigateToPageTarget(document, id, sourceId);
+      assert.strictEqual(document.activeElement, elements[index]);
+    });
+  });
+
+  test('a canvas control and its nested native host appear once, preserving the existing canvas target key', function() {
+    const page = fixture();
+    const wrapper = document.createElement('section');
+    wrapper.setAttribute('data-sp-canvascontrol', '');
+    wrapper.setAttribute('data-sp-controldata', JSON.stringify({ id: missingId, controlType: 3 }));
+    wrapper.innerHTML = '<h2>Native news</h2><div data-sp-webpart="" data-sp-webpartdata=\''
+      + JSON.stringify({ instanceId: '55555555-5555-4555-8555-555555555555', title: 'News' }) + '\'></div>';
+    wrapper.scrollIntoView = function() {};
+    document.body.appendChild(wrapper);
+    const targets = navigation.getPageNavigationTargets(document, sourceId);
+    assert.strictEqual(targets.length, 3);
+    assert.strictEqual(targets.filter(function(target) { return target.instanceId === missingId; })[0].title, 'News');
+    navigation.navigateToPageTarget(document, missingId, sourceId);
+    assert.strictEqual(document.activeElement, wrapper);
+    const alias = '55555555-5555-4555-8555-555555555555';
+    navigation.navigateToPageTarget(document, alias, sourceId);
+    assert.strictEqual(document.activeElement, wrapper, 'Previously saved native-host IDs remain navigable after deduplication.');
+    page.part.properties.navigationTargetInstanceId = alias;
+    const options = page.part.getNavigationTargetOptions();
+    const selected = options.filter(function(option) { return option.key === alias; })[0];
+    assert.ok(selected && selected.text.indexOf('News') >= 0);
+    assert.ok(selected.text.indexOf(strings.PropNavigationUnavailable) < 0);
+    assert.strictEqual(options.filter(function(option) { return option.key === missingId || option.key === alias; }).length, 1);
+    assert.strictEqual(page.part.properties.navigationTargetInstanceId, alias, 'Do not rewrite a saved target to its wrapper ID.');
+  });
+
+  test('source exclusion covers the complete canvas control even if the wrapper has a different canvas ID', function() {
+    const page = fixture();
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('data-sp-canvascontrol', '');
+    wrapper.setAttribute('data-sp-controldata', JSON.stringify({ id: missingId, controlType: 3 }));
+    document.body.appendChild(wrapper);
+    wrapper.appendChild(page.source);
+    const targets = navigation.getPageNavigationTargets(document, sourceId);
+    assert.strictEqual(targets.length, 2);
+    assert.ok(!targets.some(function(target) { return target.instanceId === missingId || target.instanceId === sourceId; }));
+  });
+
+  test('invalid metadata is logged and a valid host identity is still usable', function() {
+    fixture();
+    const host = document.createElement('div');
+    host.setAttribute('data-spse-instance-id', 'not-an-instance-id');
+    host.setAttribute('data-sp-webpart-instance-id', missingId);
+    host.setAttribute('data-sp-webpartdata', 'null');
+    host.setAttribute('aria-label', 'Native control');
+    document.body.appendChild(host);
+    const before = errors.length;
+    const targets = navigation.getPageNavigationTargets(document, sourceId);
+    assert.strictEqual(targets.filter(function(target) { return target.instanceId === missingId; })[0].title, 'Native control');
+    assert.ok(errors.length > before);
+  });
+
+  test('layout sections and ordinary HTML buttons are not fabricated into navigation targets', function() {
+    fixture();
+    const section = document.createElement('section');
+    section.className = 'CanvasSection';
+    section.innerHTML = '<h2>Page layout</h2><button id="ordinary-button">Not a page control</button>';
+    document.body.appendChild(section);
+    assert.strictEqual(navigation.getPageNavigationTargets(document, sourceId).length, 2);
   });
 
   test('the property pane exposes None, refresh and an unavailable saved target without silently replacing it', function() {

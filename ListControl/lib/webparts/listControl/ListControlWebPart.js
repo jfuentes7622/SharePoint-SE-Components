@@ -180,7 +180,7 @@ var ListControlWebPart = (function (_super) {
             {
                 id: 'searchResultCount',
                 title: 'Search result count',
-                description: 'Number of items remaining after the current filters are applied.',
+                description: 'Number of filtered items. Folder-scoped library loading counts only files in the current folder, excluding subfolders.',
             }
         ];
     };
@@ -217,6 +217,8 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.renderContent = function () {
         var _this = this;
+        this.domElement.setAttribute('data-spse-instance-id', this.context.instanceId);
+        this.domElement.setAttribute('data-spse-control-title', this.title || '');
         this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
         overrideCss_1.applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
         deterministicFullWidth_1.updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
@@ -248,6 +250,7 @@ var ListControlWebPart = (function (_super) {
             showViewAsDropdown: this.properties.showViewAsDropdown !== false,
             showRefresh: this.properties.showRefresh !== false,
             matchingDocumentFolders: this.properties.matchingDocumentFolders === true,
+            libraryLoadingMode: this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder'),
             showAdd: this.properties.showAdd !== false,
             showEdit: this.properties.showEdit !== false,
             showView: this.properties.showView !== false,
@@ -375,10 +378,12 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.getNavigationTargetOptions = function () {
         var options = [{ key: '', text: strings.PropNavigationNone }];
-        PageNavigation_1.getPageNavigationTargets(this.domElement.ownerDocument, this.context.instanceId).forEach(function (target) {
-            options.push({ key: target.instanceId, text: target.title + ' (' + target.instanceId + ')' });
-        });
         var selected = this.properties.navigationTargetInstanceId || '';
+        var selectedId = selected.replace(/[{}]/g, '').toLowerCase();
+        PageNavigation_1.getPageNavigationTargets(this.domElement.ownerDocument, this.context.instanceId).forEach(function (target) {
+            var key = target.instanceId === selectedId || target.aliases.indexOf(selectedId) >= 0 ? selected : target.instanceId;
+            options.push({ key: key, text: target.title + ' (' + key + ')' });
+        });
         if (selected && !options.some(function (option) { return option.key === selected; })) {
             options.push({ key: selected, text: strings.PropNavigationUnavailable + ' (' + selected + ')' });
         }
@@ -401,6 +406,15 @@ var ListControlWebPart = (function (_super) {
     };
     ListControlWebPart.prototype.onPropertyPaneFieldChanged = function (propertyPath, oldValue, newValue) {
         this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+        if (propertyPath === 'libraryLoadingMode' && oldValue !== newValue) {
+            if (newValue === 'folder') {
+                this.properties.matchingDocumentFolders = false;
+            }
+            _super.prototype.onPropertyPaneFieldChanged.call(this, propertyPath, oldValue, newValue);
+            this.context.propertyPane.refresh();
+            this.render();
+            return;
+        }
         if (propertyPath === 'linkTargetPageUrl' && oldValue !== newValue) {
             this.properties.includeReturnUrlParam = !!newValue && newValue !== '__defaultForm__';
             _super.prototype.onPropertyPaneFieldChanged.call(this, propertyPath, oldValue, newValue);
@@ -1285,9 +1299,18 @@ var ListControlWebPart = (function (_super) {
                         {
                             groupName: strings.PropertyGroupButtons,
                             groupFields: [
+                                sp_webpart_base_1.PropertyPaneDropdown('libraryLoadingMode', {
+                                    label: strings.PropLibraryLoadingMode,
+                                    selectedKey: this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder'),
+                                    options: [
+                                        { key: 'folder', text: strings.PropLibraryLoadingFolder },
+                                        { key: 'recursive', text: strings.PropLibraryLoadingRecursive }
+                                    ]
+                                }),
                                 sp_webpart_base_1.PropertyPaneCheckbox('matchingDocumentFolders', {
                                     text: strings.PropMatchingDocumentFolders,
-                                    checked: this.properties.matchingDocumentFolders === true
+                                    checked: this.properties.matchingDocumentFolders === true,
+                                    disabled: (this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder')) !== 'recursive'
                                 }),
                                 sp_webpart_base_1.PropertyPaneLabel('matchingDocumentFoldersHelp', { text: strings.PropMatchingDocumentFoldersHelp }),
                                 sp_webpart_base_1.PropertyPaneCheckbox('showRefresh', {

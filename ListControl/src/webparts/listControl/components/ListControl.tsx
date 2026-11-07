@@ -2,7 +2,7 @@ import * as React from 'react';
 import { SPHttpClient } from '@microsoft/sp-http';
 import * as strings from 'ListControlWebPartStrings';
 import { DateTime24HourInput } from './DateTime24HourInput';
-import { ILibraryFolder, resolveNowExpression, documentUrl, loadLibraryDocuments, loadAncestorFolders, loadLibraryFolders, detectDocumentLibrary, folderLevel, folderDocumentCount, nearestFolder, defaultLibraryViewId, validateLibraryFilterJson } from './LibraryBrowser';
+import { ILibraryFolder, resolveNowExpression, documentUrl, loadLibraryDocuments, loadAncestorFolders, loadLibraryFolders, loadChildFolders, detectDocumentLibrary, folderLevel, folderDocuments, folderDocumentCount, nearestFolder, defaultLibraryViewId, validateLibraryFilterJson } from './LibraryBrowser';
 import './ListControl.css';
 
 export interface IListControlViewOption {
@@ -31,6 +31,7 @@ export interface IListControlProps {
   showViewAsDropdown: boolean;
   showRefresh: boolean;
   matchingDocumentFolders?: boolean;
+  libraryLoadingMode?: string;
   showAdd: boolean;
   showEdit: boolean;
   showView: boolean;
@@ -145,6 +146,9 @@ export interface IListControlState {
   libraryDocuments?: any[];
   libraryRoot?: string;
   libraryFolder?: string;
+  libraryFolderLoaded?: string;
+  libraryFolderScoped?: boolean;
+  libraryViewFlat?: boolean;
   libraryFolders?: ILibraryFolder[];
   libraryNotice?: string;
   libraryError?: string;
@@ -737,10 +741,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   public componentDidUpdate(prevProps: IListControlProps, prevState: IListControlState): void {
-    if (prevProps.matchingDocumentFolders !== this.props.matchingDocumentFolders) {
+    if (prevProps.matchingDocumentFolders !== this.props.matchingDocumentFolders
+      || prevProps.libraryLoadingMode !== this.props.libraryLoadingMode) {
       this.updateLibraryRefreshTimer();
       this._loadRowsRequestId += 1;
-      this.setState({ libraryFolder: '', currentPage: 0 }, () => this.loadRows());
+      this.setState({ libraryFolder: '', libraryFolderLoaded: '', libraryFolderScoped: undefined,
+        libraryDocuments: [], libraryFolders: [], rows: [], loading: true, currentPage: 0 }, () => this.loadRows());
       return;
     }
     if (this.isLibraryBrowsing() && (prevProps.filterJson !== this.props.filterJson
@@ -798,12 +804,14 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     }
 
     if (prevState.selectedViewId !== this.state.selectedViewId) {
-      if (this.isLibraryBrowsing()) { this._loadRowsRequestId += 1; }
-      if (this.isLibraryBrowsing() && this.state.libraryFolder) { this.setState({ libraryFolder: '' }); }
-      if (this.state.currentPage !== 0) {
-        this.setState({ currentPage: 0 });
+      if (this.isLibraryBrowsing()) {
+        this._loadRowsRequestId += 1;
+        this.setState({ libraryFolder: '', currentPage: 0, sortFieldName: '', sortDirection: '', collapsedGroupKeys: {} },
+          () => this.loadRows());
+      } else {
+        if (this.state.currentPage !== 0) { this.setState({ currentPage: 0 }); }
+        this.loadRows();
       }
-      this.loadRows();
       return;
     }
 
@@ -1175,6 +1183,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       }
     });
     this.logDiagnostic('REST response: GET ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
+    if (!response.ok && response.status !== 406 && response.status !== 415) { return response; }
 
     if (!response.ok) {
       this.logDiagnostic('REST retry (verbose): GET ' + url);
@@ -1182,12 +1191,14 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         cache: 'no-store',
         headers: {
           Accept: 'application/json;odata=verbose',
+          'OData-Version': '3.0',
           'Cache-Control': 'no-cache, no-store',
           Pragma: 'no-cache'
         }
       });
       this.logDiagnostic('REST response (verbose): GET ' + url + ' -> HTTP '
         + String(response.status) + ' ' + response.statusText);
+      if (!response.ok && response.status !== 406 && response.status !== 415) { return response; }
     }
 
     if (!response.ok) {
@@ -1202,6 +1213,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       });
       this.logDiagnostic('REST response (minimalmetadata): GET ' + url + ' -> HTTP '
         + String(response.status) + ' ' + response.statusText);
+      if (!response.ok && response.status !== 406 && response.status !== 415) { return response; }
     }
 
     if (!response.ok) {
@@ -1231,18 +1243,21 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       body: payload
     });
     this.logDiagnostic('REST response: POST ' + url + ' -> HTTP ' + String(response.status) + ' ' + response.statusText);
+    if (!response.ok && response.status !== 406 && response.status !== 415) { return response; }
 
     if (!response.ok) {
       this.logDiagnostic('REST retry (verbose): POST ' + url);
       response = await this.props.context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
         headers: {
           Accept: 'application/json;odata=verbose',
-          'Content-Type': 'application/json;odata=verbose'
+          'Content-Type': 'application/json;odata=verbose',
+          'OData-Version': '3.0'
         },
         body: payload
       });
       this.logDiagnostic('REST response (verbose): POST ' + url + ' -> HTTP '
         + String(response.status) + ' ' + response.statusText);
+      if (!response.ok && response.status !== 406 && response.status !== 415) { return response; }
     }
 
     if (!response.ok) {
@@ -1256,6 +1271,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       });
       this.logDiagnostic('REST response (minimalmetadata): POST ' + url + ' -> HTTP '
         + String(response.status) + ' ' + response.statusText);
+      if (!response.ok && response.status !== 406 && response.status !== 415) { return response; }
     }
 
     if (!response.ok) {
@@ -1304,6 +1320,11 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var existingQuery = xmlDocument.getElementsByTagName('Query')[0];
     var queryElement = xmlDocument.importNode(queryDocument.getElementsByTagName('Query')[0], true);
     viewElement.replaceChild(queryElement, existingQuery);
+    // The List renders Designer groups from item rows, not SharePoint group summaries.
+    ['GroupBy', 'Aggregations'].forEach(function(tag: string): void {
+      var nodes = viewElement.getElementsByTagName(tag);
+      while (nodes.length) { nodes[0].parentNode.removeChild(nodes[0]); }
+    });
 
     var viewFieldsElement = xmlDocument.getElementsByTagName('ViewFields')[0];
     for (var fieldIndex = 0; fieldIndex < viewFieldNames.length; fieldIndex += 1) {
@@ -2276,7 +2297,8 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       return;
     }
     var requestId = ++this._loadRowsRequestId;
-    var prune = this.props.matchingDocumentFolders === true;
+    var scoped = this.isFolderScopedLibrary();
+    var prune = !scoped && this.props.matchingDocumentFolders === true;
     var previousTime = this._filterReferenceTime;
     var time = new Date().getTime();
     this._libraryLoading = true;
@@ -2292,6 +2314,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         if (selectedViewId === this.props.defaultViewId && column.fieldName && names.indexOf(column.fieldName) < 0) { names.push(column.fieldName); }
       });
       var supportNames = this.getRuntimeFilterFieldNames().concat(Object.keys(this.state.columnFilters));
+      var groupingConfig = this.getGroupingConfig();
+      if (groupingConfig.enabled) {
+        [groupingConfig.field1, groupingConfig.field2].forEach(function(fieldName: string): void {
+          if (fieldName && supportNames.indexOf(fieldName) < 0) { supportNames.push(fieldName); }
+        });
+      }
       var conditions = this.parsePresetFilterConditions();
       var viewXml = await this.loadSelectedViewXml(selectedViewId, names);
       if (this.isExternalServerSearch(this.props.externalFilterJson, this.props.externalSearchExecutionMode)) {
@@ -2300,6 +2328,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       var snapshot = await loadLibraryDocuments({
         webUrl: this.getWebUrl(), listName: this.props.listName, fields: names.concat(supportNames),
         viewXml: viewXml, conditions: conditions, time: time, batchSize: this.props.fetchBatchSize,
+        folder: scoped ? this.state.libraryFolder || '' : undefined,
         get: (url) => this.getJsonWithFallback(url), post: (url, body) => this.postJsonWithFallback(url, body),
         extract: extractRenderRowsAndFields, current: () => requestId === this._loadRowsRequestId
       });
@@ -2329,19 +2358,24 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       this._filterReferenceTime = time;
       try { matches = this.getProcessedRows(snapshot.rows, fields); }
       finally { this._filterReferenceTime = previousTime; }
-      var folders = prune
+      var folders = scoped
+        ? await loadChildFolders(this.getWebUrl(), snapshot.root, snapshot.folder, (url) => this.getJsonWithFallback(url),
+          () => requestId === this._loadRowsRequestId, this.props.fetchBatchSize)
+        : prune
         ? await loadAncestorFolders(this.getWebUrl(), snapshot.root, matches, (url) => this.getJsonWithFallback(url))
         : await loadLibraryFolders(this.getWebUrl(), this.props.listName, snapshot.root, matches,
           (url) => this.getJsonWithFallback(url), () => requestId === this._loadRowsRequestId, this.props.fetchBatchSize);
       if (requestId !== this._loadRowsRequestId) { return; }
-      var current = nearestFolder(snapshot.root, this.state.libraryFolder || snapshot.root, folders.map(function(folder): string { return folder.path; }));
+      var current = scoped ? snapshot.folder
+        : nearestFolder(snapshot.root, this.state.libraryFolder || snapshot.root, folders.map(function(folder): string { return folder.path; }));
       var notice = this.state.libraryFolder && current !== this.state.libraryFolder ? strings.RuntimeLibraryFolderGone : '';
       if (this.state.selectedItemId > 0 && !matches.some((row) => this.getRowItemId(row) === this.state.selectedItemId)) {
         notice += (notice ? ' ' : '') + strings.RuntimeLibrarySelectionGone;
       }
       this._filterReferenceTime = time;
       this.setState({ fields: fields, rows: snapshot.rows, libraryDocuments: matches, libraryRoot: snapshot.root, libraryFolder: current,
-        libraryFolders: folders, libraryNotice: notice, libraryError: '', loading: false, nextPageHref: '',
+        libraryFolders: folders, libraryFolderLoaded: current, libraryFolderScoped: scoped, libraryViewFlat: snapshot.flat,
+        libraryNotice: notice, libraryError: '', loading: false, nextPageHref: '',
         currentPage: current === this.state.libraryFolder ? this.state.currentPage : 0 },
         () => this.reportFilteredCount());
     } catch (error) {
@@ -2359,8 +2393,31 @@ export class ListControl extends React.Component<IListControlProps, IListControl
 
   private navigateLibraryFolder(path: string): void {
     if (this.state.deleting) { this.setState({ libraryNotice: strings.RuntimeLibraryRefreshPending }); return; }
-    this.setState({ libraryFolder: path, currentPage: 0, selectedItemId: 0, selectedMode: 'view', libraryNotice: '', navigationError: '' });
+    if (this.isFolderScopedLibrary()) { this._loadRowsRequestId += 1; }
+    this.setState({ libraryFolder: path, currentPage: 0, selectedItemId: 0, selectedMode: 'view', libraryNotice: '', navigationError: '',
+      rows: this.isFolderScopedLibrary() ? [] : this.state.rows,
+      libraryDocuments: this.isFolderScopedLibrary() ? [] : this.state.libraryDocuments,
+      libraryFolders: this.isFolderScopedLibrary() ? [] : this.state.libraryFolders,
+      loading: this.isFolderScopedLibrary() }, () => { if (this.isFolderScopedLibrary()) { this.loadRows(); } });
     this.props.onSelectionChange(0, 'view');
+  }
+
+  private isFolderScopedLibrary(): boolean {
+    return this.props.libraryLoadingMode ? this.props.libraryLoadingMode === 'folder' : this.props.matchingDocumentFolders !== true;
+  }
+
+  private getLibraryCountLabel(count: number, footer: boolean): string {
+    if (this.state.libraryViewFlat) {
+      if (this.state.libraryFolderScoped && this.state.libraryFolderLoaded !== this.state.libraryFolder) { return strings.RuntimeLibraryFolderNotLoaded; }
+      return formatString(count === 1 ? strings.RuntimeLibraryViewFileCountSingular : strings.RuntimeLibraryViewFileCount, count);
+    }
+    if (this.state.libraryFolderScoped === true || (this.state.libraryFolderScoped === undefined && this.isFolderScopedLibrary())) {
+      if (this.state.libraryFolderLoaded !== this.state.libraryFolder) { return strings.RuntimeLibraryFolderNotLoaded; }
+      return formatString(count === 1 ? strings.RuntimeLibraryFolderFileCountSingular : strings.RuntimeLibraryFolderFileCount, count);
+    }
+    return formatString(footer
+      ? (count === 1 ? strings.RuntimeLibraryFileCountSingular : strings.RuntimeLibraryFileCount)
+      : (count === 1 ? strings.RuntimeLibraryDocumentCountSingular : strings.RuntimeLibraryDocumentCount), count);
   }
 
   private renderLibraryNavigation(): React.ReactNode {
@@ -2382,7 +2439,12 @@ export class ListControl extends React.Component<IListControlProps, IListControl
           {this.renderLibraryFolderLink(path, index === 0 ? this.props.listName : parts[index - 1], path === current, index === 0)}
         </span>)}
       </nav>
-      <div role="status">{formatString(fileCount === 1 ? strings.RuntimeLibraryDocumentCountSingular : strings.RuntimeLibraryDocumentCount, fileCount)}</div>
+      <details className="lc-library-folders">
+        <summary>{strings.RuntimeLibraryBrowseFolders}</summary>
+        <ul>{folderLevel(root, current, [], this.state.libraryFolders || [], false).map((row) =>
+          <li key={row.libraryFolder.path}>{this.renderLibraryFolderLink(row.libraryFolder.path, row.libraryFolder.name)}</li>)}</ul>
+      </details>
+      <div role="status">{this.getLibraryCountLabel(fileCount, false)}</div>
     </div>;
   }
 
@@ -2404,13 +2466,6 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       {showIcon && <img className="lc-library-folder-icon" src={this.getWebUrl() + '/_layouts/15/images/folder.gif'} alt="" aria-hidden="true" />}
       <span>{label}</span>
     </a>;
-  }
-
-  private renderLibraryFolderRow(row: any, columnCount: number): JSX.Element {
-    var folder: ILibraryFolder = row.libraryFolder;
-    return <tr key={'folder-' + folder.path} className="lc-row lc-library-folder"><td colSpan={Math.max(1, columnCount)}>
-      {this.renderLibraryFolderLink(folder.path, folder.name)}
-    </td></tr>;
   }
 
   private async loadRows(): Promise<void> {
@@ -2458,6 +2513,14 @@ export class ListControl extends React.Component<IListControlProps, IListControl
       }
       var selectedViewXml = await this.loadSelectedViewXml(selectedViewId, viewFieldNames);
       var runtimeFilterFieldNames = this.getRuntimeFilterFieldNames();
+      var groupingConfig = this.getGroupingConfig();
+      if (groupingConfig.enabled) {
+        [groupingConfig.field1, groupingConfig.field2].forEach(function(fieldName: string): void {
+          if (fieldName && runtimeFilterFieldNames.indexOf(fieldName) < 0 && !viewFieldNames.some(function(name: string): boolean {
+            return name.toLowerCase() === fieldName.toLowerCase();
+          })) { runtimeFilterFieldNames.push(fieldName); }
+        });
+      }
       this._pagingRuntimeFilterFieldNames = runtimeFilterFieldNames.slice(0);
 
       var body: any = {
@@ -3761,6 +3824,9 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   private getProcessedRows(sourceRows?: any[], sourceFields?: IListFieldDefinition[]): any[] {
     var useLibrarySnapshot = !sourceRows && this.isLibraryBrowsing() && !!this.state.libraryDocuments;
     var rows = (sourceRows || (useLibrarySnapshot ? this.state.libraryDocuments : this.state.rows)).slice(0);
+    if (useLibrarySnapshot && this.state.libraryViewFlat && this.state.libraryRoot) {
+      rows = folderDocuments(this.state.libraryFolder || this.state.libraryRoot, rows, true);
+    }
     var fields = sourceFields || this.state.fields;
     var fieldsByKey: { [key: string]: IListFieldDefinition } = {};
     for (var i = 0; i < fields.length; i += 1) {
@@ -3812,7 +3878,6 @@ export class ListControl extends React.Component<IListControlProps, IListControl
   }
 
   private getGroupingConfig(): IListGroupingConfig {
-    if (this.isLibraryBrowsing()) { return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true }; }
     var json = String(this.props.groupingJson || '').trim();
     if (!json) { return { enabled: false, field1: '', field2: '', collapsedByDefault: false, showCount: true }; }
     try {
@@ -4314,9 +4379,11 @@ export class ListControl extends React.Component<IListControlProps, IListControl
     var processedRows = this.getProcessedRows();
     var libraryFileCount = 0;
     if (this.isLibraryBrowsing() && this.state.libraryRoot) {
-      libraryFileCount = folderDocumentCount(this.state.libraryFolder || this.state.libraryRoot, processedRows);
-      processedRows = folderLevel(this.state.libraryRoot, this.state.libraryFolder || this.state.libraryRoot,
-        processedRows, this.state.libraryFolders || [], this.props.matchingDocumentFolders === true);
+      libraryFileCount = this.state.libraryViewFlat ? processedRows.length
+        : folderDocumentCount(this.state.libraryFolder || this.state.libraryRoot, processedRows);
+      if (!this.state.libraryViewFlat) {
+        processedRows = folderDocuments(this.state.libraryFolder || this.state.libraryRoot, processedRows);
+      }
     }
     var pageSize = this.props.pageSize > 0 ? this.props.pageSize : 0;
     var pageCount = pageSize > 0 ? Math.max(1, Math.ceil(processedRows.length / pageSize)) : 1;
@@ -4682,8 +4749,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
                   ? rowGroups.reduce((accumulated: JSX.Element[], group) => accumulated.concat(this.renderRowGroupRows(
                       group, group.key, 0, groupingConfig, totalColumnCount, displayFields, fieldsByKey, conditionalRules
                     )), [] as JSX.Element[])
-                  : visibleRows.map((row, index) => row.libraryFolder ? this.renderLibraryFolderRow(row, totalColumnCount)
-                    : this.renderDataRow(row, String(index), displayFields, fieldsByKey, conditionalRules))}
+                  : visibleRows.map((row, index) => this.renderDataRow(row, String(index), displayFields, fieldsByKey, conditionalRules))}
               </tbody>
             </table>
             </div>
@@ -4692,7 +4758,7 @@ export class ListControl extends React.Component<IListControlProps, IListControl
         {!this.state.loading && !this.state.error && (!this.isLibraryBrowsing() || !!this.state.libraryRoot) && (
           <div className="lc-footer">
             <div className="lc-total-items">{this.isLibraryBrowsing()
-              ? formatString(libraryFileCount === 1 ? strings.RuntimeLibraryFileCountSingular : strings.RuntimeLibraryFileCount, libraryFileCount) : this.state.nextPageHref
+              ? this.getLibraryCountLabel(libraryFileCount, true) : this.state.nextPageHref
               ? strings.RuntimeLoadedItemsLabel.replace('{0}', String(processedRows.length))
               : formatString(strings.RuntimeTotalItemsLabel, processedRows.length)}</div>
             {pageSize > 0 && (pageCount > 1 || !!this.state.nextPageHref) && (

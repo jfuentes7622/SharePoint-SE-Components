@@ -2,6 +2,27 @@
 
 SPFx 1.5.1 web part for grouping modern SharePoint page sections or individual web parts into a tabbed interface.
 
+## November 5, 2026 navigation target discovery fix
+
+Solution/feature `3.1.0.39` publishes Tab's stable instance GUID and web part title,
+so List/Grid navigation pickers can list SPS Tabs even when SharePoint does not
+expose its identity through canvas-wrapper metadata. Deploy with ListControl
+`1.0.0.125` or GridControl `1.0.0.103`, reload and use **Refresh page controls**.
+**Go to details** focuses the tab strip without changing the selected tab.
+This release includes the loading fix below. See
+[versions and acceptance checks](../README.md#november-5-2026-navigation-target-discovery-fix).
+
+## November 5, 2026 Tab/forms loading fix
+
+- Solution/feature version: `3.1.0.38`; npm remains `2.0.6`, SPFx remains `1.5.1`.
+- The exclusion observer now refreshes Tabs only when an attribute mutation
+  changes whether content is excluded, not when a form rewrites the same value.
+- Deploy with Dynamic Forms `1.0.0.117` and Report Forms `1.0.0.88`, which also
+  avoid unchanged exclusion writes and redundant activation renders.
+- Both section-mode and web-part-mode Tabs retain their existing behavior,
+  including lazy initialization of hidden forms and the theme-loading fix.
+- See [regressions and deployment acceptance checks](../README.md#november-5-2026-tabforms-loading-fix).
+
 ## Visual examples
 
 These screenshots show a configured SharePoint Online demo, not a SharePoint SE

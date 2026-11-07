@@ -74,7 +74,7 @@ function ensureInstanceName(properties, prefix, context, element, getDisplayMode
             }
             var url = pageContext.web.absoluteUrl + "/_api/web/lists(guid'" + listId + "')/items(" + pageContext.listItem.id + ')';
             registry.pageNames = context.spHttpClient.get(url, sp_http_1.SPHttpClient.configurations.v1, {
-                headers: { Accept: 'application/json;odata=verbose' }
+                headers: { Accept: 'application/json;odata=verbose', 'OData-Version': '3.0' }
             }).then(function (response) {
                 if (!response.ok) {
                     throw new Error('Cannot read page names: HTTP ' + response.status);

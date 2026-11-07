@@ -2,13 +2,38 @@
 
 ## Default form names
 
-Current release: npm `1.0.49`, solution/feature `1.0.0.116`.
+Current release: npm `1.0.49`, solution/feature `1.0.0.119`.
 **Web part name** (previously **Form name for linking**) defaults to
 `DynamicForm1`, `DynamicForm2`, etc. per page. It is the first editable setting,
 in **Web part** directly below the version banner.
 Existing blanks are filled in page edit mode; save the page to persist them.
 Custom names and existing GUID-based connections are preserved. See
 [numbered naming behavior](../README.md#numbered-web-part-names).
+
+## November 5, 2026 page-name HTTP 406 fix
+
+Solution/feature `1.0.0.119` pairs the page-name request's verbose JSON Accept
+header with `OData-Version: 3.0`. This prevents an incompatible OData v4 request
+from blocking initialization of a new form. Naming and failure handling are
+unchanged; navigation and Tab/theme fixes remain included.
+See [deployment and acceptance checks](../README.md#november-5-2026-page-name-http-406-fix).
+
+## November 5, 2026 navigation target discovery fix
+
+Solution/feature `1.0.0.118` publishes a stable host identity and web-part-title
+fallback for List/Grid navigation pickers. Custom form names are preserved.
+This release includes the loading fix below. See
+[versions and acceptance checks](../README.md#november-5-2026-navigation-target-discovery-fix).
+
+## November 5, 2026 Tab/forms loading fix
+
+- Solution/feature version: `1.0.0.117`; SPFx remains `1.5.1`.
+- Unchanged Tab-exclusion attributes and repeated activation notifications no
+  longer restart the Tab/forms render cycle.
+- Hidden forms retain lazy initialization; switching tabs does not unmount an
+  initialized form or discard its unsaved values. The theme-loading fix remains.
+- Deploy this package together with Tab `3.1.0.38` and Report Forms `1.0.0.88`.
+- See [regressions and deployment acceptance checks](../README.md#november-5-2026-tabforms-loading-fix).
 
 ## Visual example
 

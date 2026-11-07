@@ -319,7 +319,14 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     if (!MutationObserverConstructor) {
       return;
     }
-    this.excludeObserver = new MutationObserverConstructor(() => {
+    this.excludeObserver = new MutationObserverConstructor((mutations: MutationRecord[]) => {
+      const exclusionChanged = mutations.some((mutation: MutationRecord): boolean => {
+        return (mutation.oldValue === 'true')
+          !== ((mutation.target as Element).getAttribute('data-spse-exclude-from-tabs') === 'true');
+      });
+      if (!exclusionChanged) {
+        return;
+      }
       if (this.excludeRefreshTimer) {
         window.clearTimeout(this.excludeRefreshTimer);
       }
@@ -327,6 +334,7 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
     });
     this.excludeObserver.observe(this.ContentArea, {
       attributes: true,
+      attributeOldValue: true,
       attributeFilter: ['data-spse-exclude-from-tabs'],
       subtree: true
     });
@@ -378,6 +386,8 @@ export default class TabComponentWebPart extends BaseClientSideWebPart<ITabCompo
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-instance-id', this.context.instanceId);
+    this.domElement.setAttribute('data-spse-control-title', this.title || '');
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
     // Need to send a message if webpart is used on a classic page
     if (Environment.type === EnvironmentType.ClassicSharePoint) {

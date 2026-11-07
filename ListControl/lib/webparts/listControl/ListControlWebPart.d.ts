@@ -30,6 +30,7 @@ export interface IListControlWebPartProps {
     showViewAsDropdown?: boolean;
     showRefresh: boolean;
     matchingDocumentFolders?: boolean;
+    libraryLoadingMode?: string;
     showAdd: boolean;
     showEdit: boolean;
     showView: boolean;

@@ -57,6 +57,7 @@ export interface IGridControlWebPartProps {
   showViewAsDropdown?: boolean;
   showRefresh: boolean;
   matchingDocumentFolders?: boolean;
+  libraryLoadingMode?: string;
   showAdd: boolean;
   showDelete: boolean;
   showHistory?: boolean;
@@ -282,7 +283,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       {
         id: 'searchResultCount',
         title: 'Search result count',
-        description: 'Number of items remaining after the current filters are applied.',
+        description: 'Number of filtered items. Folder-scoped library loading counts only files in the current folder, excluding subfolders.',
       }
     ];
   }
@@ -314,6 +315,8 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-instance-id', this.context.instanceId);
+    this.domElement.setAttribute('data-spse-control-title', this.title || '');
     this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
@@ -345,6 +348,7 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
       showViewAsDropdown: this.properties.showViewAsDropdown !== false,
       showRefresh: this.properties.showRefresh !== false,
       matchingDocumentFolders: this.properties.matchingDocumentFolders === true,
+      libraryLoadingMode: this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder'),
       showAdd: this.properties.showAdd !== false,
       showDelete: this.properties.showDelete !== false,
       showHistory: this.properties.showHistory !== false,
@@ -477,10 +481,12 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
 
   private getNavigationTargetOptions(): IDropdownOption[] {
     var options: IDropdownOption[] = [{ key: '', text: strings.PropNavigationNone }];
-    getPageNavigationTargets(this.domElement.ownerDocument, this.context.instanceId).forEach(function(target) {
-      options.push({ key: target.instanceId, text: target.title + ' (' + target.instanceId + ')' });
-    });
     var selected = this.properties.navigationTargetInstanceId || '';
+    var selectedId = selected.replace(/[{}]/g, '').toLowerCase();
+    getPageNavigationTargets(this.domElement.ownerDocument, this.context.instanceId).forEach(function(target) {
+      var key = target.instanceId === selectedId || target.aliases.indexOf(selectedId) >= 0 ? selected : target.instanceId;
+      options.push({ key: key, text: target.title + ' (' + key + ')' });
+    });
     if (selected && !options.some(function(option) { return option.key === selected; })) {
       options.push({ key: selected, text: strings.PropNavigationUnavailable + ' (' + selected + ')' });
     }
@@ -508,6 +514,13 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    if (propertyPath === 'libraryLoadingMode' && oldValue !== newValue) {
+      if (newValue === 'folder') { this.properties.matchingDocumentFolders = false; }
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
     if (propertyPath === 'instanceName' && oldValue !== newValue) {
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
       delete this.properties.instanceNameGeneratedFor;
@@ -1319,9 +1332,18 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
             {
               groupName: strings.PropertyGroupButtons,
               groupFields: [
+                PropertyPaneDropdown('libraryLoadingMode', {
+                  label: strings.PropLibraryLoadingMode,
+                  selectedKey: this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder'),
+                  options: [
+                    { key: 'folder', text: strings.PropLibraryLoadingFolder },
+                    { key: 'recursive', text: strings.PropLibraryLoadingRecursive }
+                  ]
+                }),
                 PropertyPaneCheckbox('matchingDocumentFolders', {
                   text: strings.PropMatchingDocumentFolders,
-                  checked: this.properties.matchingDocumentFolders === true
+                  checked: this.properties.matchingDocumentFolders === true,
+                  disabled: (this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder')) !== 'recursive'
                 }),
                 PropertyPaneLabel('matchingDocumentFoldersHelp', { text: strings.PropMatchingDocumentFoldersHelp }),
                 PropertyPaneCheckbox('showRefresh', {

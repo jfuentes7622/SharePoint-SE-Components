@@ -26,6 +26,7 @@ export interface IListControlProps {
     showViewAsDropdown: boolean;
     showRefresh: boolean;
     matchingDocumentFolders?: boolean;
+    libraryLoadingMode?: string;
     showAdd: boolean;
     showEdit: boolean;
     showView: boolean;
@@ -113,6 +114,9 @@ export interface IListControlState {
     libraryDocuments?: any[];
     libraryRoot?: string;
     libraryFolder?: string;
+    libraryFolderLoaded?: string;
+    libraryFolderScoped?: boolean;
+    libraryViewFlat?: boolean;
     libraryFolders?: ILibraryFolder[];
     libraryNotice?: string;
     libraryError?: string;
@@ -276,9 +280,10 @@ export declare class ListControl extends React.Component<IListControlProps, ILis
     private updateLibraryRefreshTimer();
     private loadLibraryRows();
     private navigateLibraryFolder(path);
+    private isFolderScopedLibrary();
+    private getLibraryCountLabel(count, footer);
     private renderLibraryNavigation();
     private renderLibraryFolderLink(path, label, current?, showIcon?);
-    private renderLibraryFolderRow(row, columnCount);
     private loadRows();
     private applyFetchBatchSize(viewXml);
     private loadNextBatch();

@@ -22,4 +22,5 @@ build.configureWebpack.setConfig({
   }
 });
 
+require('../scripts/collect-solution-package')(build, __dirname);
 build.initialize(gulp);

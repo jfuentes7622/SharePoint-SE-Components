@@ -96,7 +96,7 @@ export function ensureInstanceName(
       }
       var url = pageContext.web.absoluteUrl + "/_api/web/lists(guid'" + listId + "')/items(" + pageContext.listItem.id + ')';
       registry.pageNames = context.spHttpClient.get(url, SPHttpClient.configurations.v1, {
-        headers: { Accept: 'application/json;odata=verbose' }
+        headers: { Accept: 'application/json;odata=verbose', 'OData-Version': '3.0' }
       }).then(function(response): Promise<IPageName[]> {
         if (!response.ok) { throw new Error('Cannot read page names: HTTP ' + response.status); }
         return response.json().then(function(data): IPageName[] {

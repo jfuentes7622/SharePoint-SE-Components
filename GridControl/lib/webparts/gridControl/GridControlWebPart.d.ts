@@ -30,6 +30,7 @@ export interface IGridControlWebPartProps {
     showViewAsDropdown?: boolean;
     showRefresh: boolean;
     matchingDocumentFolders?: boolean;
+    libraryLoadingMode?: string;
     showAdd: boolean;
     showDelete: boolean;
     showHistory?: boolean;

@@ -2,6 +2,74 @@
 
 SPFx 1.5.1 editable SharePoint grid for SharePoint Server Subscription Edition.
 
+## Designer grouped-view fix
+
+Solution/feature `1.0.0.130` (npm `1.0.130`) fixes blank records after importing
+columns/grouping from a grouped standard-list view, and restores Designer
+grouping for document libraries. Runtime fetches real item rows rather than
+SharePoint group summaries, then renders the saved grouping locally. Hidden
+group keys are fetched, imported collapse settings are honored, and expanding
+groups shows populated record cells. Filters, sort, scope, paging, drafts and
+separate folder navigation remain.
+See [deployment and acceptance checks](../README.md#grid-designer-grouped-view-fix).
+No Designer re-save is required when the existing saved grouping is correct.
+
+## Library selected-view fix
+
+Solution/feature `1.0.0.107` (npm `1.0.107`) honors selected views' document
+filters, ordering and folder/flat display when configured in settings or switched
+at runtime. View columns apply unless an explicit Grid schema overrides them.
+Flat views show matching documents across folders; folder-based views remain
+scoped in folder-loading mode. Navigation folders are now separate from filtered
+results under **Browse folders (navigation, not view results)**, not table rows.
+Flat-view metadata reads only returned IDs with bounded concurrency. Grid drafts,
+uploads and large-library safeguards remain. Selective indexed views can still
+be necessary; paging does not bypass farm thresholds.
+See [behavior, packages and acceptance checks](../README.md#library-selected-view-fix).
+Earlier release descriptions below predate this correction.
+
+## November 6, 2026 all-page-control navigation targets
+
+Solution/feature `1.0.0.106` (npm `1.0.106`) broadens **Navigation target** to
+identifiable built-in and third-party web parts and Text canvas controls on the
+current page. Repository markers and Dynamic Data are not required. Standard
+SharePoint metadata and legacy hosts provide stable instance IDs; accessible
+labels, headings and short Text previews provide fallback names. Canvas/host
+duplicates are collapsed while recognized previously saved IDs remain usable.
+Deploy this package, reload and use **Refresh page controls**.
+See [scope, limitations and acceptance checks](../README.md#november-6-2026-all-page-control-navigation-targets).
+
+## November 5, 2026 large-library loading fix
+
+Solution/feature `1.0.0.105` (npm `1.0.105`) adds **Buttons > Library loading**.
+Choose **Folder-scoped paging (recommended for large libraries)** to avoid
+recursively loading every document before browsing a folder. Server paging and
+metadata requests stay within the current folder; counts exclude subfolders.
+**Whole-library matching (recursive)** retains the previous complete hierarchy
+and optional matching-folder pruning. Enabled matching remains recursive on
+upgrade; explicitly choose folder mode for the reported large-library scenario.
+Draft protection, uploads to the current folder and form connections are preserved.
+Failures include the server response and correlation ID when available and do
+not retry terminal HTTP errors with alternate JSON headers.
+See [behavior, deployment and acceptance checks](../README.md#november-5-2026-large-library-loading-fix).
+
+## November 5, 2026 page-name HTTP 406 fix
+
+Solution/feature `1.0.0.104` (npm `1.0.104`) pairs the page-name request's verbose
+JSON Accept header with `OData-Version: 3.0`. This prevents an incompatible
+OData v4 request from blocking initialization of a new control. Naming and
+failure handling are unchanged; navigation and Tab/theme fixes remain included.
+See [deployment and acceptance checks](../README.md#november-5-2026-page-name-http-406-fix).
+
+## November 5, 2026 navigation target discovery fix
+
+Solution/feature `1.0.0.103` discovers all 18 updated repository page web parts
+using stable host identities, including SPS Tabs without canvas-wrapper metadata.
+Custom names and existing saved targets are preserved. Deploy the updated target
+packages as well as GridControl; reload and use **Refresh page controls**.
+See [versions and acceptance checks](../README.md#november-5-2026-navigation-target-discovery-fix).
+Hidden targets still report an error; focusing Tabs does not switch its active tab.
+
 ## Visual example
 
 ![Editable grid sample with text and choice columns, row-selection checkboxes, attachment counts, and row action icons](docs/images/grid-list-data.png)
@@ -19,7 +87,7 @@ It is not SharePoint SE deployment verification.
 
 ## Matching document folders
 
-Current release: npm `1.0.102`, solution/feature `1.0.0.102`.
+Current release: npm `1.0.130`, solution/feature `1.0.0.130`.
 
 **Web part name** defaults to `GridControl1`, `GridControl2`, etc. on the page.
 It is the first editable setting, in **Web part** directly below the version banner.
@@ -29,15 +97,21 @@ Custom names and GUID-based connections are preserved. See
 
 Folder names and breadcrumbs are underlined navigation links, not command buttons.
 Breadcrumbs use backslash separators, for example `Documents \ Team \ Reports`.
-Folder rows and the library root use SharePoint's built-in `folder.gif` image rather
+Folder navigation and the library root use SharePoint's built-in `folder.gif` image rather
 than an outline font icon. Names remain visible with **Icon only** toolbar buttons.
 
-- Document libraries always browse folders inside the control, even with
-  **Matching document folders** off. The checkbox in **Buttons** only controls
-  pruning: off shows all accessible folders, including empty folders; on shows
-  only branches containing matching documents. Standard-list behavior is unchanged.
+- Document libraries always browse folders inside the control.
+  **Buttons > Library loading** defaults to folder-scoped paging unless matching
+  was already enabled. Folder mode loads only the current folder unless the selected
+  view explicitly includes descendants. Accessible immediate children, including
+  empty folders, remain in separate navigation. Whole-library mode recursively loads
+  source-view documents; only that mode supports **Matching document folders**
+  pruning. Selecting folder mode disables pruning. Select whole-library mode with
+  pruning off to retain the previous unpruned recursive behavior. Standard lists
+  are unchanged.
 - The configured/default source view retains its document restrictions and ordering,
-  while the control searches documents recursively. Use an unfiltered source view
+  and folder/flat display. Flat views retain recursive scope and show all matching
+  descendants of the browsed folder together. Use an unfiltered source view
   when the control should own filtering; excluded documents cannot be restored later.
 - Use the existing filter builder, for example:
 
@@ -53,8 +127,10 @@ than an outline font icon. Names remain visible with **Icon only** toolbar butto
   including Choice/Lookup multi-selection, determine document matches.
 - With pruning on, only branches with matching descendants appear; the folder's own Modified value
   does not matter. Folder links always show icons and support keyboard activation.
-  Breadcrumbs and Up provide drill-down navigation. Grouping is inactive in this
-  document-library display, but its saved settings are preserved.
+  Breadcrumbs and Up provide drill-down navigation. Grid Designer grouping applies
+  to matching document rows within the selected folder/flat scope, never to the
+  separate navigation folders. Use **Load columns/grouping from view** in the
+  Designer to import source grouping. Hidden group keys need not be visible columns.
 - Folders have no edit/history/delete/Go-to-details actions and never publish their
   IDs to forms. Explicit folder navigation clears active and bulk selection.
   Document selection, document links and **Go to details** remain distinct.
@@ -65,19 +141,26 @@ than an outline font icon. Names remain visible with **Icon only** toolbar butto
   Saves reload the filtered hierarchy; successfully uploaded files can be absent
   when they do not match the configured filters.
 - Five-minute automatic refresh in page read mode and manual Refresh refetch all
-  pages before replacing the snapshot. Inline drafts/saves defer refresh; folder,
+  pages in the selected scope before replacing the snapshot. Inline drafts/saves defer refresh; folder,
   view and column-filter changes cannot discard a draft. Background refresh does
   not republish unchanged selection, change a connected form or move focus.
   A disappearing selection or folder is explained. Refresh failures retain the last
   complete snapshot with a visible error.
-- The footer counts matching files in the current folder and all its subfolders,
-  never folder rows: two folders containing three matching files report **3 files**.
-  The navigation count covers the whole library. Pagination still uses immediate
-  folder/document entries and does not change file totals. Both pruning settings
-  use the same filtered file counts. Large libraries require appropriate indexed
-  filters; no indexes, views or permissions are changed.
-  Threshold/permission/paging failures are explicit.
-- Run `node tests\libraryFolders.test.js` and `node tests\libraryRuntime.test.js`
+- In whole-library mode, the footer counts matching files in the current folder and all its subfolders,
+  never navigation folders: two folders containing three matching files report **3 files**.
+  The navigation count covers the whole library. For folder-based views in folder-scoped mode, both counts
+  cover only matching files in the current folder, explicitly excluding subfolders;
+  connected `searchResultCount` has the same current-folder scope. All pages in
+  that scope complete before counts are committed. Flat-view counts explicitly include
+  descendants of the browsed folder. Pagination uses only document results;
+  folder navigation is separate and does not change file totals. Large individual folders
+  and recursive queries can still need selective indexed source views/filters.
+  Client-only filtering and smaller page sizes do not bypass thresholds. Failures
+  show server response details/correlation IDs when available. No indexes, views,
+  permissions or farm thresholds are changed.
+- Run `node tests\libraryViews.test.js`, `node tests\libraryLarge.test.js`,
+  `node tests\libraryFolders.test.js`, `node tests\libraryRuntime.test.js` and
+  `node tests\controlMetadata.test.js`
   from the repository root. Actual SE-farm acceptance remains required for restricted
   folders, special-character paths, uploads and libraries exceeding 5,000 documents.
 
@@ -87,7 +170,8 @@ Redeploy [sps-grid-control.sppkg](sharepoint/solution/sps-grid-control.sppkg).
 
 - npm version: `1.0.95`; SharePoint solution and feature version: `1.0.0.95`.
 - Under **Navigation**, choose a **Navigation target** from the controls on this
-  page. **None - disabled** preserves existing behavior and adds no action column.
+  page, including identifiable Microsoft/third-party web parts and Text blocks,
+  not only repository controls. **None - disabled** preserves existing behavior and adds no action column.
   **Refresh page controls** updates the picker after adding controls. Names include
   instance IDs to distinguish duplicate names; an unavailable saved target is
   retained until the author changes it.

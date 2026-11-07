@@ -24,3 +24,5 @@ module.exports = function(root, window) {
     XMLSerializer: function() { this.serializeToString = serializeXml; }, Date, Promise });
   return exports;
 };
+
+module.exports.serializeXml = serializeXml;

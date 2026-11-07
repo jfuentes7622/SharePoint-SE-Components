@@ -218,6 +218,8 @@ export default class LinkButtonWebPart extends BaseClientSideWebPart<ILinkButton
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-instance-id', this.context.instanceId);
+    this.domElement.setAttribute('data-spse-control-title', this.title || '');
     this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     let element: React.ReactElement<{}>;

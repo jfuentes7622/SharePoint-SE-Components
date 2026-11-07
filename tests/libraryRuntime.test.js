@@ -76,7 +76,7 @@ async function run(project) {
   resetDocuments();
   const instance = new Control({
     views: [], viewColumns: [], gridSchemaJson: '', defaultViewId: 'view', listName: 'Renamed Library',
-    matchingDocumentFolders: true, filterJson: JSON.stringify(filters), enableDiagnostics: false, isEditMode: false,
+    matchingDocumentFolders: true, libraryLoadingMode: 'recursive', filterJson: JSON.stringify(filters), enableDiagnostics: false, isEditMode: false,
     pageSize: 50, fetchBatchSize: 2, buttonDisplayMode: 'text', showRefresh: true, showLinkToItem: true, linkOpenBehavior: 'dialog',
     showDelete: true, showHistory: true, historyAvailable: true,
     context: { pageContext: { web: { absoluteUrl: 'https://example.test/sites/team/sub' } } },
@@ -158,12 +158,13 @@ async function run(project) {
     { ...documents[1], ID: 71, Title: 'Second file', FileLeafRef: 'Second.docx', FileRef: documents[1].FileDirRef + '/Second.docx' },
     { ...documents[4], ID: 72 }
   ];
-  assert.strictEqual(renderContainer().querySelectorAll('tbody tr').length, 2, 'The displayed entries are two folders');
-  assert.strictEqual(footerText(), '3 files in this folder and subfolders', 'Two folder rows represent three matching files below them');
+  assert.strictEqual(renderContainer().querySelectorAll('tbody tr').length, 0, 'Navigation folders are not result rows');
+  assert.strictEqual(renderContainer().querySelectorAll('details.lc-library-folders li').length, 2, 'Two matching branches remain in separate navigation');
+  assert.strictEqual(footerText(), '3 files in this folder and subfolders', 'Counts matching files below the current folder');
   instance.props.pageSize = 1;
   instance.state.currentPage = 1;
-  assert.strictEqual(renderContainer().querySelectorAll('tbody tr').length, 1, 'Pagination still pages folder entries');
-  assert.strictEqual(footerText(), '3 files in this folder and subfolders', 'File total is independent of folder-row pagination');
+  assert.strictEqual(renderContainer().querySelectorAll('details.lc-library-folders li').length, 2, 'Result pagination does not hide navigation folders');
+  assert.strictEqual(footerText(), '3 files in this folder and subfolders', 'File total is independent of pagination');
   instance.state.libraryFolder = rootPath + '/A';
   assert.strictEqual(footerText(), '2 files in this folder and subfolders', 'Includes descendant files even when none are stored directly in this folder');
   assert(renderContainer().textContent.includes('3 matching files in the library'), 'Navigation count remains library-wide');
@@ -175,11 +176,9 @@ async function run(project) {
   instance.props.pageSize = 50;
   for (const mode of ['text', 'iconText', 'icon']) {
     instance.props.buttonDisplayMode = mode;
-    const folderHtml = ReactDomServer.renderToStaticMarkup(instance.renderLibraryFolderRow({
-      libraryFolder: { path: rootPath + '/Test Folder 1', name: 'Test Folder 1' }
-    }, 8));
+    const folderHtml = ReactDomServer.renderToStaticMarkup(instance.renderLibraryFolderLink(rootPath + '/Test Folder 1', 'Test Folder 1'));
     const container = document.createElement('div');
-    container.innerHTML = '<table><tbody>' + folderHtml + '</tbody></table>';
+    container.innerHTML = folderHtml;
     const folderButton = container.querySelector('a.lc-library-folder-link');
     assert(folderButton, 'Folders are navigation links, not command buttons');
     assert(!container.querySelector('button'), 'Folder row has no button chrome');
@@ -202,13 +201,11 @@ async function run(project) {
   const pathContainer = document.createElement('div');
   pathContainer.innerHTML = ReactDomServer.renderToStaticMarkup(instance.renderLibraryNavigation());
   assert.strictEqual(pathContainer.querySelector('.lc-library-separator').textContent, '\\', 'Breadcrumb uses backslash path separators');
-  assert.strictEqual(pathContainer.querySelectorAll('a.lc-library-folder-link').length, 2);
+  assert.strictEqual(pathContainer.querySelectorAll('nav a.lc-library-folder-link').length, 2);
   assert.strictEqual(instance.state.selectedItemId, 0);
   assert.deepStrictEqual(selections[selections.length - 1], [0, 'view']);
   if (project === 'GridControl') { assert.strictEqual(instance.state.selectedItemIds.length, 0); }
-  const folderRow = instance.renderLibraryFolderRow({ libraryFolder: instance.state.libraryFolders[0] }, 8);
-  html = ReactDomServer.renderToStaticMarkup(folderRow);
-  assert(html.includes('colspan="8"'));
+  html = ReactDomServer.renderToStaticMarkup(instance.renderLibraryFolderLink(instance.state.libraryFolders[0].path, instance.state.libraryFolders[0].name));
   assert(!html.includes('checkbox') && !html.includes('Edit') && !html.includes('History'), 'Folder has navigation only');
   instance.state.selectedItemId = 2;
   selections.length = 0;
@@ -256,9 +253,8 @@ async function run(project) {
   html = ReactDomServer.renderToStaticMarkup(instance.render());
   assert(html.includes('Empty') && html.includes('Old') && html.includes('/_layouts/15/images/folder.gif'), 'Pruning off retains empty and nonmatching branches');
   const emptyFolder = instance.state.libraryFolders.find(folder => folder.name === 'Empty');
-  const emptyRow = instance.renderLibraryFolderRow({ libraryFolder: emptyFolder }, 8);
   const beforeDialog = instance.state.linkDialogUrl;
-  const folderLink = emptyRow.props.children.props.children;
+  const folderLink = instance.renderLibraryFolderLink(emptyFolder.path, emptyFolder.name);
   let prevented = false;
   folderLink.props.onClick({ preventDefault() { prevented = true; }, stopPropagation() {} });
   assert(prevented, 'Folder link prevents browser navigation to SharePoint');

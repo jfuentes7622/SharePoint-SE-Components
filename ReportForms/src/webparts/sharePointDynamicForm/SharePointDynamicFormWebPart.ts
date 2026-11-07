@@ -394,9 +394,14 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-instance-id', this.context.instanceId);
+    this.domElement.setAttribute('data-spse-control-title', this.title || '');
     this._hasRenderedOnce = true;
     this.applyThemeStyles();
-    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    var excludeFromTabs = String(this.properties.excludeFromTabs === true);
+    if (this.domElement.getAttribute('data-spse-exclude-from-tabs') !== excludeFromTabs) {
+      this.domElement.setAttribute('data-spse-exclude-from-tabs', excludeFromTabs);
+    }
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this.domElement.setAttribute('data-spse-form-instance-id', this.context.instanceId);
     var forceFullWidth = this.properties.forceFullWidth === true;
@@ -624,6 +629,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this._formActivationHandler = (event: Event) => {
       var detail: any = (event as any).detail || {};
       if (detail.controllerType !== 'tab' || !Array.isArray(detail.controlledZones)) { return; }
+      var wasManaged = this._tabManaged;
+      var wasActive = this._tabActive;
+      var wasResolved = this._activationResolved;
       var managed = false;
       for (var index = 0; index < detail.controlledZones.length; index += 1) {
         if (detail.controlledZones[index].contains(this.domElement)) {
@@ -639,7 +647,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         window.clearTimeout(this._activationFallbackTimer);
         this._activationFallbackTimer = 0;
       }
-      this.render();
+      if (!wasManaged || !wasResolved || wasActive !== this._tabActive) {
+        this.render();
+      }
     };
     window.addEventListener(FORM_ACTIVATION_EVENT, this._formActivationHandler);
   }

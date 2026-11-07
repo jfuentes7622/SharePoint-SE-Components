@@ -19,6 +19,7 @@ export interface ILibraryLoadOptions {
   conditions: ILibraryCondition[];
   time: number;
   batchSize: number;
+  folder?: string;
   get: (url: string) => Promise<any>;
   post: (url: string, body: any) => Promise<any>;
   extract: (data: any) => { rows: any[]; fields: any[]; nextHref: string };
@@ -74,11 +75,16 @@ function withinRoot(root: string, path: string): boolean {
     || path.toLowerCase().indexOf(root.toLowerCase() + '/') === 0;
 }
 
-export function folderDocumentCount(current: string, documents: any[]): number {
+export function folderDocuments(current: string, documents: any[], recursive: boolean = false): any[] {
   var path = cleanPath(current);
   return documents.filter(function(row: any): boolean {
-    return withinRoot(path, cleanPath(row.FileDirRef));
-  }).length;
+    var parent = cleanPath(row.FileDirRef);
+    return recursive ? withinRoot(path, parent) : parent.toLowerCase() === path.toLowerCase();
+  });
+}
+
+export function folderDocumentCount(current: string, documents: any[]): number {
+  return folderDocuments(current, documents, true).length;
 }
 
 export function ancestorPaths(rootPath: string, rows: any[]): string[] {
@@ -102,7 +108,7 @@ export function folderLevel(root: string, current: string, documents: any[], fol
       && folder.path.substring(0, folder.path.lastIndexOf('/')).toLowerCase() === current.toLowerCase();
   }).sort(function(left: ILibraryFolder, right: ILibraryFolder): number { return left.name.localeCompare(right.name); });
   return children.map(function(folder: ILibraryFolder): any { return { libraryFolder: folder }; })
-    .concat(documents.filter(function(row: any): boolean { return String(row.FileDirRef).toLowerCase() === current.toLowerCase(); }));
+    .concat(folderDocuments(current, documents));
 }
 
 export function nearestFolder(root: string, current: string, paths: string[]): string {
@@ -115,11 +121,11 @@ export function nearestFolder(root: string, current: string, paths: string[]): s
   return root;
 }
 
-export function recursiveView(viewXml: string, fields: string[], conditions: ILibraryCondition[], time: number, batchSize: number, dateFields?: string[]): string {
+export function recursiveView(viewXml: string, fields: string[], conditions: ILibraryCondition[], time: number, batchSize: number, dateFields?: string[], recursive: boolean = true): string {
   var doc = new DOMParser().parseFromString(viewXml || '<View/>', 'text/xml');
   if (doc.getElementsByTagName('parsererror').length) { throw new Error('Invalid source view XML.'); }
   var view = doc.documentElement;
-  view.setAttribute('Scope', 'RecursiveAll');
+  if (recursive) { view.setAttribute('Scope', 'RecursiveAll'); }
   ['GroupBy', 'Aggregations', 'Folder'].forEach(function(tag: string): void {
     var nodes = view.getElementsByTagName(tag);
     while (nodes.length) { nodes[0].parentNode.removeChild(nodes[0]); }
@@ -188,7 +194,16 @@ export function recursiveView(viewXml: string, fields: string[], conditions: ILi
 }
 
 async function json(response: any, operation: string): Promise<any> {
-  if (!response.ok) { throw new Error(operation + ': HTTP ' + String(response.status) + ' ' + String(response.statusText || '')); }
+  if (!response.ok) {
+    var body = typeof response.text === 'function' ? await response.text() : '';
+    var requestId = response.headers && response.headers.get
+      ? response.headers.get('SPRequestGuid') || response.headers.get('request-id') : '';
+    var detail = String(body || '').substring(0, 2000);
+    var guidance = /SPQueryThrottledException|list view threshold|exceeds.*threshold/i.test(detail)
+      ? ' Use folder-scoped loading and a selective indexed view/filter. A folder can also exceed the list view threshold.' : '';
+    throw new Error(operation + ': HTTP ' + String(response.status) + ' ' + String(response.statusText || '')
+      + (detail ? ' - ' + detail : '') + (requestId ? ' [SPRequestGuid: ' + requestId + ']' : '') + guidance);
+  }
   return response.json();
 }
 
@@ -249,12 +264,14 @@ export async function defaultLibraryViewId(webUrl: string, listName: string, get
   return String(source.Id);
 }
 
-export async function loadLibraryDocuments(options: ILibraryLoadOptions): Promise<{ root: string; rows: any[]; fields: any[]; metadata: any[] }> {
+export async function loadLibraryDocuments(options: ILibraryLoadOptions): Promise<{ root: string; folder: string; flat: boolean; rows: any[]; fields: any[]; metadata: any[] }> {
   var listUrl = options.webUrl + "/_api/web/lists/getByTitle('" + encodeURIComponent(options.listName.replace(/'/g, "''")) + "')";
   var sourceData = await json(await options.get(listUrl + '?$select=BaseType,RootFolder/ServerRelativeUrl&$expand=RootFolder'), 'Library discovery');
   var source = sourceData.d || sourceData;
   if (Number(source.BaseType) !== 1) { throw new Error('Matching document folders requires a document library.'); }
   var root = cleanPath(source.RootFolder && source.RootFolder.ServerRelativeUrl);
+  var folder = options.folder === undefined ? '' : cleanPath(options.folder || root);
+  if (folder && !withinRoot(root, folder)) { throw new Error('Folder is outside the library root: ' + folder); }
   var metadata = values(await json(await options.get(listUrl
     + '/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,Choices,LookupList,LookupField,AllowMultipleValues'), 'Library field metadata'));
   var names = options.fields.concat(['ID', 'FSObjType', 'FileRef', 'FileDirRef', 'FileLeafRef', 'Modified', 'Created']);
@@ -281,7 +298,9 @@ export async function loadLibraryDocuments(options: ILibraryLoadOptions): Promis
   var queryConditions = options.conditions.map(function(condition: ILibraryCondition): ILibraryCondition {
     return Object.assign({}, condition, { field: internalName(condition.field) });
   });
-  var viewXml = recursiveView(options.viewXml, names, queryConditions, options.time, options.batchSize, dateFields);
+  var viewXml = recursiveView(options.viewXml, names, queryConditions, options.time, options.batchSize, dateFields, !folder);
+  var sourceScope = new DOMParser().parseFromString(options.viewXml || '<View/>', 'text/xml').documentElement.getAttribute('Scope') || '';
+  var flat = /^(Recursive|RecursiveAll)$/i.test(sourceScope);
   var rows: any[] = [];
   var fields: any[] = [];
   var paging = '';
@@ -289,6 +308,7 @@ export async function loadLibraryDocuments(options: ILibraryLoadOptions): Promis
   do {
     if (!options.current()) { throw new Error('Superseded library request.'); }
     var parameters: any = { RenderOptions: 7, ViewXml: viewXml, DatesInUtc: true };
+    if (folder) { parameters.FolderServerRelativeUrl = folder; }
     if (paging) { parameters.Paging = paging.replace(/^\?/, ''); }
     var data = await json(await options.post(listUrl + '/RenderListDataAsStream', { parameters: parameters }), 'Library documents');
     var renderData = data && data.d && data.d.RenderListDataAsStream ? data.d.RenderListDataAsStream : data;
@@ -312,7 +332,54 @@ export async function loadLibraryDocuments(options: ILibraryLoadOptions): Promis
   }).map(function(field: any): string { return field.InternalName; });
   var select = ['ID', 'FileRef', 'FileDirRef', 'FileLeafRef', 'FSObjType'].concat(dateNames);
   var hydrated: { [id: string]: any } = {};
-  for (var offset = 0; offset < rows.length; offset += 50) {
+  if (folder && !flat && rows.length) {
+    // Expand only this folder's files; a library-wide OR of item IDs can still be throttled.
+    var filesUrl = options.webUrl + "/_api/web/GetFolderByServerRelativeUrl('"
+      + encodeURIComponent(folder.replace(/'/g, "''")) + "')/Files?$expand=ListItemAllFields&$select="
+      + select.map(function(name: string): string { return 'ListItemAllFields/' + name; }).join(',')
+      + '&$top=' + String(Math.max(1, options.batchSize || 200));
+    var filePages: { [url: string]: boolean } = {};
+    while (filesUrl) {
+      if (!options.current()) { throw new Error('Superseded library request.'); }
+      if (filePages[filesUrl]) { throw new Error('Folder document metadata paging did not advance.'); }
+      filePages[filesUrl] = true;
+      var fileData = await json(await options.get(filesUrl), 'Folder document metadata');
+      values(fileData).forEach(function(file: any): void {
+        var item = file.ListItemAllFields;
+        var id = Number(item && item.ID);
+        if (!item || !isFinite(id) || id <= 0 || Math.floor(id) !== id || cleanPath(item.FileDirRef).toLowerCase() !== folder.toLowerCase()) {
+          throw new Error('Invalid folder document metadata.');
+        }
+        hydrated[String(item.ID)] = item;
+      });
+      filesUrl = fileData['@odata.nextLink'] || fileData['odata.nextLink'] || (fileData.d && fileData.d.__next) || '';
+    }
+    rows.forEach(function(row: any): void {
+      if (!hydrated[String(row.ID || row.Id)]) { throw new Error('Document metadata is no longer accessible: ' + String(row.ID || row.Id)); }
+    });
+  }
+  var cursor = 0;
+  var hydrationError: any;
+  async function hydrateFlatRows(): Promise<void> {
+    while (cursor < rows.length && !hydrationError) {
+      var row = rows[cursor++];
+      var id = Number(row.ID || row.Id);
+      try {
+        if (!options.current()) { throw new Error('Superseded library request.'); }
+        if (!isFinite(id) || id <= 0 || Math.floor(id) !== id) { throw new Error('Library returned an invalid document ID.'); }
+        var itemData = await json(await options.get(listUrl + '/items(' + String(id) + ')?$select=' + select.join(',')), 'Library document metadata');
+        var item = itemData.d || itemData;
+        if (Number(item.ID || item.Id) !== id) { throw new Error('Document metadata is no longer accessible: ' + String(id)); }
+        hydrated[String(id)] = item;
+      } catch (error) { hydrationError = error; }
+    }
+  }
+  if (flat) {
+    // Indexed item reads avoid both library-wide OR filters and scanning unrelated folder files.
+    await Promise.all([hydrateFlatRows(), hydrateFlatRows(), hydrateFlatRows(), hydrateFlatRows()]);
+    if (hydrationError) { throw hydrationError; }
+  }
+  for (var offset = 0; !folder && !flat && offset < rows.length; offset += 50) {
     if (!options.current()) { throw new Error('Superseded library request.'); }
     var ids = rows.slice(offset, offset + 50).map(function(row: any): number { return Number(row.ID || row.Id); });
     if (ids.some(function(id: number): boolean { return !isFinite(id) || id <= 0 || Math.floor(id) !== id; })) {
@@ -335,7 +402,34 @@ export async function loadLibraryDocuments(options: ILibraryLoadOptions): Promis
   }
   rows = rows.map(function(row: any): any { return Object.assign({}, row, hydrated[String(row.ID || row.Id)]); })
     .filter(function(row: any): boolean { return Number(row.FSObjType || 0) === 0; });
-  return { root: root, rows: rows, fields: fields, metadata: metadata };
+  return { root: root, folder: folder || root, flat: flat, rows: rows, fields: fields, metadata: metadata };
+}
+
+export async function loadChildFolders(webUrl: string, root: string, folder: string, get: (url: string) => Promise<any>,
+  current: () => boolean, batchSize: number): Promise<ILibraryFolder[]> {
+  var path = cleanPath(folder);
+  if (!withinRoot(cleanPath(root), path)) { throw new Error('Folder is outside the library root: ' + path); }
+  var next = webUrl + "/_api/web/GetFolderByServerRelativeUrl('" + encodeURIComponent(path.replace(/'/g, "''"))
+    + "')/Folders?$select=Name,ServerRelativeUrl&$top=" + String(Math.max(1, batchSize || 200));
+  var pages: { [url: string]: boolean } = {};
+  var folders: ILibraryFolder[] = [];
+  while (next) {
+    if (!current()) { throw new Error('Superseded library request.'); }
+    if (pages[next]) { throw new Error('Child folder paging did not advance.'); }
+    pages[next] = true;
+    var data = await json(await get(next), 'Child folders');
+    values(data).forEach(function(item: any): void {
+      var child = cleanPath(item.ServerRelativeUrl);
+      if (child.substring(0, child.lastIndexOf('/')).toLowerCase() !== path.toLowerCase() || !item.Name) {
+        throw new Error('Invalid child folder metadata: ' + child);
+      }
+      if (path.toLowerCase() !== root.toLowerCase() || String(item.Name).toLowerCase() !== 'forms') {
+        folders.push({ path: child, name: String(item.Name) });
+      }
+    });
+    next = data['@odata.nextLink'] || data['odata.nextLink'] || (data.d && data.d.__next) || '';
+  }
+  return folders;
 }
 
 export async function loadAncestorFolders(webUrl: string, root: string, rows: any[], get: (url: string) => Promise<any>): Promise<ILibraryFolder[]> {

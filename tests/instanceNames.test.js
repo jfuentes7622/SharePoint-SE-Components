@@ -44,6 +44,19 @@ async function run(project) {
   await nextNumbered.ensure();
   assert.strictEqual(numbered.properties.instanceName, prefix + '1');
   assert.strictEqual(nextNumbered.properties.instanceName, prefix + '2', 'New controls receive sequential numbered defaults');
+  const compatible = fixture(15);
+  let pageNameRequests = 0;
+  compatible.context.spHttpClient.get = async (url, configuration, options) => {
+    pageNameRequests++;
+    assert.strictEqual(options.headers.Accept, 'application/json;odata=verbose');
+    const odataVersion = options.headers['OData-Version'] || '4.0';
+    if (odataVersion !== '3.0') { return { ok: false, status: 406 }; }
+    return response({ d: { CanvasContent1: JSON.stringify([canvasControl(60, prefix + '1')]) } });
+  };
+  await compatible.ensure();
+  assert.strictEqual(compatible.properties.instanceName, prefix + '2',
+    'An SE-style endpoint rejecting verbose JSON with the default OData v4 header accepts the page-name request');
+  assert.strictEqual(pageNameRequests, 1, 'Correct headers avoid a 406 rather than retrying it');
   let requests = 0;
   first.context.spHttpClient.get = async url => {
     requests++;
@@ -134,11 +147,13 @@ async function run(project) {
   Base.prototype.onPropertyPaneFieldChanged = function(property, oldValue, newValue) { this.properties[property] = newValue; };
   const field = kind => (targetProperty, properties) => ({ kind, targetProperty, properties });
   const exports = {};
+  const initializationErrors = [];
   const file = path.join(root, 'src', 'webparts', folder, className + '.ts');
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES5 }
   }).outputText, {
-    exports, window: first.document.defaultView, document: first.document, console, setTimeout, clearTimeout,
+    exports, window: first.document.defaultView, document: first.document,
+    console: { log() {}, error() { initializationErrors.push(Array.from(arguments)); } }, setTimeout, clearTimeout,
     require(module) {
       if (module === '../shared/instanceNames') { return helper; }
       if (module === '@microsoft/sp-core-library') { return { DisplayMode: { Read: 1, Edit: 2 } }; }
@@ -167,6 +182,26 @@ async function run(project) {
       throw new Error('Unexpected web part import: ' + module);
     }
   }, { filename: file });
+  const rejectedPart = new exports.default();
+  const rejected = fixture(16);
+  rejectedPart.properties = rejected.properties;
+  rejectedPart.context = rejected.context;
+  rejectedPart.domElement = rejected.element;
+  rejectedPart.displayMode = 2;
+  let rejectedRequests = 0;
+  let rejectedInitializations = 0;
+  let rejectedRenders = 0;
+  rejected.context.spHttpClient.get = async () => { rejectedRequests++; return { ok: false, status: 406 }; };
+  rejectedPart.initializeControl = async () => { rejectedInitializations++; };
+  rejectedPart.render = () => { rejectedRenders++; };
+  await assert.rejects(() => rejectedPart.onInit(), /Cannot read page names: HTTP 406/);
+  assert.strictEqual(rejectedRequests, 1, 'An initialization failure does not cause an automatic request loop');
+  assert.strictEqual(rejectedInitializations, 0, 'Failed page-name discovery blocks runtime initialization');
+  assert.strictEqual(rejectedRenders, 0, 'The control has not rendered when naming rejects initialization');
+  assert.strictEqual(rejectedPart.properties.instanceName, undefined, 'Failed naming cannot silently allocate a conflicting default');
+  assert.strictEqual(initializationErrors.length, 1, 'Initialization failures are logged before being rethrown');
+  assert.ok(initializationErrors[0][0].indexOf('Initialization failed') >= 0);
+  assert.ok(initializationErrors[0][1].message.indexOf('HTTP 406') >= 0);
   const part = new exports.default();
   const live = fixture(11);
   part.properties = live.properties;
@@ -204,6 +239,20 @@ async function run(project) {
   assert.strictEqual(nameIndex, versionIndex + 1, 'Name section follows the existing version banner');
   assert.strictEqual(groups[nameIndex].groupName, 'Web part');
   assert.strictEqual(part.getPropertyDefinitions().find(item => item.id === 'instanceName').title, 'Web part name');
+  if (project === 'ListControl' || project === 'GridControl') {
+    const loading = fields.find(item => item.targetProperty === 'libraryLoadingMode');
+    assert.strictEqual(loading.properties.selectedKey, 'folder', 'Normal library browsing defaults to folder scope.');
+    assert.deepStrictEqual(Array.from(loading.properties.options, option => option.key), ['folder', 'recursive']);
+    assert.strictEqual(fields.find(item => item.targetProperty === 'matchingDocumentFolders').properties.disabled, true);
+    part.properties.matchingDocumentFolders = true;
+    const legacyFields = part.getPropertyPaneConfiguration().pages[0].groups.reduce((all, group) => all.concat(group.groupFields), []);
+    assert.strictEqual(legacyFields.find(item => item.targetProperty === 'libraryLoadingMode').properties.selectedKey, 'recursive',
+      'Existing enabled matching retains whole-library behavior on upgrade.');
+    part.context.propertyPane = { refresh() {} };
+    part.onPropertyPaneFieldChanged('libraryLoadingMode', undefined, 'folder');
+    assert.strictEqual(part.properties.matchingDocumentFolders, false, 'Choosing folder mode explicitly disables incompatible pruning.');
+    assert.strictEqual(part.properties.libraryLoadingMode, 'folder');
+  }
   part.onPropertyPaneFieldChanged('instanceName', part.properties.instanceName, prefix + '25');
   await new Promise(resolve => setImmediate(resolve));
   assert.strictEqual(part.properties.instanceName, prefix + '25');
@@ -229,7 +278,7 @@ async function run(project) {
     const target = navigation.getPageNavigationTargets(live.document, id(999)).find(item => item.instanceId === id(11));
     assert.strictEqual(target.title, prefix + '1', 'Navigation target pickers use the live generated name without waiting for a page save');
   }
-  console.log(name + ': numbering, persistence, hidden/copy collisions, failures, lifecycle and property-pane label/order checks passed');
+  console.log(name + ': OData headers/406, numbering, persistence, hidden/copy collisions, failures, lifecycle and property-pane label/order checks passed');
 }
 
 (async () => {

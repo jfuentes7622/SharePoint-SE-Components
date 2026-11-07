@@ -92,11 +92,17 @@ function withinRoot(root, path) {
     return path.toLowerCase() === root.toLowerCase()
         || path.toLowerCase().indexOf(root.toLowerCase() + '/') === 0;
 }
-function folderDocumentCount(current, documents) {
+function folderDocuments(current, documents, recursive) {
+    if (recursive === void 0) { recursive = false; }
     var path = cleanPath(current);
     return documents.filter(function (row) {
-        return withinRoot(path, cleanPath(row.FileDirRef));
-    }).length;
+        var parent = cleanPath(row.FileDirRef);
+        return recursive ? withinRoot(path, parent) : parent.toLowerCase() === path.toLowerCase();
+    });
+}
+exports.folderDocuments = folderDocuments;
+function folderDocumentCount(current, documents) {
+    return folderDocuments(current, documents, true).length;
 }
 exports.folderDocumentCount = folderDocumentCount;
 function ancestorPaths(rootPath, rows) {
@@ -123,7 +129,7 @@ function folderLevel(root, current, documents, folders, prune) {
             && folder.path.substring(0, folder.path.lastIndexOf('/')).toLowerCase() === current.toLowerCase();
     }).sort(function (left, right) { return left.name.localeCompare(right.name); });
     return children.map(function (folder) { return { libraryFolder: folder }; })
-        .concat(documents.filter(function (row) { return String(row.FileDirRef).toLowerCase() === current.toLowerCase(); }));
+        .concat(folderDocuments(current, documents));
 }
 exports.folderLevel = folderLevel;
 function nearestFolder(root, current, paths) {
@@ -138,13 +144,16 @@ function nearestFolder(root, current, paths) {
     return root;
 }
 exports.nearestFolder = nearestFolder;
-function recursiveView(viewXml, fields, conditions, time, batchSize, dateFields) {
+function recursiveView(viewXml, fields, conditions, time, batchSize, dateFields, recursive) {
+    if (recursive === void 0) { recursive = true; }
     var doc = new DOMParser().parseFromString(viewXml || '<View/>', 'text/xml');
     if (doc.getElementsByTagName('parsererror').length) {
         throw new Error('Invalid source view XML.');
     }
     var view = doc.documentElement;
-    view.setAttribute('Scope', 'RecursiveAll');
+    if (recursive) {
+        view.setAttribute('Scope', 'RecursiveAll');
+    }
     ['GroupBy', 'Aggregations', 'Folder'].forEach(function (tag) {
         var nodes = view.getElementsByTagName(tag);
         while (nodes.length) {
@@ -256,11 +265,30 @@ function recursiveView(viewXml, fields, conditions, time, batchSize, dateFields)
 exports.recursiveView = recursiveView;
 function json(response, operation) {
     return __awaiter(this, void 0, void 0, function () {
-        return __generator(this, function (_a) {
-            if (!response.ok) {
-                throw new Error(operation + ': HTTP ' + String(response.status) + ' ' + String(response.statusText || ''));
+        var body, _a, requestId, detail, guidance;
+        return __generator(this, function (_b) {
+            switch (_b.label) {
+                case 0:
+                    if (!!response.ok) return [3 /*break*/, 4];
+                    if (!(typeof response.text === 'function')) return [3 /*break*/, 2];
+                    return [4 /*yield*/, response.text()];
+                case 1:
+                    _a = _b.sent();
+                    return [3 /*break*/, 3];
+                case 2:
+                    _a = '';
+                    _b.label = 3;
+                case 3:
+                    body = _a;
+                    requestId = response.headers && response.headers.get
+                        ? response.headers.get('SPRequestGuid') || response.headers.get('request-id') : '';
+                    detail = String(body || '').substring(0, 2000);
+                    guidance = /SPQueryThrottledException|list view threshold|exceeds.*threshold/i.test(detail)
+                        ? ' Use folder-scoped loading and a selective indexed view/filter. A folder can also exceed the list view threshold.' : '';
+                    throw new Error(operation + ': HTTP ' + String(response.status) + ' ' + String(response.statusText || '')
+                        + (detail ? ' - ' + detail : '') + (requestId ? ' [SPRequestGuid: ' + requestId + ']' : '') + guidance);
+                case 4: return [2 /*return*/, response.json()];
             }
-            return [2 /*return*/, response.json()];
         });
     });
 }
@@ -374,28 +402,71 @@ function loadLibraryDocuments(options) {
             })[0];
             return match ? String(match.InternalName) : name;
         }
-        var listUrl, sourceData, _a, source, root, metadata, _b, _c, names, dateFields, queryConditions, viewXml, rows, fields, paging, seen, parameters, data, _d, renderData, listData, renderError, batch, dateNames, select, hydrated, offset, ids, next, itemPages, itemData, _e;
-        return __generator(this, function (_f) {
-            switch (_f.label) {
+        function hydrateFlatRows() {
+            return __awaiter(this, void 0, void 0, function () {
+                var row, id, itemData, _a, item, error_1;
+                return __generator(this, function (_b) {
+                    switch (_b.label) {
+                        case 0:
+                            if (!(cursor < rows.length && !hydrationError)) return [3 /*break*/, 6];
+                            row = rows[cursor++];
+                            id = Number(row.ID || row.Id);
+                            _b.label = 1;
+                        case 1:
+                            _b.trys.push([1, 4, , 5]);
+                            if (!options.current()) {
+                                throw new Error('Superseded library request.');
+                            }
+                            if (!isFinite(id) || id <= 0 || Math.floor(id) !== id) {
+                                throw new Error('Library returned an invalid document ID.');
+                            }
+                            _a = json;
+                            return [4 /*yield*/, options.get(listUrl + '/items(' + String(id) + ')?$select=' + select.join(','))];
+                        case 2: return [4 /*yield*/, _a.apply(void 0, [_b.sent(), 'Library document metadata'])];
+                        case 3:
+                            itemData = _b.sent();
+                            item = itemData.d || itemData;
+                            if (Number(item.ID || item.Id) !== id) {
+                                throw new Error('Document metadata is no longer accessible: ' + String(id));
+                            }
+                            hydrated[String(id)] = item;
+                            return [3 /*break*/, 5];
+                        case 4:
+                            error_1 = _b.sent();
+                            hydrationError = error_1;
+                            return [3 /*break*/, 5];
+                        case 5: return [3 /*break*/, 0];
+                        case 6: return [2 /*return*/];
+                    }
+                });
+            });
+        }
+        var listUrl, sourceData, _a, source, root, folder, metadata, _b, _c, names, dateFields, queryConditions, viewXml, sourceScope, flat, rows, fields, paging, seen, parameters, data, _d, renderData, listData, renderError, batch, dateNames, select, hydrated, filesUrl, filePages, fileData, _e, cursor, hydrationError, offset, ids, next, itemPages, itemData, _f;
+        return __generator(this, function (_g) {
+            switch (_g.label) {
                 case 0:
                     listUrl = options.webUrl + "/_api/web/lists/getByTitle('" + encodeURIComponent(options.listName.replace(/'/g, "''")) + "')";
                     _a = json;
                     return [4 /*yield*/, options.get(listUrl + '?$select=BaseType,RootFolder/ServerRelativeUrl&$expand=RootFolder')];
-                case 1: return [4 /*yield*/, _a.apply(void 0, [_f.sent(), 'Library discovery'])];
+                case 1: return [4 /*yield*/, _a.apply(void 0, [_g.sent(), 'Library discovery'])];
                 case 2:
-                    sourceData = _f.sent();
+                    sourceData = _g.sent();
                     source = sourceData.d || sourceData;
                     if (Number(source.BaseType) !== 1) {
                         throw new Error('Matching document folders requires a document library.');
                     }
                     root = cleanPath(source.RootFolder && source.RootFolder.ServerRelativeUrl);
+                    folder = options.folder === undefined ? '' : cleanPath(options.folder || root);
+                    if (folder && !withinRoot(root, folder)) {
+                        throw new Error('Folder is outside the library root: ' + folder);
+                    }
                     _b = values;
                     _c = json;
                     return [4 /*yield*/, options.get(listUrl
                             + '/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,Choices,LookupList,LookupField,AllowMultipleValues')];
-                case 3: return [4 /*yield*/, _c.apply(void 0, [_f.sent(), 'Library field metadata'])];
+                case 3: return [4 /*yield*/, _c.apply(void 0, [_g.sent(), 'Library field metadata'])];
                 case 4:
-                    metadata = _b.apply(void 0, [_f.sent()]);
+                    metadata = _b.apply(void 0, [_g.sent()]);
                     names = options.fields.concat(['ID', 'FSObjType', 'FileRef', 'FileDirRef', 'FileLeafRef', 'Modified', 'Created']);
                     options.conditions.forEach(function (condition) {
                         if (String(condition.valueType).toLowerCase() === 'expression') {
@@ -418,25 +489,30 @@ function loadLibraryDocuments(options) {
                     queryConditions = options.conditions.map(function (condition) {
                         return Object.assign({}, condition, { field: internalName(condition.field) });
                     });
-                    viewXml = recursiveView(options.viewXml, names, queryConditions, options.time, options.batchSize, dateFields);
+                    viewXml = recursiveView(options.viewXml, names, queryConditions, options.time, options.batchSize, dateFields, !folder);
+                    sourceScope = new DOMParser().parseFromString(options.viewXml || '<View/>', 'text/xml').documentElement.getAttribute('Scope') || '';
+                    flat = /^(Recursive|RecursiveAll)$/i.test(sourceScope);
                     rows = [];
                     fields = [];
                     paging = '';
                     seen = {};
-                    _f.label = 5;
+                    _g.label = 5;
                 case 5:
                     if (!options.current()) {
                         throw new Error('Superseded library request.');
                     }
                     parameters = { RenderOptions: 7, ViewXml: viewXml, DatesInUtc: true };
+                    if (folder) {
+                        parameters.FolderServerRelativeUrl = folder;
+                    }
                     if (paging) {
                         parameters.Paging = paging.replace(/^\?/, '');
                     }
                     _d = json;
                     return [4 /*yield*/, options.post(listUrl + '/RenderListDataAsStream', { parameters: parameters })];
-                case 6: return [4 /*yield*/, _d.apply(void 0, [_f.sent(), 'Library documents'])];
+                case 6: return [4 /*yield*/, _d.apply(void 0, [_g.sent(), 'Library documents'])];
                 case 7:
-                    data = _f.sent();
+                    data = _g.sent();
                     renderData = data && data.d && data.d.RenderListDataAsStream ? data.d.RenderListDataAsStream : data;
                     if (typeof renderData === 'string') {
                         renderData = JSON.parse(renderData);
@@ -459,20 +535,71 @@ function loadLibraryDocuments(options) {
                         throw new Error('Library paging did not advance.');
                     }
                     seen[paging] = true;
-                    _f.label = 8;
+                    _g.label = 8;
                 case 8:
                     if (paging) return [3 /*break*/, 5];
-                    _f.label = 9;
+                    _g.label = 9;
                 case 9:
                     dateNames = metadata.filter(function (field) {
                         return field.TypeAsString === 'DateTime' && names.indexOf(field.InternalName) >= 0;
                     }).map(function (field) { return field.InternalName; });
                     select = ['ID', 'FileRef', 'FileDirRef', 'FileLeafRef', 'FSObjType'].concat(dateNames);
                     hydrated = {};
-                    offset = 0;
-                    _f.label = 10;
+                    if (!(folder && !flat && rows.length)) return [3 /*break*/, 14];
+                    filesUrl = options.webUrl + "/_api/web/GetFolderByServerRelativeUrl('"
+                        + encodeURIComponent(folder.replace(/'/g, "''")) + "')/Files?$expand=ListItemAllFields&$select="
+                        + select.map(function (name) { return 'ListItemAllFields/' + name; }).join(',')
+                        + '&$top=' + String(Math.max(1, options.batchSize || 200));
+                    filePages = {};
+                    _g.label = 10;
                 case 10:
-                    if (!(offset < rows.length)) return [3 /*break*/, 16];
+                    if (!filesUrl) return [3 /*break*/, 13];
+                    if (!options.current()) {
+                        throw new Error('Superseded library request.');
+                    }
+                    if (filePages[filesUrl]) {
+                        throw new Error('Folder document metadata paging did not advance.');
+                    }
+                    filePages[filesUrl] = true;
+                    _e = json;
+                    return [4 /*yield*/, options.get(filesUrl)];
+                case 11: return [4 /*yield*/, _e.apply(void 0, [_g.sent(), 'Folder document metadata'])];
+                case 12:
+                    fileData = _g.sent();
+                    values(fileData).forEach(function (file) {
+                        var item = file.ListItemAllFields;
+                        var id = Number(item && item.ID);
+                        if (!item || !isFinite(id) || id <= 0 || Math.floor(id) !== id || cleanPath(item.FileDirRef).toLowerCase() !== folder.toLowerCase()) {
+                            throw new Error('Invalid folder document metadata.');
+                        }
+                        hydrated[String(item.ID)] = item;
+                    });
+                    filesUrl = fileData['@odata.nextLink'] || fileData['odata.nextLink'] || (fileData.d && fileData.d.__next) || '';
+                    return [3 /*break*/, 10];
+                case 13:
+                    rows.forEach(function (row) {
+                        if (!hydrated[String(row.ID || row.Id)]) {
+                            throw new Error('Document metadata is no longer accessible: ' + String(row.ID || row.Id));
+                        }
+                    });
+                    _g.label = 14;
+                case 14:
+                    cursor = 0;
+                    if (!flat) return [3 /*break*/, 16];
+                    // Indexed item reads avoid both library-wide OR filters and scanning unrelated folder files.
+                    return [4 /*yield*/, Promise.all([hydrateFlatRows(), hydrateFlatRows(), hydrateFlatRows(), hydrateFlatRows()])];
+                case 15:
+                    // Indexed item reads avoid both library-wide OR filters and scanning unrelated folder files.
+                    _g.sent();
+                    if (hydrationError) {
+                        throw hydrationError;
+                    }
+                    _g.label = 16;
+                case 16:
+                    offset = 0;
+                    _g.label = 17;
+                case 17:
+                    if (!(!folder && !flat && offset < rows.length)) return [3 /*break*/, 23];
                     if (!options.current()) {
                         throw new Error('Superseded library request.');
                     }
@@ -483,9 +610,9 @@ function loadLibraryDocuments(options) {
                     next = listUrl + '/items?$top=50&$select=' + select.join(',') + '&$filter='
                         + encodeURIComponent(ids.map(function (id) { return 'ID eq ' + String(id); }).join(' or '));
                     itemPages = {};
-                    _f.label = 11;
-                case 11:
-                    if (!next) return [3 /*break*/, 14];
+                    _g.label = 18;
+                case 18:
+                    if (!next) return [3 /*break*/, 21];
                     if (!options.current()) {
                         throw new Error('Superseded library request.');
                     }
@@ -493,33 +620,79 @@ function loadLibraryDocuments(options) {
                         throw new Error('Library metadata paging did not advance.');
                     }
                     itemPages[next] = true;
-                    _e = json;
+                    _f = json;
                     return [4 /*yield*/, options.get(next)];
-                case 12: return [4 /*yield*/, _e.apply(void 0, [_f.sent(), 'Library document metadata'])];
-                case 13:
-                    itemData = _f.sent();
+                case 19: return [4 /*yield*/, _f.apply(void 0, [_g.sent(), 'Library document metadata'])];
+                case 20:
+                    itemData = _g.sent();
                     values(itemData).forEach(function (item) { hydrated[String(item.ID || item.Id)] = item; });
                     next = itemData['@odata.nextLink'] || itemData['odata.nextLink'] || (itemData.d && itemData.d.__next) || '';
-                    return [3 /*break*/, 11];
-                case 14:
+                    return [3 /*break*/, 18];
+                case 21:
                     ids.forEach(function (id) {
                         if (!hydrated[String(id)]) {
                             throw new Error('Document metadata is no longer accessible: ' + String(id));
                         }
                     });
-                    _f.label = 15;
-                case 15:
+                    _g.label = 22;
+                case 22:
                     offset += 50;
-                    return [3 /*break*/, 10];
-                case 16:
+                    return [3 /*break*/, 17];
+                case 23:
                     rows = rows.map(function (row) { return Object.assign({}, row, hydrated[String(row.ID || row.Id)]); })
                         .filter(function (row) { return Number(row.FSObjType || 0) === 0; });
-                    return [2 /*return*/, { root: root, rows: rows, fields: fields, metadata: metadata }];
+                    return [2 /*return*/, { root: root, folder: folder || root, flat: flat, rows: rows, fields: fields, metadata: metadata }];
             }
         });
     });
 }
 exports.loadLibraryDocuments = loadLibraryDocuments;
+function loadChildFolders(webUrl, root, folder, get, current, batchSize) {
+    return __awaiter(this, void 0, void 0, function () {
+        var path, next, pages, folders, data, _a;
+        return __generator(this, function (_b) {
+            switch (_b.label) {
+                case 0:
+                    path = cleanPath(folder);
+                    if (!withinRoot(cleanPath(root), path)) {
+                        throw new Error('Folder is outside the library root: ' + path);
+                    }
+                    next = webUrl + "/_api/web/GetFolderByServerRelativeUrl('" + encodeURIComponent(path.replace(/'/g, "''"))
+                        + "')/Folders?$select=Name,ServerRelativeUrl&$top=" + String(Math.max(1, batchSize || 200));
+                    pages = {};
+                    folders = [];
+                    _b.label = 1;
+                case 1:
+                    if (!next) return [3 /*break*/, 4];
+                    if (!current()) {
+                        throw new Error('Superseded library request.');
+                    }
+                    if (pages[next]) {
+                        throw new Error('Child folder paging did not advance.');
+                    }
+                    pages[next] = true;
+                    _a = json;
+                    return [4 /*yield*/, get(next)];
+                case 2: return [4 /*yield*/, _a.apply(void 0, [_b.sent(), 'Child folders'])];
+                case 3:
+                    data = _b.sent();
+                    values(data).forEach(function (item) {
+                        var child = cleanPath(item.ServerRelativeUrl);
+                        if (child.substring(0, child.lastIndexOf('/')).toLowerCase() !== path.toLowerCase() || !item.Name) {
+                            throw new Error('Invalid child folder metadata: ' + child);
+                        }
+                        if (path.toLowerCase() !== root.toLowerCase() || String(item.Name).toLowerCase() !== 'forms') {
+                            folders.push({ path: child, name: String(item.Name) });
+                        }
+                    });
+                    next = data['@odata.nextLink'] || data['odata.nextLink'] || (data.d && data.d.__next) || '';
+                    return [3 /*break*/, 1];
+                case 4: return [2 /*return*/, folders];
+            }
+        });
+    });
+}
+exports.loadChildFolders = loadChildFolders;
 function loadAncestorFolders(webUrl, root, rows, get) {
     return __awaiter(this, void 0, void 0, function () {
         function worker() {

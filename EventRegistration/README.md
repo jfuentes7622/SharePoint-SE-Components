@@ -9,9 +9,9 @@ capacity, waitlists, CSV export, and a Power Automate notification contract.
 
 | Artifact | Version |
 |---|---|
-| npm package | `1.1.0` |
-| SPFx solution | `1.1.0.1` |
-| SPFx feature | `1.1.0.1` |
+| npm package | `1.1.4` |
+| SPFx solution | `1.1.4.1` |
+| SPFx feature | `1.1.4.1` |
 | React | `15.6.2` |
 | TypeScript | `2.4.2` |
 | `@microsoft/sp-*` | `1.5.1` |
@@ -110,24 +110,57 @@ configured separately.
 
 ## Setup
 
-Until all six configured lists exist, the web part shows **Setup required**
+Until all six configured lists and their required fields exist, the web part shows **Setup required**
 and, for authorized organizers, **Provision lists and fields**, without a raw
 missing-list REST error. It checks list availability before requesting event
-data. Permission, connection, and schema failures still surface as errors.
+data. It validates field internal names, types, required flags, and lookup
+indexes/Restrict relationships before
+requesting event items. Permission, connection, and incompatible-schema failures
+still surface as errors.
 
 An authorized organizer opens **Organizer > Settings / list setup** and selects **Validate /
 provision**. Setup:
 
 1. Creates all six missing custom lists.
 2. Creates fields with SharePoint SE-compatible
-   `fields/CreateFieldAsXml` calls.
-3. Resolves lookup-list GUIDs before creating lookup fields.
+   `fields/CreateFieldAsXml` calls and `AddFieldInternalNameHint` (`Options: 8`)
+   to preserve the `ER` internal names independently of their display labels.
+   Each created field is reread from the fields collection and validated before
+   it is counted as successfully created.
+3. Resolves lookup-list GUIDs before creating lookup fields. Lookup creation
+   requests `Indexed="TRUE"` without enabling a relationship in that same
+   request. Setup verifies the persisted index (and creates it if needed),
+   then separately enables and verifies `Restrict` delete behavior. This
+   ordering avoids SharePoint's HTTP 500 for an unindexed enforced relationship.
 4. Validates existing field internal names, types, and required flags.
 5. Reports list and field failures. It never reports success when validation
    contains errors.
+6. After the fields are ready, creates the public **Registration Sessions Calendar**
+   classic calendar view on `<prefix> Sessions`, using `ERStart`, `EREnd`, and
+   `Title`. It does not change the default list view. Calendar-view failures
+   also fail setup visibly. Rerunning setup adds the view to existing installations
+   without duplicating it or replacing existing views. A conflicting view with
+   that name must be renamed before retrying setup.
 
 Setup is non-destructive. It never deletes or replaces an incompatible field.
 Correct the reported schema manually or configure a new prefix.
+Existing compatible lookup columns left partially configured by an interrupted
+setup are repaired in the same index-first order. Existing Cascade relationships
+are reported as incompatible rather than silently changed. No list items are
+deleted during setup.
+
+Field and calendar-view discovery use filtered collection queries: an empty
+collection means creation is needed. This avoids SharePoint SE returning HTTP
+400 for a missing field through `getByInternalNameOrTitle`. Genuine HTTP 400,
+permission, and network errors still fail setup. If earlier setup created the
+lists but stopped before creating their columns, keep the same prefix and rerun
+**Validate / provision** after updating the package; do not delete the lists.
+Columns created earlier under display-derived internal names are left untouched;
+setup adds the missing `ER` fields, but does not migrate data from other columns.
+Setup reports success only after schema validation and the initial data load
+both complete.
+Expanded person columns use SharePoint's projected `EMail` property; user
+normalization also retains compatibility with existing `Email` responses.
 
 REST reads and writes explicitly use `OData-Version: 3.0` to match SharePoint's
 JSON formats and the typed `__metadata` payloads used for list, field, and item
@@ -260,12 +293,24 @@ The preferred Calendar is subscribed with the SPFx 1.5.1 Dynamic Data provider
 compatibility API. The web part consumes:
 
 - `selectedSessionId` as a session selection when exposed.
-- `selectedItemId` as an event selection.
+- `selectedEventId` as the parent event selection. Older Calendar versions
+  that do not expose this property fall back to `selectedItemId`.
+
+In Calendar's **Manage data sources**, select `<prefix> Sessions` after setup.
+The provisioned calendar view makes the list discoverable and supplies the
+default `ERStart` / `EREnd` mappings. Use Sessions rather than Events: the latter
+contains event definitions, not occurrence dates. Enable Calendar's event details
+panel and registration action, and configure the registration page URL.
+Calendar sends the session item ID as `sessionid` and its `EREventId` parent
+lookup as `eventid`; the two IDs need not match. For same-page Dynamic Data,
+select the Calendar instance in this web part's settings. Calendar sources must
+refer to the same site's registration list set.
 
 URL query parameters `sessionid` and `eventid` take precedence over Dynamic
 Data. For event selection, the configured **Default event ID** is the final
 fallback after the URL and Calendar selection. Clearing an external selection
-clears stale session/attendee choices. `source` or `returnurl` can request a post-registration redirect. The
+clears stale session/attendee choices. `source`, `returnurl`, or Calendar's `return`
+can request a post-registration redirect (in that precedence order). The
 web part resolves and validates the URL and redirects only when its origin
 matches the current page origin.
 
@@ -309,6 +354,20 @@ event/series selection, confirmation persistence, and same-origin page links.
 End-to-end REST transaction behavior requires a
 SharePoint SE integration site and is not simulated by the SPFx 1.5.1 test
 runner.
+
+The legacy Karma task can exit successfully with zero tests when its SDK host
+module is unavailable. To execute the regression suites with the existing
+component dependencies and Node 10.24.1, run from the repository root:
+
+```powershell
+node .\scripts\test-event-registration.js
+```
+
+This runner executes the EventRegistration suites and Calendar registration
+tests against the source, with SharePoint/PnP host controls and styles mocked.
+It covers calendar-view creation/retry/errors, session/parent-event identities,
+Dynamic Data, registration URLs, and return parameters. It does not replace
+production builds or validation on the SharePoint SE farm.
 
 Upload `sharepoint/solution/sps-event-registration.sppkg` to the SharePoint app
 catalog, deploy it, add the app to the target site if required, place the web

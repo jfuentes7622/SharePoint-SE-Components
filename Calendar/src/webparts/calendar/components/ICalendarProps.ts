@@ -133,7 +133,8 @@ export interface ICalendarProps {
   detailsCloseButtonHoverBackgroundColor: string;
   detailsCloseButtonCornerRadius: number;
   enableDiagnostics: boolean;
-  onEventSelectionChange: (itemId: number, mode: string, selectedEventKey?: string, selectedSessionId?: number) => void;
+  onEventSelectionChange: (itemId: number, mode: string, selectedEventKey?: string,
+    selectedSessionId?: number, selectedEventId?: number) => void;
   fUpdateProperty: (value: string) => void;
   fPropertyPaneOpen: () => void;
 }

@@ -1,8 +1,377 @@
 # SharePoint-SE-Components
 
-A collection of SharePoint Framework (SPFx) components, built for SharePoint SE (SPFx v1.5.1). This repository contains reusable web parts (and one application customizer extension) that can be deployed to SharePoint Online/Server and, where noted, Microsoft Teams.
+A collection of SharePoint Framework (SPFx) components, built and tested to work with SharePoint Server Subscription Edition (SE) using SPFx v1.5.1. These controls have also been tested and are working with SharePoint Online. This repository contains reusable web parts (and one application customizer extension) that can be deployed to SharePoint Online/Server and, where noted, Microsoft Teams.
 
 All web-part property panes display the deployed solution version. Components with an **Enable diagnostics logging** setting write optional lifecycle and data-loading details to the browser console; genuine failures remain visible even when diagnostic logging is disabled.
+
+## Central solution packages
+
+Successful `gulp package-solution --ship` runs in any component automatically
+**copy**, rather than move, its `.sppkg` into `SharePoint-SE-Packages` beside
+the repository. In this checkout that is `D:\Source\SharePoint-SE-Packages`.
+Rebuilding replaces only that package's previous central copy; original filenames
+and project outputs remain unchanged. Failed packaging/copying preserves the
+previous central package, and copy errors fail the task.
+
+Run `npm run collect-packages` from the repository root to collect the existing
+packages without rebuilding them; this does not certify their freshness.
+Ordinary build/bundle and non-production packaging do not refresh central copies.
+Nothing is automatically deployed. See [Deployment](docs/Deployment.md).
+
+## Numbered web part names
+
+The four controls with editable instance-name fields now assign page-scoped defaults:
+
+| Control | Default names | Solution version |
+|---|---|---|
+| ListControl | `ListControl1`, `ListControl2`, ... | `1.0.0.130` |
+| GridControl | `GridControl1`, `GridControl2`, ... | `1.0.0.130` |
+| DynamicForms | `DynamicForm1`, `DynamicForm2`, ... | `1.0.0.119` |
+| ReportForms | `ReportForm1`, `ReportForm2`, ... | `1.0.0.90` |
+
+All four use the label **Web part name**, in a **Web part** section directly below
+the version banner and before Appearance/data/form settings. DynamicForms' former
+**Form name for linking** and ReportForms' former **Report name for navigation**
+are the same saved `instanceName` property, not new settings. Dynamic Data uses
+the same label; existing connections and custom names are unchanged.
+
+New controls and existing blank names are named in page edit mode. Save the page to
+persist them. Read mode does not rewrite properties. Names remain editable; clearing
+one assigns an available numbered name. Existing nonblank names, including `Report`,
+are preserved. Copying an automatically named control assigns the copy its own number.
+Names do not renumber on refresh, and connection keys remain the original instance GUIDs.
+
+Allocation accounts for saved page canvas metadata, hidden controls and concurrent
+additions. Existing custom names matching a generated name are reserved without
+case sensitivity. Page-metadata failures are logged and do not silently assign a
+potentially conflicting name. Workbench/legacy hosts without a page list item use
+their live canvas metadata and page-local reservations.
+
+All 19 projects were reviewed. Calendar, EventRegistration, FormNavigator,
+SearchControl and Tab use titles/static labels or navigation identities rather than
+this editable instance-name field. Accordion, BannerClock (an application customizer),
+Carousel, Contact, FullWidthControl, LinkButton, Marquee, PrintControl, ScriptEditor
+and Tiles do not expose the same instance-name setting. No new name fields were
+added to these other projects.
+
+Run `node tests\instanceNames.test.js` for allocation and lifecycle regressions.
+Build/package inspection is local validation, not proof of SE-farm deployment.
+
+## List Designer grouped-view fix
+
+List Control `1.0.0.130` applies the grouped-view correction to **List Designer**,
+not just Grid. Standard-list requests fetch populated item rows rather than
+SharePoint group summaries, and document-library grouping is restored. Saved
+List Designer grouping is rendered locally, including one/two levels, hidden
+grouping fields, imported collapse settings, expanded records and group counts.
+Hidden grouping keys are also fetched across standard-list paging without
+becoming visible columns.
+
+Selected-view filters, sorting, folder/flat scope, separate folder navigation,
+connected selection and large-library safeguards remain. Grouping does not
+broaden a folder-based view: open a folder containing matching documents when
+the current folder is empty. Existing correctly saved groups need no reimport.
+
+| Component | Solution and feature version | Deployment package |
+|---|---|---|
+| List Control | `1.0.0.130` | [SPS-list-control.sppkg](ListControl/sharepoint/solution/SPS-list-control.sppkg) |
+| Grid Control | `1.0.0.130` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
+
+Both controls now have grouped-view fixes. Run `node tests\controlMetadata.test.js`
+and `node tests\libraryViews.test.js` along with the existing library regressions.
+Tests exercise each actual Designer's import/save path, populated expanded cells,
+hidden keys, complete paging and grouped folder navigation. Deploy the appropriate
+fresh package, reload, and compare the actual grouped standard lists and libraries
+on the target SE farm and Online. Local tests/builds are not deployment proof.
+
+## Grid Designer grouped-view fix
+
+Grid Control `1.0.0.130` restores **Load columns/grouping from view** behavior
+for standard lists and document libraries. The Designer import/save format is
+unchanged. Runtime requests remove server-side grouping/aggregations so that
+SharePoint returns ordinary records rather than group summaries with missing
+cell values; Grid applies the saved Designer grouping locally.
+
+Library grouping is no longer disabled by folder support. Hidden grouping fields
+are fetched without becoming displayed columns. One/two-level groups, imported
+collapsed state, expanded records, group counts and item paging remain supported.
+Source filters, sorting, folder/flat scope, separate folder navigation and Grid
+draft protection are preserved. Folder-based views still require opening a folder
+containing matching documents; grouping does not broaden the selected view.
+
+Deploy [Grid Control 1.0.0.130](GridControl/sharepoint/solution/sps-grid-control.sppkg)
+and reload the page. That Grid-only correction left List at `1.0.0.129`; the
+subsequent List Designer fix above now restores its grouping too. The Grid version is
+above the reported installed `1.0.0.129` to avoid a version regression.
+
+Run `node tests\controlMetadata.test.js` and `node tests\libraryViews.test.js`
+with the existing library regressions. Coverage follows actual Designer import,
+save and runtime loading, verifies populated cells instead of summary rows,
+hidden group keys, collapsed/expanded groups, paging and grouped folder navigation.
+Verify the actual grouped views and Grid editing on the target SE farm and Online
+after deployment. Local regression/build/package checks are not deployment proof.
+
+## Library selected-view fix
+
+List Control `1.0.0.129` and Grid Control `1.0.0.107` restore selected-view
+folder/flat behavior. Settings and runtime view changes use the selected view's
+document filter, ordering and columns (explicit Grid schema columns still take
+precedence). Switching views clears a previous interactive library sort.
+
+- Folder-based views remain within the browsed folder in folder-scoped mode.
+  Views explicitly configured to show documents across folders retain their
+  recursive scope and show matching documents together, not just documents
+  physically stored at the library root.
+- Accessible folders now appear in a separate, collapsible **Browse folders
+  (navigation, not view results)** section. They are never inserted into the
+  filtered document table or its pagination. Existing breadcrumbs, selection
+  clearing, matching-branch pruning and Grid draft protection remain.
+- Flat views hydrate only returned document IDs with at most four concurrent,
+  indexed item reads; they do not scan all files in matching folders or use a
+  library-wide ID `OR` query. Server paging completes before results are committed.
+  Counts for flat views explicitly include matching descendants of the browsed
+  folder. Folder-based views retain the previous loading-mode count scopes.
+- Whole-library matching remains an explicit recursive snapshot option. Folder
+  navigation in that mode narrows the completed snapshot without another scan.
+  Server-side grouping/aggregations remain inactive; List and Grid Designer
+  grouping is rendered locally by the subsequent grouped-view fixes above.
+  No view, index, permission or farm threshold is modified.
+
+An unselective flat view or a large individual folder can still be throttled.
+Use selective indexed views where required; paging is not a threshold bypass.
+Errors remain visible, without falling back to All Documents or claiming partial
+results as complete.
+
+| Component | Solution and feature version | Deployment package |
+|---|---|---|
+| List Control | `1.0.0.129` | [SPS-list-control.sppkg](ListControl/sharepoint/solution/SPS-list-control.sppkg) |
+| Grid Control | `1.0.0.107` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
+
+Run `node tests\libraryViews.test.js` along with the existing library and metadata
+regressions. The new test uses actual selected-view metadata loaders and a
+21,000-document fixture: a flat filtered view returns exactly five documents in
+the selected order. It covers initial configuration, settings/runtime switching,
+pending old responses, folder/flat scope, counts, columns, navigation and Grid drafts.
+
+Deploy both fresh packages and verify the actual filtered views on the target SE
+farm and Online. Compare expected documents and ordering with native SharePoint,
+switch views in web-part settings and at runtime, open folders, and check connected
+forms and Grid editing. Local tests/builds do not certify customer deployment.
+The older release descriptions below describe behavior before this correction.
+
+## November 6, 2026 all-page-control navigation targets
+
+The List/Grid **Navigation target** dropdown now includes identifiable controls
+placed on the current page, not just this repository's web parts: Microsoft
+built-in web parts, third-party web parts, and Text canvas controls are eligible.
+Discovery reads standard SharePoint canvas/web-part metadata, feature/instance
+markers and legacy web-part hosts, including underscore IDs and `WebPartID`.
+It does not require the destination to publish Dynamic Data or repository markers.
+
+Readable names come from configured instance names, SharePoint titles, accessible
+labels, headings or host feature labels. Text blocks can use a short rendered-text
+preview, with **Text** as the empty-block fallback. Duplicate titles are still
+distinguished by stable page-instance GUIDs. Component GUIDs are never substituted
+for page-instance GUIDs. Canvas wrappers and their hosted control are listed once;
+recognized older wrapper/host IDs remain valid saved targets without rewriting
+the configuration.
+
+**Go to details** still focuses and scrolls to the destination container; it does
+not submit, edit, activate a tab or republish the selected item. Existing Tab
+strip focusing, hidden/missing-target errors and Grid draft protection remain.
+The source control, ordinary HTML buttons and layout sections are not targets.
+Discovery is limited to rendered controls with identifiable page instances in the
+current document; it cannot enumerate unrendered controls, cross-origin iframe
+contents or third-party hosts that expose no stable identity.
+
+| Component | Solution and feature version | Deployment package |
+|---|---|---|
+| List Control | `1.0.0.128` | [SPS-list-control.sppkg](ListControl/sharepoint/solution/SPS-list-control.sppkg) |
+| Grid Control | `1.0.0.106` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
+
+Deploy these two packages, reload the page, then choose **Refresh page controls**
+under **Navigation**. Other repository target packages do not need another rebuild
+for this discovery expansion. Existing source/target connections and the prior
+large-library, page-name and theme fixes remain included.
+
+Run `node tests\rowNavigation.test.js` for both controls' native/third-party/Text,
+legacy-host, duplicate-instance, saved-target and focus regressions. On the target
+SE farm and Online, verify the actual built-in/third-party controls and Text blocks
+appear with distinct names/IDs and receive focus/scroll without changing form
+selection or active tabs. Also test duplicate web-part instances and an existing
+saved target after upgrading. Local mocked hosts and successful package inspection
+do not establish customer-environment deployment or every vendor's DOM compatibility.
+
+## November 5, 2026 large-library loading fix
+
+List Control and Grid Control now expose **Buttons > Library loading**:
+
+- **Folder-scoped paging (recommended for large libraries)** requests documents
+  only in the current folder and lists its immediate accessible child folders.
+  It completes server paging within that folder before committing results, not
+  across the entire library. Metadata is hydrated from that folder's files rather
+  than a library-wide query combining item IDs with `OR`. Empty folders remain
+  navigable, and document links, selection/form connections and Grid editing are
+  preserved.
+- **Whole-library matching (recursive)** retains the previous complete recursive
+  snapshot and library-wide counts. **Matching document folders** can prune
+  branches without matching documents in this mode only.
+
+Normal browsing without enabled matching defaults to folder-scoped loading.
+Existing controls with **Matching document folders** enabled retain whole-library
+matching on upgrade. For a large library using that setting, explicitly choose
+folder-scoped loading; choosing it disables incompatible branch pruning.
+To retain the previous unpruned recursive behavior, explicitly select whole-library
+matching and leave pruning off. Standard lists are unchanged.
+
+In folder-scoped mode, file counts and connected `searchResultCount` cover only
+matching documents in the current folder, excluding subfolders. Counts are not
+partial-page estimates. Whole-library mode retains its previous library-wide
+navigation count and descendant-inclusive footer count. Source-view restrictions
+and ordering remain in effect in both modes.
+
+HTTP failures now retain the server response text and `SPRequestGuid` when
+available, and genuine failures are logged even with optional diagnostics disabled.
+Threshold, permission and other terminal errors are not retried with alternate
+JSON headers; actual HTTP 406/415 negotiation can still fall back. Failed refreshes
+retain the last complete snapshot instead of publishing partial results.
+
+| Component | Solution and feature version | Deployment package |
+|---|---|---|
+| List Control | `1.0.0.127` | [SPS-list-control.sppkg](ListControl/sharepoint/solution/SPS-list-control.sppkg) |
+| Grid Control | `1.0.0.105` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
+
+These packages also include the earlier page-name, navigation and theme fixes.
+Local regressions model a 21,000-document library spread across folders, reject
+unscoped recursive requests with a threshold HTTP 500, and exercise folder paging,
+metadata, complete counts, navigation, refresh failures and Grid draft protection.
+Run `node tests\libraryLarge.test.js`, `node tests\libraryFolders.test.js` and
+`node tests\libraryRuntime.test.js`.
+
+Deploy both fresh packages and test the actual library with folder-scoped loading
+on SE and Online. Verify folder navigation, empty folders, views/filters, counts,
+selection, Grid add/edit/delete and refresh. A large individual folder or an
+unselective whole-library view can still exceed the configured threshold: use a
+selective indexed source view/filter where applicable. A client-only filter or
+smaller page size is not a threshold bypass. No indexes, views, permissions or
+farm thresholds are changed. The reported environment is inaccessible here;
+local regressions and package checks are not live deployment evidence.
+
+## November 5, 2026 page-name HTTP 406 fix
+
+New List Control, Grid Control, Dynamic Forms and Report Forms instances read
+saved page names before initializing. The page-name helper now explicitly sends
+`OData-Version: 3.0` with `Accept: application/json;odata=verbose`, instead of
+combining verbose JSON with SPFx 1.5.1's default OData v4 header. This corrects
+an incompatible request that can return HTTP 406 and prevent initialization,
+leaving SharePoint's host showing a loading indicator.
+
+The request came from the November 4 numbered-name change, not the Tab/render
+fix. Naming collision checks, custom names, read-mode behavior, and genuine
+failure logging/rejection remain intact. No automatic retry loop or
+success-shaped fallback was added. The navigation, Tab/forms and theme fixes
+remain included.
+
+| Component | Solution and feature version | Deployment package |
+|---|---|---|
+| List Control | `1.0.0.126` | [SPS-list-control.sppkg](ListControl/sharepoint/solution/SPS-list-control.sppkg) |
+| Grid Control | `1.0.0.104` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
+| Dynamic Forms | `1.0.0.119` | [sps-dynamic-form.sppkg](DynamicForms/sharepoint/solution/sps-dynamic-form.sppkg) |
+| Report Forms | `1.0.0.90` | [sps-report-forms.sppkg](ReportForms/sharepoint/solution/sps-report-forms.sppkg) |
+
+These versions supersede the four corresponding navigation-release versions
+below. Deploy all four updated packages using the
+[deployment procedure](docs/Deployment.md), reload the page, and add a new
+instance of each control in edit mode. On SE and Online, verify the page-name
+GET succeeds without HTTP 406, the control leaves the loading state, and its
+numbered name is saved with the page. Also check existing custom names and
+multiple new controls on one page. Target-farm checks are still required;
+local header and initialization tests are not live deployment evidence.
+
+Run `node tests\instanceNames.test.js` for header/406, initialization failure,
+name allocation and lifecycle regressions. Genuine authorization or metadata
+errors still block naming rather than silently choosing a conflicting name.
+
+## November 5, 2026 navigation target discovery fix
+
+List Control and Grid Control can now discover all 18 repository page web parts
+without depending on SharePoint's canvas-wrapper identity attributes. Each web
+part publishes its existing instance GUID and framework-provided title on its own host.
+Custom instance names and canvas titles take precedence over the web-part-title
+fallback; duplicate names remain distinguishable by GUID. This does not introduce
+new editable name fields or change existing saved navigation targets.
+
+For a page with forms organized by Tab, select the **SPS Tabs** target in
+**Navigation target**. **Go to details** focuses and scrolls to the tab strip,
+preserving the selected tab and the list/grid's item selection. Navigation does
+not automatically open hidden tabs. Hidden, missing or non-focusable controls
+continue to report an explicit navigation error. Full Width Control is listed
+but its intentionally hidden read-mode host cannot receive navigation focus.
+BannerClock is an application customizer, not a page web part, and is not listed.
+Discovery of arbitrary built-in or third-party web parts remains best-effort
+through the existing supported SharePoint metadata, not a new guarantee.
+
+Updated solution/feature versions (ScriptEditor has no configured feature):
+
+| Component | Version | Deployment package |
+|---|---|---|
+| Accordion | `1.0.0.24` | [sps-accordion.sppkg](Accordion/sharepoint/solution/sps-accordion.sppkg) |
+| Calendar | `1.1.0.44` | [sps-calendar.sppkg](Calendar/sharepoint/solution/sps-calendar.sppkg) |
+| Carousel | `1.0.0.42` | [sps-carousel.sppkg](Carousel/sharepoint/solution/sps-carousel.sppkg) |
+| Contact | `3.1.0.22` | [sps-contacts.sppkg](Contact/sharepoint/solution/sps-contacts.sppkg) |
+| Dynamic Forms | `1.0.0.118` | [sps-dynamic-form.sppkg](DynamicForms/sharepoint/solution/sps-dynamic-form.sppkg) |
+| Event Registration | `1.1.5.1` | [sps-event-registration.sppkg](EventRegistration/sharepoint/solution/sps-event-registration.sppkg) |
+| Form Navigator | `1.0.0.6` | [sps-form-navigator.sppkg](FormNavigator/sharepoint/solution/sps-form-navigator.sppkg) |
+| Full Width Control | `1.0.0.5` | [sps-full-width-control.sppkg](FullWidthControl/sharepoint/solution/sps-full-width-control.sppkg) |
+| Grid Control | `1.0.0.103` | [sps-grid-control.sppkg](GridControl/sharepoint/solution/sps-grid-control.sppkg) |
+| LinkButton | `2.0.2.17` | [sps-linkbutton.sppkg](LinkButton/sharepoint/solution/sps-linkbutton.sppkg) |
+| List Control | `1.0.0.125` | [SPS-list-control.sppkg](ListControl/sharepoint/solution/SPS-list-control.sppkg) |
+| Marquee | `2.1.0.27` | [sps-marquee.sppkg](Marquee/sharepoint/solution/sps-marquee.sppkg) |
+| Print Control | `1.0.0.19` | [sps-print-control.sppkg](PrintControl/sharepoint/solution/sps-print-control.sppkg) |
+| Report Forms | `1.0.0.89` | [sps-report-forms.sppkg](ReportForms/sharepoint/solution/sps-report-forms.sppkg) |
+| ScriptEditor | `1.0.1.14` | [sps-script-editor-web-part.sppkg](ScriptEditor/sharepoint/solution/sps-script-editor-web-part.sppkg) |
+| Search Control | `1.0.0.16` | [sps-search-control.sppkg](SearchControl/sharepoint/solution/sps-search-control.sppkg) |
+| Tab | `3.1.0.39` | [sps-tabs.sppkg](Tab/sharepoint/solution/sps-tabs.sppkg) |
+| Tiles | `2.1.0.23` | [sps-tiles.sppkg](Tiles/sharepoint/solution/sps-tiles.sppkg) |
+
+Deploy the updated List/Grid package and the packages for desired targets using
+the [deployment procedure](docs/Deployment.md). Reload the page and use
+**Refresh page controls** before selecting the target. Upgrading List/Grid alone
+does not add identity markers to older target packages. The updated Dynamic
+Forms, Report Forms and Tab packages also retain the loading fix below.
+
+Run `node tests\rowNavigation.test.js` for discovery and focus regressions.
+On SE and Online test pages, verify both pickers with Tab and other repository
+controls, duplicate titles, existing saved targets, late-loading controls after
+refresh, and hidden-target errors. Confirm navigation does not switch tabs,
+republish row selection or discard editing values. Local tests use simulated
+page hosts and do not establish target-farm deployment acceptance.
+
+## November 5, 2026 Tab/forms loading fix
+
+Dynamic Forms and Report Forms no longer rewrite their Tab-exclusion attribute
+when its value is unchanged. Tab ignores attribute notifications that do not
+change exclusion, and both forms ignore repeated activation notifications with
+the same state. This breaks a render feedback loop that could contribute to
+repeated loading on the initially selected tab. The October theme-loading fix
+remains in place; hidden forms still initialize only when activated.
+
+| Component | Solution and feature version | Deployment package |
+|---|---|---|
+| Dynamic Forms | `1.0.0.117` | [sps-dynamic-form.sppkg](DynamicForms/sharepoint/solution/sps-dynamic-form.sppkg) |
+| Report Forms | `1.0.0.88` | [sps-report-forms.sppkg](ReportForms/sharepoint/solution/sps-report-forms.sppkg) |
+| Tab | `3.1.0.38` | [sps-tabs.sppkg](Tab/sharepoint/solution/sps-tabs.sppkg) |
+
+Run `node tests\formTabActivation.test.js` and
+`node tests\themeLifecycle.test.js` for lifecycle regressions. Build and deploy
+all three updated packages using the [deployment procedure](docs/Deployment.md).
+On the target SE farm and an Online test page, check initial loading without
+clicking a tab, first activation of hidden forms, switching away and back with
+unsaved values, repeated theme notifications, and toggling **Exclude from tabs**
+in edit mode. Test both section-mode and web-part-mode Tabs. Repeated Tab
+discovery/form loading messages should settle without user interaction.
+Local checks do not confirm the disconnected customer's exact loading stall
+or replace these deployment acceptance checks.
 
 ## October 26, 2026 theme-loading fix
 

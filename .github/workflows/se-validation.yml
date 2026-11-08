@@ -1,0 +1,129 @@
+name: SE PR validation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: se-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: SE static checks
+    runs-on: windows-latest
+    outputs:
+      projects: ${{ steps.projects.outputs.projects }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - name: Validate source and base invariants
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ($env:BASE_SHA) {
+            npm run validate-se -- --base $env:BASE_SHA
+          } else {
+            npm run validate-se
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Select affected projects
+        id: projects
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          $projects = if ($env:BASE_SHA) { node scripts/ci-projects.js $env:BASE_SHA } else { node scripts/ci-projects.js }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "projects=$projects" >> $env:GITHUB_OUTPUT
+
+  build:
+    name: SE build (${{ matrix.project }})
+    needs: static
+    if: needs.static.outputs.projects != '[]'
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.static.outputs.projects) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '10.24.1'
+      - name: Verify isolated legacy toolchain
+        shell: pwsh
+        run: |
+          if ((node --version) -ne 'v10.24.1' -or (npm --version) -ne '6.14.12') {
+            throw 'SPFx builds require Node 10.24.1 / npm 6.14.12.'
+          }
+      - name: Restore, test and package
+        shell: pwsh
+        env:
+          SE_PROJECT: ${{ matrix.project }}
+        run: |
+          Push-Location $env:SE_PROJECT
+          try {
+            npm ci
+            if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+            $package = Get-Content package.json -Raw | ConvertFrom-Json
+            $testLog = @()
+            if ($package.scripts.'test:unit') {
+              npm run test:unit 2>&1 | Tee-Object -Variable testLog
+            } elseif ($package.scripts.test) {
+              npm test 2>&1 | Tee-Object -Variable testLog
+            } else {
+              Write-Output '::warning::No component test script is defined.'
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'Component tests failed' }
+            if ($testLog -match '\b0 tests completed\b') {
+              Write-Output '::warning::Legacy runner executed zero tests; this is not component test coverage.'
+            } elseif ($testLog -match '\[karma\].*Error\(s\)') {
+              throw 'Legacy Karma runner reported errors despite a zero exit code.'
+            }
+            foreach ($task in @('clean', 'build', 'bundle', 'package-solution')) {
+              $arguments = @($task)
+              if ($task -in @('bundle', 'package-solution')) { $arguments += '--ship' }
+              & .\node_modules\.bin\gulp.cmd @arguments
+              if ($LASTEXITCODE -ne 0) { throw "gulp $task failed" }
+            }
+          } finally {
+            Pop-Location
+          }
+          .\scripts\validate-package.ps1 -Project $env:SE_PROJECT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: se-${{ matrix.project }}
+          path: ${{ matrix.project }}/sharepoint/solution/*.sppkg
+          if-no-files-found: error
+
+  required:
+    name: SE validation required
+    if: always()
+    needs: [static, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all applicable checks
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PROJECTS: ${{ needs.static.outputs.projects }}
+        run: |
+          test "$STATIC_RESULT" = success
+          if [ "$PROJECTS" = '[]' ]; then
+            test "$BUILD_RESULT" = skipped
+          else
+            test "$BUILD_RESULT" = success
+          fi

@@ -34,4 +34,5 @@ build.tslint.setConfig({
   displayAsWarning: false
 });
 
+require('../scripts/collect-solution-package')(build, __dirname);
 build.initialize(require('gulp'));

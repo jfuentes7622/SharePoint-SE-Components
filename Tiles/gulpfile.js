@@ -63,4 +63,5 @@ build.rig.getTasks = function () {
     });
 
 
+require('../scripts/collect-solution-package')(build, __dirname);
 build.initialize(require('gulp'));

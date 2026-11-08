@@ -1,4 +1,4 @@
-import { Version } from '@microsoft/sp-core-library';
+import { Version, DisplayMode } from '@microsoft/sp-core-library';
 import { BaseClientSideWebPart, IPropertyPaneConfiguration } from '@microsoft/sp-webpart-base';
 import { IGridControlColumnConfiguration } from './components/GridControl';
 export interface IDynamicDataPropertyDefinitionCompat {
@@ -18,6 +18,8 @@ export interface IGridControlWebPartProps {
     forceFullWidth?: boolean;
     description: string;
     instanceName?: string;
+    instanceNameGeneratedFor?: string;
+    navigationTargetInstanceId?: string;
     listName: string;
     viewId: string;
     viewColumns?: IGridControlColumnConfiguration[];
@@ -27,6 +29,8 @@ export interface IGridControlWebPartProps {
     showViewSelector: boolean;
     showViewAsDropdown?: boolean;
     showRefresh: boolean;
+    matchingDocumentFolders?: boolean;
+    libraryLoadingMode?: string;
     showAdd: boolean;
     showDelete: boolean;
     showHistory?: boolean;
@@ -171,6 +175,10 @@ export default class GridControlWebPart extends BaseClientSideWebPart<IGridContr
     render(): void;
     protected onThemeChanged(currentTheme: any): void;
     protected onInit(): Promise<void>;
+    private ensureDefaultInstanceName();
+    protected onDisplayModeChanged(oldDisplayMode: DisplayMode): void;
+    private initializeControl();
+    private getNavigationTargetOptions();
     protected onPropertyPaneConfigurationStart(): void;
     protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void;
     private loadListFields(listName);

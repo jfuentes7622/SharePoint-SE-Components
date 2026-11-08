@@ -24,6 +24,7 @@ import { SharePointDynamicFormContainer, SharePointDynamicFormContainerProps } f
 import { RepeatedReportForms } from './components/RepeatedReportForms';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
+import { ensureInstanceName } from '../shared/instanceNames';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 var FORM_ACTIVATION_EVENT = 'spse:form-activation-changed';
@@ -33,6 +34,7 @@ var STANDALONE_ACTIVATION_DELAY = 500;
 export interface ISharePointDynamicFormWebPartProps {
   appearanceMode?: 'manual' | 'siteTheme' | 'siteThemeOverrides';
   instanceName?: string;
+  instanceNameGeneratedFor?: string;
   forceFullWidth?: boolean;
   fixedWidth?: number;
   formSchemaJson: string;
@@ -364,7 +366,7 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
 
   public getPropertyDefinitions(): ReadonlyArray<IDynamicDataPropertyDefinitionCompat> {
     return [
-      { id: 'instanceName', title: 'Report name' },
+      { id: 'instanceName', title: strings.PropInstanceNameLabel },
       { id: 'listName', title: 'Configured list name' },
       { id: 'navigationState', title: 'Report navigation state' }
     ];
@@ -392,9 +394,14 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   }
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-instance-id', this.context.instanceId);
+    this.domElement.setAttribute('data-spse-control-title', this.title || '');
     this._hasRenderedOnce = true;
     this.applyThemeStyles();
-    this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
+    var excludeFromTabs = String(this.properties.excludeFromTabs === true);
+    if (this.domElement.getAttribute('data-spse-exclude-from-tabs') !== excludeFromTabs) {
+      this.domElement.setAttribute('data-spse-exclude-from-tabs', excludeFromTabs);
+    }
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this.domElement.setAttribute('data-spse-form-instance-id', this.context.instanceId);
     var forceFullWidth = this.properties.forceFullWidth === true;
@@ -496,6 +503,29 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
   }
 
   protected onInit(): Promise<void> {
+    return this.ensureDefaultInstanceName().then(() => this.initializeControl()).catch((error) => {
+      console.error('[ReportFormsWebPart] Initialization failed.', error);
+      throw error;
+    });
+  }
+
+  private ensureDefaultInstanceName(): Promise<boolean> {
+    return ensureInstanceName(this.properties, 'ReportForm', this.context, this.domElement, () => this.displayMode).then((changed) => {
+      if (changed) {
+        this.notifyDynamicData('instanceName');
+        this.handleRuntimeStateChanged(this._navigatorRuntimeState);
+        this.context.propertyPane.refresh();
+      }
+      return changed;
+    });
+  }
+
+  protected onDisplayModeChanged(oldDisplayMode: DisplayMode): void {
+    this.ensureDefaultInstanceName().then((changed) => { if (changed) { this.render(); } })
+      .catch((error) => console.error('[ReportFormsWebPart] Default name allocation failed.', error));
+  }
+
+  private initializeControl(): Promise<void> {
     this.properties.itemIdQueryParam = normalizeQueryParamName(this.properties.itemIdQueryParam, 'itemid');
     this.initializeDynamicDataSource();
     this.registerNavigator();
@@ -599,6 +629,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
     this._formActivationHandler = (event: Event) => {
       var detail: any = (event as any).detail || {};
       if (detail.controllerType !== 'tab' || !Array.isArray(detail.controlledZones)) { return; }
+      var wasManaged = this._tabManaged;
+      var wasActive = this._tabActive;
+      var wasResolved = this._activationResolved;
       var managed = false;
       for (var index = 0; index < detail.controlledZones.length; index += 1) {
         if (detail.controlledZones[index].contains(this.domElement)) {
@@ -614,7 +647,9 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
         window.clearTimeout(this._activationFallbackTimer);
         this._activationFallbackTimer = 0;
       }
-      this.render();
+      if (!wasManaged || !wasResolved || wasActive !== this._tabActive) {
+        this.render();
+      }
     };
     window.addEventListener(FORM_ACTIVATION_EVENT, this._formActivationHandler);
   }
@@ -712,6 +747,8 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
 
     super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
     if (propertyPath === 'instanceName') {
+      delete this.properties.instanceNameGeneratedFor;
+      this.ensureDefaultInstanceName().catch((error) => console.error('[ReportFormsWebPart] Default name allocation failed.', error));
       this.notifyDynamicData('instanceName');
       this.handleRuntimeStateChanged(this._navigatorRuntimeState);
     }
@@ -2947,6 +2984,17 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
               ]
             },
             {
+              groupName: strings.PropertyGroupWebPart,
+              groupFields: [
+                PropertyPaneTextField('instanceName', {
+                  label: strings.PropInstanceNameLabel,
+                  description: strings.PropInstanceNameDescription,
+                  placeholder: strings.PropInstanceNamePlaceholder,
+                  value: this.properties.instanceName || ''
+                })
+              ]
+            },
+            {
               groupName: 'Appearance',
               groupFields: [
                 PropertyPaneDropdown('appearanceMode', {
@@ -3060,11 +3108,6 @@ export default class SharePointDynamicFormWebPart extends BaseClientSideWebPart<
                   placeholder: strings.PropItemIdPlaceholder,
                   value: this.properties.itemId ? String(this.properties.itemId) : '',
                   description: strings.PropItemIdHelp,
-                }),
-                PropertyPaneTextField('instanceName', {
-                  label: strings.PropInstanceNameLabel,
-                  placeholder: strings.PropInstanceNamePlaceholder,
-                  value: this.properties.instanceName || ''
                 }),
                 PropertyPaneToggle('showFieldDescription', {
                   label: strings.PropShowFieldDescriptionLabel,

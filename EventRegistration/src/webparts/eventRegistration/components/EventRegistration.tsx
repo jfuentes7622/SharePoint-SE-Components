@@ -169,7 +169,7 @@ export default class EventRegistration extends React.Component<IEventRegistratio
     return (
       <div className={styles.panel}>
         <h3>Setup required</h3>
-        <p>The configured Event Registration lists are unavailable. A Site Collection Administrator
+        <p>The configured Event Registration lists or required fields are missing. A Site Collection Administrator
           {this.props.organizerGroupId > 0 ? ' or configured organizer' : ''} must run setup.</p>
         {this.state.organizer && (getDisplayMode(this.props.displayMode) === 'combined'
           || getDisplayMode(this.props.displayMode) === 'organizer')
@@ -571,7 +571,7 @@ export default class EventRegistration extends React.Component<IEventRegistratio
           organizer: parts[1],
           draft: emptyDraft(user.id)
         });
-        return this.service.hasRequiredLists().then((configured: boolean): Promise<void> | void => {
+        return this.service.hasRequiredSchema().then((configured: boolean): Promise<void> | void => {
           if (!configured) {
             this.setState({ loading: false });
             return;
@@ -620,13 +620,15 @@ export default class EventRegistration extends React.Component<IEventRegistratio
   private runSetup(): void {
     this.setState({ loading: true, error: '', message: '' });
     this.service.provision(this.props.organizerGroupId).then((result: any): Promise<void> => {
-      this.setState({
-        message: 'Setup complete. Created ' + String(result.createdLists.length) + ' lists and '
-          + String(result.createdFields.length) + ' fields; validated ' + String(result.validatedLists.length) + ' lists.'
+      return this.reload().then((): void => {
+        this.setState({
+          message: 'Setup complete. Created ' + String(result.createdLists.length) + ' lists and '
+            + String(result.createdFields.length) + ' fields; validated ' + String(result.validatedLists.length)
+            + ' lists. Sessions calendar view is ready.'
+        });
       });
-      return this.reload();
     }).catch((error: any): void => {
-      this.setState({ loading: false, error: this.errorMessage(error) });
+      this.setState({ loading: false, message: '', error: this.errorMessage(error) });
     });
   }
 

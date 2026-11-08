@@ -2,6 +2,22 @@
 
 SPFx 1.5.1 web part that prints the SharePoint page content area without the site header, navigation, or page chrome.
 
+## Visual example
+
+![Configured blue Print button with bold italic white text and rounded corners](docs/images/print-button.png)
+
+Add a print action to a report page without exposing the surrounding SharePoint
+navigation in the intended printed output. This example is the button on the same
+demo page as [Report Forms](../ReportForms/README.md#visual-example).
+
+Configure `buttonLabel`, alignment, background/text colors, typography and corners
+to match the page. Leave `contentSelector` empty for automatic canvas discovery,
+or supply a stable selector for a specific printable region.
+
+This approved screenshot shows only the command's appearance on SharePoint Online;
+printing was not invoked. Verify print preview separately for your page, browser
+and target SharePoint SE deployment.
+
 ## October 22, 2026 release
 
 - npm version: `0.0.12`

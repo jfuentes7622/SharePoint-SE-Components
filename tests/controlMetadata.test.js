@@ -26,10 +26,15 @@ async function runProject(project) {
   const componentName = project === 'ListControl' ? 'listControl' : 'gridControl';
   const ts = require(path.join(root, 'node_modules', 'typescript'));
   const React = require(path.join(root, 'node_modules', 'react'));
+  const ReactDomServer = require(path.join(root, 'node_modules', 'react-dom', 'server'));
   const jsdom = require(path.join(root, 'node_modules', 'jsdom'));
   const document = jsdom.jsdom('<!doctype html><html><body></body></html>');
   const window = document.defaultView;
   const base = path.join(root, 'src', 'webparts', componentName);
+  let strings;
+  vm.runInNewContext(fs.readFileSync(path.join(base, 'loc', 'en-us.js'), 'utf8'), {
+    define: (dependencies, factory) => { strings = factory(); }
+  });
 
   function load(file) {
     const source = fs.readFileSync(file, 'utf8');
@@ -49,13 +54,15 @@ async function runProject(project) {
       '@pnp/spfx-property-controls/lib/PropertyFieldCollectionData': {},
       './components/ListControl': {}, './components/GridControl': {},
       './components/ListDesigner': {}, './components/GridDesigner': {},
+      './components/PageNavigation': { getPageNavigationTargets: function() { return []; } },
       './DateTime24HourInput': {}, './GridValidation': {}, './GridRichTextEditor': {},
       './ListControl.css': {}, './GridControl.css': {},
       './ListDesigner.css': {}, './GridDesigner.css': {},
       '../shared/deterministicFullWidth': {}, '../shared/overrideCss': {},
+      '../shared/instanceNames': require('./loadInstanceNames')(root),
       '../../../config/package-solution.json': require(path.join(root, 'config', 'package-solution.json'))
     };
-    imports[project + 'WebPartStrings'] = {};
+    imports[project + 'WebPartStrings'] = strings;
     vm.runInNewContext(output, {
       exports: exports, document: document, window: window,
       DOMParser: window.DOMParser,
@@ -64,6 +71,7 @@ async function runProject(project) {
       },
       console: console, setTimeout: setTimeout, clearTimeout: clearTimeout,
       require: function(name) {
+        if (name === './LibraryBrowser') { return require('./loadLibraryBrowser')(root, window); }
         assert.ok(Object.prototype.hasOwnProperty.call(imports, name), 'Unexpected import: ' + name);
         return imports[name];
       }
@@ -106,9 +114,11 @@ async function runProject(project) {
       spHttpClient: {
         get: function(url, configuration, requestOptions) {
           requests.push({ method: 'GET', url: url, options: requestOptions });
+          if (url.endsWith('?$select=BaseType')) { return response({ BaseType: 0 }); }
           if (url.indexOf('/ViewFields') >= 0) { return response({ value: ['Title', 'Status'] }); }
           if (url.indexOf('/views/') >= 0) {
-            return response({ ViewQuery: '<Where><Eq><FieldRef Name="Status"/><Value Type="Choice">Current choice</Value></Eq></Where><OrderBy><FieldRef Name="Title" Ascending="FALSE"/></OrderBy>',
+            return response({ ViewQuery: '<Where><Eq><FieldRef Name="Status"/><Value Type="Choice">Current choice</Value></Eq></Where><OrderBy><FieldRef Name="Title" Ascending="FALSE"/></OrderBy>'
+              + (options.grouped ? '<GroupBy Collapse="TRUE"><FieldRef Name="Status"/><FieldRef Name="NewColumn"/></GroupBy><Aggregations Value="On"><FieldRef Name="ID" Type="COUNT"/></Aggregations>' : ''),
               Scope: 1, RowLimit: 50 });
           }
           if (url.indexOf('/fields?') >= 0) {
@@ -128,6 +138,10 @@ async function runProject(project) {
           assert.ok(url.indexOf('/RenderListDataAsStream') >= 0, 'Unexpected POST ' + url);
           const body = JSON.parse(requestOptions.body);
           const xml = new window.DOMParser().parseFromString(body.parameters.ViewXml, 'text/xml');
+          if (options.grouped && xml.getElementsByTagName('GroupBy').length) {
+            return response({ Row: [{ Status: 'Current choice', 'Status.group.count': '2' }],
+              ListSchema: { Field: [{ Name: 'Title' }, { Name: 'Status' }] } });
+          }
           let names = Array.from(xml.getElementsByTagName('FieldRef')).filter(function(ref) {
             return ref.parentNode.nodeName === 'ViewFields';
           }).map(function(ref) { return ref.getAttribute('Name'); });
@@ -301,6 +315,74 @@ async function runProject(project) {
     assert.ok(page.control.state.error.indexOf('403') >= 0);
   });
 
+  {
+    await test('grouped source views return populated rows when Designer grouping is disabled', async function() {
+      const page = fixture({ grouped: true });
+      await page.control.loadRows();
+      assert.strictEqual(page.control.state.error, null);
+      const grouping = project === 'ListControl' ? page.control.getGroupingConfig() : page.control.getGridGroupingConfig();
+      assert.strictEqual(grouping.enabled, false);
+      assert.strictEqual(page.control.state.rows[0].ID, 1);
+      assert.strictEqual(page.control.state.rows[0].Title, 'Row');
+    });
+
+    await test('Designer-imported grouped lists load real values and hidden group keys across pages', async function() {
+      const page = fixture({ grouped: true, paging: true });
+      let saved;
+      let savedColumns;
+      const designer = new Designer({
+        context: page.props.context, listName: 'Items', viewId: 'view-id', schemaJson: '',
+        viewColumns: [], groupingJson: '', enableDiagnostics: false,
+        onSave: (value, groupingJson) => {
+          if (project === 'ListControl') { savedColumns = value; saved = groupingJson; }
+          else { saved = value; }
+        }
+      });
+      designer.setState = function(update) { this.state = Object.assign({}, this.state, update); };
+      await designer.loadFields();
+      await designer.loadFromView();
+      designer.save();
+      assert(saved, 'Designer import must produce a saved schema.');
+      const schema = JSON.parse(saved);
+      const importedGrouping = project === 'ListControl' ? schema : schema.grouping;
+      const columns = project === 'ListControl' ? savedColumns : schema.steps[0].fields;
+      assert.strictEqual(importedGrouping.field1, 'Status');
+      assert.strictEqual(importedGrouping.field2, 'NewColumn');
+      assert.strictEqual(importedGrouping.collapsedByDefault, true);
+      assert(!columns.some(field => field.fieldName === 'NewColumn'), 'Second group key is not a displayed column.');
+      if (project === 'ListControl') { page.props.groupingJson = saved; page.props.viewColumns = savedColumns; }
+      else { page.props.gridSchemaJson = saved; }
+      await page.control.loadRows();
+      for (let attempt = 0; attempt < 100 && (page.control.state.nextPageHref || page.control.state.loadingMore); attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      assert.strictEqual(page.control.state.error, null);
+      assert.strictEqual(page.control.state.nextPageHref, '');
+      assert.deepStrictEqual(Array.from(page.control.state.rows, row => row.ID), [1, 2]);
+      assert(page.control.state.rows.every(row => row.Title === 'Row' && row.NewColumn === 'New value'), 'Groups must contain real populated records, not server group-summary rows.');
+      const posts = page.requests.filter(request => request.method === 'POST');
+      assert.strictEqual(posts.length, 2, 'Grouped client rendering completes server item paging.');
+      posts.forEach(request => {
+        const xml = JSON.parse(request.options.body).parameters.ViewXml;
+        assert(!xml.includes('GroupBy') && !xml.includes('Aggregations'), 'Server requests return ordinary item rows.');
+        assert(xml.includes('Where') && xml.includes('OrderBy') && xml.includes('Scope="Recursive"'), 'Flattening grouping preserves filters, sorting and scope.');
+        assert(xml.includes('Name="NewColumn"'), 'Hidden grouping fields must be fetched.');
+      });
+      const config = project === 'ListControl' ? page.control.getGroupingConfig() : page.control.getGridGroupingConfig();
+      const groups = page.control.buildRowGroups(page.control.getProcessedRows(), config);
+      assert.strictEqual(groups.length, 1);
+      assert.strictEqual(groups[0].subGroups[0].label, 'New value');
+      assert.strictEqual(page.control.countGroupRows(groups[0]), 2);
+      assert(!page.control.getDisplayFields().some(field => (field.RealFieldName || field.Name) === 'NewColumn'), 'Hidden group keys do not become visible columns.');
+      let html = ReactDomServer.renderToStaticMarkup(page.control.render());
+      assert(html.includes('gc-group-row') && !html.includes('>Row<'), 'Imported collapsed state hides item rows, not their data.');
+      page.control.toggleGroupCollapsed(groups[0].key, true);
+      page.control.toggleGroupCollapsed(groups[0].key + '/' + groups[0].subGroups[0].key, true);
+      html = ReactDomServer.renderToStaticMarkup(page.control.render());
+      assert(html.includes('>Row<'), 'Expanding both group levels reveals populated item cells.');
+    });
+
+  }
   if (project === 'GridControl') {
     await test('saved schema columns are not hidden by the old SharePoint view column snapshot', async function() {
       const page = fixture();

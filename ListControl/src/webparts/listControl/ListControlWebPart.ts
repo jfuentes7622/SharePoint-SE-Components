@@ -19,8 +19,10 @@ import { PropertyFieldColorPicker, PropertyFieldColorPickerStyle } from '@pnp/sp
 import * as strings from 'ListControlWebPartStrings';
 import { ListControl, IListControlColumnConfiguration, IListControlViewOption } from './components/ListControl';
 import { ListDesigner } from './components/ListDesigner';
+import { getPageNavigationTargets, navigateToPageTarget } from './components/PageNavigation';
 import { releaseOptionalFullWidth, updateResponsiveOptionalFullWidth } from '../shared/deterministicFullWidth';
 import { applyOverrideCss, PropertyPaneOverrideCss } from '../shared/overrideCss';
+import { ensureInstanceName } from '../shared/instanceNames';
 
 var packageSolutionConfig: any = require('../../../config/package-solution.json');
 
@@ -43,6 +45,8 @@ export interface IListControlWebPartProps {
   forceFullWidth?: boolean;
   description: string;
   instanceName?: string;
+  instanceNameGeneratedFor?: string;
+  navigationTargetInstanceId?: string;
   listName: string;
   viewId: string;
   viewColumns?: IListControlColumnConfiguration[];
@@ -52,6 +56,8 @@ export interface IListControlWebPartProps {
   showViewSelector: boolean;
   showViewAsDropdown?: boolean;
   showRefresh: boolean;
+  matchingDocumentFolders?: boolean;
+  libraryLoadingMode?: string;
   showAdd: boolean;
   showEdit: boolean;
   showView: boolean;
@@ -273,7 +279,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       {
         id: 'searchResultCount',
         title: 'Search result count',
-        description: 'Number of items remaining after the current filters are applied.',
+        description: 'Number of filtered items. Folder-scoped library loading counts only files in the current folder, excluding subfolders.',
       }
     ];
   }
@@ -315,6 +321,8 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
   }
 
   private renderContent(): void {
+    this.domElement.setAttribute('data-spse-instance-id', this.context.instanceId);
+    this.domElement.setAttribute('data-spse-control-title', this.title || '');
     this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     updateResponsiveOptionalFullWidth(this.domElement, this.context.instanceId, this.properties.forceFullWidth === true);
@@ -346,6 +354,8 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       showViewSelector: this.properties.showViewSelector !== false,
       showViewAsDropdown: this.properties.showViewAsDropdown !== false,
       showRefresh: this.properties.showRefresh !== false,
+      matchingDocumentFolders: this.properties.matchingDocumentFolders === true,
+      libraryLoadingMode: this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder'),
       showAdd: this.properties.showAdd !== false,
       showEdit: this.properties.showEdit !== false,
       showView: this.properties.showView !== false,
@@ -410,6 +420,9 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
       externalSearchExecutionMode: this._externalSearchExecutionMode,
       conditionalStyleJson: this.properties.conditionalStyleJson || '',
       onSelectionChange: (itemId: number, mode: string) => this.handleSelectionChange(itemId, mode),
+      navigationTargetInstanceId: this.properties.navigationTargetInstanceId || '',
+      onNavigateToTarget: () => navigateToPageTarget(this.domElement.ownerDocument,
+        this.properties.navigationTargetInstanceId || '', this.context.instanceId),
       onFilteredCountChange: (count: number) => this.handleFilteredCountChange(count)
     });
 
@@ -426,10 +439,26 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
   }
 
   protected onInit(): Promise<void> {
-    return Promise.resolve().then(() => this.initializeControl()).catch((error) => {
+    return Promise.resolve().then(() => this.ensureDefaultInstanceName()).then(() => this.initializeControl()).catch((error) => {
       console.error('[ListControlWebPart] Initialization failed.', error);
       throw error;
     });
+  }
+
+  private ensureDefaultInstanceName(): Promise<boolean> {
+    return ensureInstanceName(this.properties, 'ListControl', this.context, this.domElement, () => this.displayMode).then((changed) => {
+      if (changed) {
+        this.notifyDynamicData('instanceName');
+        this.notifyDynamicSourceChanged();
+        this.context.propertyPane.refresh();
+      }
+      return changed;
+    });
+  }
+
+  protected onDisplayModeChanged(oldDisplayMode: DisplayMode): void {
+    this.ensureDefaultInstanceName().then((changed) => { if (changed) { this.render(); } })
+      .catch((error) => console.error('[ListControlWebPart] Default name allocation failed.', error));
   }
 
   private initializeControl(): Promise<void> {
@@ -455,6 +484,20 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     });
   }
 
+  private getNavigationTargetOptions(): IDropdownOption[] {
+    var options: IDropdownOption[] = [{ key: '', text: strings.PropNavigationNone }];
+    var selected = this.properties.navigationTargetInstanceId || '';
+    var selectedId = selected.replace(/[{}]/g, '').toLowerCase();
+    getPageNavigationTargets(this.domElement.ownerDocument, this.context.instanceId).forEach(function(target) {
+      var key = target.instanceId === selectedId || target.aliases.indexOf(selectedId) >= 0 ? selected : target.instanceId;
+      options.push({ key: key, text: target.title + ' (' + key + ')' });
+    });
+    if (selected && !options.some(function(option) { return option.key === selected; })) {
+      options.push({ key: selected, text: strings.PropNavigationUnavailable + ' (' + selected + ')' });
+    }
+    return options;
+  }
+
   protected onPropertyPaneConfigurationStart(): void {
     this.logDiagnostic('Property pane opened. listName=' + String(this.properties.listName || '(none)'));
     if (this._lists.length === 0) {
@@ -473,6 +516,13 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
 
   protected onPropertyPaneFieldChanged(propertyPath: string, oldValue: any, newValue: any): void {
     this.logDiagnostic('Property changed: ' + propertyPath + ', old=' + String(oldValue) + ', new=' + String(newValue));
+    if (propertyPath === 'libraryLoadingMode' && oldValue !== newValue) {
+      if (newValue === 'folder') { this.properties.matchingDocumentFolders = false; }
+      super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      this.context.propertyPane.refresh();
+      this.render();
+      return;
+    }
     if (propertyPath === 'linkTargetPageUrl' && oldValue !== newValue) {
       this.properties.includeReturnUrlParam = !!newValue && newValue !== '__defaultForm__';
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
@@ -482,6 +532,8 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
     }
     if (propertyPath === 'instanceName' && oldValue !== newValue) {
       super.onPropertyPaneFieldChanged(propertyPath, oldValue, newValue);
+      delete this.properties.instanceNameGeneratedFor;
+      this.ensureDefaultInstanceName().catch((error) => console.error('[ListControlWebPart] Default name allocation failed.', error));
       this.notifyDynamicData('instanceName');
       this.notifyDynamicSourceChanged();
       return;
@@ -589,7 +641,7 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
 
     try {
       var endpoint = this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')
-        + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,LookupField,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID')";
+        + "/_api/web/lists/getByTitle('" + escapeODataText(listName) + "')/fields?$select=InternalName,Title,TypeAsString,DisplayFormat,LookupList,LookupField,Choices,Hidden,ReadOnlyField,Sealed&$filter=Hidden eq false and ((ReadOnlyField eq false and Sealed eq false) or InternalName eq 'ID' or InternalName eq 'Created' or InternalName eq 'Modified')";
       var data = await this.getJsonWithAcceptFallback(endpoint);
       var fields = data && data.value ? data.value : [];
       if (!fields || fields.length === 0) {
@@ -1174,6 +1226,17 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
               ]
             },
             {
+              groupName: strings.PropertyGroupWebPart,
+              groupFields: [
+                PropertyPaneTextField('instanceName', {
+                  label: strings.PropInstanceNameLabel,
+                  description: strings.PropInstanceNameDescription,
+                  placeholder: strings.DynamicSourceTitle,
+                  value: this.properties.instanceName || ''
+                })
+              ]
+            },
+            {
               groupName: 'Appearance',
               groupFields: [
                 PropertyPaneDropdown('appearanceMode', {
@@ -1201,12 +1264,6 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
             {
               groupName: strings.PropertyGroupData,
               groupFields: [
-                PropertyPaneTextField('instanceName', {
-                  label: strings.PropInstanceNameLabel,
-                  description: strings.PropInstanceNameDescription,
-                  placeholder: strings.DynamicSourceTitle,
-                  value: this.properties.instanceName || ''
-                }),
                 PropertyPaneCheckbox('forceFullWidth', { text: 'Force Full Width' }),
                 PropertyPaneDropdown('listName', {
                   label: strings.PropListLabel,
@@ -1280,8 +1337,37 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
               ]
             },
             {
+              groupName: strings.PropertyGroupNavigation,
+              groupFields: [
+                PropertyPaneDropdown('navigationTargetInstanceId', {
+                  label: strings.PropNavigationTarget,
+                  options: this.getNavigationTargetOptions(),
+                  selectedKey: this.properties.navigationTargetInstanceId || ''
+                }),
+                PropertyPaneLabel('navigationHelp', { text: strings.PropNavigationHelp }),
+                PropertyPaneButton('refreshNavigationTargets', {
+                  text: strings.PropNavigationRefresh,
+                  onClick: () => this.context.propertyPane.refresh()
+                })
+              ]
+            },
+            {
               groupName: strings.PropertyGroupButtons,
               groupFields: [
+                PropertyPaneDropdown('libraryLoadingMode', {
+                  label: strings.PropLibraryLoadingMode,
+                  selectedKey: this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder'),
+                  options: [
+                    { key: 'folder', text: strings.PropLibraryLoadingFolder },
+                    { key: 'recursive', text: strings.PropLibraryLoadingRecursive }
+                  ]
+                }),
+                PropertyPaneCheckbox('matchingDocumentFolders', {
+                  text: strings.PropMatchingDocumentFolders,
+                  checked: this.properties.matchingDocumentFolders === true,
+                  disabled: (this.properties.libraryLoadingMode || (this.properties.matchingDocumentFolders === true ? 'recursive' : 'folder')) !== 'recursive'
+                }),
+                PropertyPaneLabel('matchingDocumentFoldersHelp', { text: strings.PropMatchingDocumentFoldersHelp }),
                 PropertyPaneCheckbox('showRefresh', {
                   text: strings.PropShowRefreshLabel,
                   checked: this.properties.showRefresh !== false
@@ -2513,6 +2599,8 @@ export default class ListControlWebPart extends BaseClientSideWebPart<IListContr
 
   private isSupportedFilterExpression(value: string): boolean {
     var normalized = String(value || '').trim().toLowerCase();
+    var hours = /^now\(\s*([+-]?\d+)h\s*\)$/.exec(normalized);
+    if (hours) { return isFinite(new Date(new Date().getTime() + Number(hours[1]) * 3600000).getTime()); }
     return normalized === 'today'
       || normalized === 'now'
       || normalized === 'me'

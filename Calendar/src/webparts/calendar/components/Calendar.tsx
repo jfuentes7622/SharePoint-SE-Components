@@ -869,7 +869,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     this.logDiagnostic('Event selected. itemId=' + String(itemId));
     var selectedEventKey = String(event && event.extendedProps && event.extendedProps.sourceItemKey
       || event && event.id || '');
-    this.props.onEventSelectionChange(itemId, 'view', selectedEventKey, itemId);
+    this.props.onEventSelectionChange(itemId, 'view', selectedEventKey, itemId, this.getRegistrationParentEventId(event));
     if (this.props.enableEventDetails !== false && event) {
       this.setState({ selectedEvent: event, selectedItemId: itemId, selectedEventKey: selectedEventKey },
         () => this.rerenderSelectedEvents());
@@ -1176,7 +1176,7 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
       return '';
     }
     if (!/^https?:\/\//i.test(pageUrl)) {
-      pageUrl = this.getWebUrl() + (pageUrl.charAt(0) === '/' ? pageUrl : '/' + pageUrl);
+      pageUrl = new URL(pageUrl, this.getWebUrl() + '/').toString();
     }
     var sessionParameter = String(this.props.registrationSessionIdParam || 'sessionid').trim() || 'sessionid';
     var eventParameter = String(this.props.registrationEventIdParam || 'eventid').trim() || 'eventid';
@@ -1195,6 +1195,9 @@ export default class Calendar extends React.Component<ICalendarProps, ICalendarS
     var extendedProps = event && event.extendedProps ? event.extendedProps : {};
     var item = extendedProps.item || {};
     var candidates = [
+      event && event.EREventId,
+      extendedProps.EREventId,
+      item.EREventId,
       event && event.EventId,
       event && event.EventLookupId,
       extendedProps.EventId,

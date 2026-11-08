@@ -18,6 +18,8 @@ export default class ScriptEditorWebPart extends BaseClientSideWebPart<IScriptEd
   private _unqiueId: string;
 
   public render(): void {
+    this.domElement.setAttribute('data-spse-instance-id', this.context.instanceId);
+    this.domElement.setAttribute('data-spse-control-title', this.title || '');
     this.domElement.setAttribute('data-spse-exclude-from-tabs', String(this.properties.excludeFromTabs === true));
     applyOverrideCss(this.properties.overrideCssUrl || '', this.context.instanceId);
     this._unqiueId = this.context.instanceId;

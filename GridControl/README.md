@@ -2,6 +2,221 @@
 
 SPFx 1.5.1 editable SharePoint grid for SharePoint Server Subscription Edition.
 
+## Designer grouped-view fix
+
+Solution/feature `1.0.0.130` (npm `1.0.130`) fixes blank records after importing
+columns/grouping from a grouped standard-list view, and restores Designer
+grouping for document libraries. Runtime fetches real item rows rather than
+SharePoint group summaries, then renders the saved grouping locally. Hidden
+group keys are fetched, imported collapse settings are honored, and expanding
+groups shows populated record cells. Filters, sort, scope, paging, drafts and
+separate folder navigation remain.
+See [deployment and acceptance checks](../README.md#grid-designer-grouped-view-fix).
+No Designer re-save is required when the existing saved grouping is correct.
+
+## Library selected-view fix
+
+Solution/feature `1.0.0.107` (npm `1.0.107`) honors selected views' document
+filters, ordering and folder/flat display when configured in settings or switched
+at runtime. View columns apply unless an explicit Grid schema overrides them.
+Flat views show matching documents across folders; folder-based views remain
+scoped in folder-loading mode. Navigation folders are now separate from filtered
+results under **Browse folders (navigation, not view results)**, not table rows.
+Flat-view metadata reads only returned IDs with bounded concurrency. Grid drafts,
+uploads and large-library safeguards remain. Selective indexed views can still
+be necessary; paging does not bypass farm thresholds.
+See [behavior, packages and acceptance checks](../README.md#library-selected-view-fix).
+Earlier release descriptions below predate this correction.
+
+## November 6, 2026 all-page-control navigation targets
+
+Solution/feature `1.0.0.106` (npm `1.0.106`) broadens **Navigation target** to
+identifiable built-in and third-party web parts and Text canvas controls on the
+current page. Repository markers and Dynamic Data are not required. Standard
+SharePoint metadata and legacy hosts provide stable instance IDs; accessible
+labels, headings and short Text previews provide fallback names. Canvas/host
+duplicates are collapsed while recognized previously saved IDs remain usable.
+Deploy this package, reload and use **Refresh page controls**.
+See [scope, limitations and acceptance checks](../README.md#november-6-2026-all-page-control-navigation-targets).
+
+## November 5, 2026 large-library loading fix
+
+Solution/feature `1.0.0.105` (npm `1.0.105`) adds **Buttons > Library loading**.
+Choose **Folder-scoped paging (recommended for large libraries)** to avoid
+recursively loading every document before browsing a folder. Server paging and
+metadata requests stay within the current folder; counts exclude subfolders.
+**Whole-library matching (recursive)** retains the previous complete hierarchy
+and optional matching-folder pruning. Enabled matching remains recursive on
+upgrade; explicitly choose folder mode for the reported large-library scenario.
+Draft protection, uploads to the current folder and form connections are preserved.
+Failures include the server response and correlation ID when available and do
+not retry terminal HTTP errors with alternate JSON headers.
+See [behavior, deployment and acceptance checks](../README.md#november-5-2026-large-library-loading-fix).
+
+## November 5, 2026 page-name HTTP 406 fix
+
+Solution/feature `1.0.0.104` (npm `1.0.104`) pairs the page-name request's verbose
+JSON Accept header with `OData-Version: 3.0`. This prevents an incompatible
+OData v4 request from blocking initialization of a new control. Naming and
+failure handling are unchanged; navigation and Tab/theme fixes remain included.
+See [deployment and acceptance checks](../README.md#november-5-2026-page-name-http-406-fix).
+
+## November 5, 2026 navigation target discovery fix
+
+Solution/feature `1.0.0.103` discovers all 18 updated repository page web parts
+using stable host identities, including SPS Tabs without canvas-wrapper metadata.
+Custom names and existing saved targets are preserved. Deploy the updated target
+packages as well as GridControl; reload and use **Refresh page controls**.
+See [versions and acceptance checks](../README.md#november-5-2026-navigation-target-discovery-fix).
+Hidden targets still report an error; focusing Tabs does not switch its active tab.
+
+## Visual example
+
+![Editable grid sample with text and choice columns, row-selection checkboxes, attachment counts, and row action icons](docs/images/grid-list-data.png)
+
+Present list records in a compact table while keeping row-level actions beside
+the data. This demo shows selection checkboxes, a choice column, wrapped text,
+attachment counts, and edit, attachment and history commands.
+
+Select the source list/view and use Grid Designer to choose column order, labels,
+widths and editors. The grid supports inline row creation/editing and validation;
+the screenshot shows the normal browsing state, not an item being saved.
+
+This approved SharePoint Online demo is stored locally for documentation.
+It is not SharePoint SE deployment verification.
+
+## Matching document folders
+
+Current release: npm `1.0.130`, solution/feature `1.0.0.130`.
+
+**Web part name** defaults to `GridControl1`, `GridControl2`, etc. on the page.
+It is the first editable setting, in **Web part** directly below the version banner.
+Existing blanks are filled when editing; save the page to persist the name.
+Custom names and GUID-based connections are preserved. See
+[numbered naming behavior](../README.md#numbered-web-part-names).
+
+Folder names and breadcrumbs are underlined navigation links, not command buttons.
+Breadcrumbs use backslash separators, for example `Documents \ Team \ Reports`.
+Folder navigation and the library root use SharePoint's built-in `folder.gif` image rather
+than an outline font icon. Names remain visible with **Icon only** toolbar buttons.
+
+- Document libraries always browse folders inside the control.
+  **Buttons > Library loading** defaults to folder-scoped paging unless matching
+  was already enabled. Folder mode loads only the current folder unless the selected
+  view explicitly includes descendants. Accessible immediate children, including
+  empty folders, remain in separate navigation. Whole-library mode recursively loads
+  source-view documents; only that mode supports **Matching document folders**
+  pruning. Selecting folder mode disables pruning. Select whole-library mode with
+  pruning off to retain the previous unpruned recursive behavior. Standard lists
+  are unchanged.
+- The configured/default source view retains its document restrictions and ordering,
+  and folder/flat display. Flat views retain recursive scope and show all matching
+  descendants of the browsed folder together. Use an unfiltered source view
+  when the control should own filtering; excluded documents cannot be restored later.
+- Use the existing filter builder, for example:
+
+  | Field | Operator | Value type | Value | Logical |
+  | --- | --- | --- | --- | --- |
+  | Modified | Greater than or equal | Expression | `now(-24h)` | First |
+  | Modified | Less than or equal | Expression | `now` | AND |
+
+  No dedicated 24-hour option or injected filter exists. `now(nh)` accepts integer
+  elapsed-hour offsets such as `now(-6h)` and `now(-48h)`. Both inclusive bounds use
+  one refresh instant across all pages. `date(-1)` remains yesterday's local calendar
+  date. Created/Modified are filterable without becoming editable. Other filters,
+  including Choice/Lookup multi-selection, determine document matches.
+- With pruning on, only branches with matching descendants appear; the folder's own Modified value
+  does not matter. Folder links always show icons and support keyboard activation.
+  Breadcrumbs and Up provide drill-down navigation. Grid Designer grouping applies
+  to matching document rows within the selected folder/flat scope, never to the
+  separate navigation folders. Use **Load columns/grouping from view** in the
+  Designer to import source grouping. Hidden group keys need not be visible columns.
+- Folders have no edit/history/delete/Go-to-details actions and never publish their
+  IDs to forms. Explicit folder navigation clears active and bulk selection.
+  Document selection, document links and **Go to details** remain distinct.
+  **Show link to item** controls document links, which use actual file locations
+  rather than a custom metadata target page.
+- **Add document** uploads to the browsed folder (root when at root). Existing files
+  are not overwritten. Metadata failures clean up only the newly uploaded file.
+  Saves reload the filtered hierarchy; successfully uploaded files can be absent
+  when they do not match the configured filters.
+- Five-minute automatic refresh in page read mode and manual Refresh refetch all
+  pages in the selected scope before replacing the snapshot. Inline drafts/saves defer refresh; folder,
+  view and column-filter changes cannot discard a draft. Background refresh does
+  not republish unchanged selection, change a connected form or move focus.
+  A disappearing selection or folder is explained. Refresh failures retain the last
+  complete snapshot with a visible error.
+- In whole-library mode, the footer counts matching files in the current folder and all its subfolders,
+  never navigation folders: two folders containing three matching files report **3 files**.
+  The navigation count covers the whole library. For folder-based views in folder-scoped mode, both counts
+  cover only matching files in the current folder, explicitly excluding subfolders;
+  connected `searchResultCount` has the same current-folder scope. All pages in
+  that scope complete before counts are committed. Flat-view counts explicitly include
+  descendants of the browsed folder. Pagination uses only document results;
+  folder navigation is separate and does not change file totals. Large individual folders
+  and recursive queries can still need selective indexed source views/filters.
+  Client-only filtering and smaller page sizes do not bypass thresholds. Failures
+  show server response details/correlation IDs when available. No indexes, views,
+  permissions or farm thresholds are changed.
+- Run `node tests\libraryViews.test.js`, `node tests\libraryLarge.test.js`,
+  `node tests\libraryFolders.test.js`, `node tests\libraryRuntime.test.js` and
+  `node tests\controlMetadata.test.js`
+  from the repository root. Actual SE-farm acceptance remains required for restricted
+  folders, special-character paths, uploads and libraries exceeding 5,000 documents.
+
+Redeploy [sps-grid-control.sppkg](sharepoint/solution/sps-grid-control.sppkg).
+
+## Selected-row navigation
+
+- npm version: `1.0.95`; SharePoint solution and feature version: `1.0.0.95`.
+- Under **Navigation**, choose a **Navigation target** from the controls on this
+  page, including identifiable Microsoft/third-party web parts and Text blocks,
+  not only repository controls. **None - disabled** preserves existing behavior and adds no action column.
+  **Refresh page controls** updates the picker after adding controls. Names include
+  instance IDs to distinguish duplicate names; an unavailable saved target is
+  retained until the author changes it.
+- Clicking a row highlights it and publishes the selected item ID/mode for Dynamic
+  Forms. Bulk-delete checkboxes are a separate selection and do not choose the
+  form's active item. Configure the form's Dynamic Data source separately.
+- A **Go to details** button appears only on the active row, with its column space
+  reserved. Only that button scrolls and moves keyboard focus; normal/repeated
+  row clicks and text selection never navigate. Navigation does not republish the
+  item, change View/Edit mode, save, or cancel anything.
+- For several forms organized by SPS Tabs, choose the Tab control: navigation
+  focuses its tab strip and preserves the active tab. A direct form target receives
+  focus on its container, not its first input. Hidden/missing targets show an error
+  on the selected row; navigation never automatically switches tabs.
+- **Go to details** is disabled while an inline edit or new row is open; save or
+  cancel first. Read-only grids can still navigate. Editing rows, bulk selection,
+  grouping, and existing row-action positions retain their layouts.
+- The action follows the existing text/icon button display mode. With navigation
+  enabled, keyboard users can Tab to a row, press Enter/Space to select it, then
+  Tab to **Go to details**.
+- Redeploy [sps-grid-control.sppkg](sharepoint/solution/sps-grid-control.sppkg).
+  Run `node tests\rowNavigation.test.js` from the repository root.
+  Automated tests use mocked SharePoint page hosts; target-farm acceptance remains
+  required, including discovery of the actual page controls.
+
+## Multi-select column filters
+
+- npm version: `1.0.94`; SharePoint solution and feature version: `1.0.0.94`.
+- In the end-user column-header filter popup, Choice/MultiChoice and
+  Lookup/LookupMulti columns show a scrollable checkbox list. **Equals** matches
+  any checked value; **Not equals** excludes every checked value. Filters on
+  different columns still combine with AND.
+- **Apply** commits the selections and resets paging. Reopening restores them;
+  **Close** discards uncommitted changes. **Clear**, or applying no selections,
+  removes only that column's filter.
+- Options use current SharePoint metadata, not stale grid-editor choices.
+  Lookups use IDs for matching and display the configured lookup field, including
+  paged results. Loading and errors are shown; Apply is disabled until options
+  load successfully. Text, numeric, date, Boolean, and Person filters retain their
+  existing behavior. Property-pane rule designers and row editors are unchanged.
+- Redeploy [sps-grid-control.sppkg](sharepoint/solution/sps-grid-control.sppkg).
+  From the repository root, run `node tests\columnFilters.test.js`,
+  `node tests\dateFilters.test.js`, and `node tests\controlMetadata.test.js`.
+  Tests use mocked SharePoint responses; target-farm UI acceptance is still required.
+
 ## October 28, 2026 type-aware rule values
 
 - npm version: `1.0.93`; SharePoint solution and feature version: `1.0.0.93`.

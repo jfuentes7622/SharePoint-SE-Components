@@ -2676,7 +2676,7 @@ function getManifests() {
     "id": "3fbfa88a-4ac3-4b8e-b7a6-eb5256cc7001",
     "alias": "ListControlWebPart",
     "componentType": "WebPart",
-    "version": "1.0.115",
+    "version": "1.0.130",
     "manifestVersion": 2,
     "requiresCustomScript": false,
     "supportsFullBleed": true,
@@ -2786,11 +2786,13 @@ function getManifests() {
         },
         "ListControlWebPartStrings": {
           "defaultPath": "lib/webparts/listControl/loc/en-us.js",
-          "type": "localizedPath"
+          "type": "localizedPath",
+          "paths": {}
         },
         "PropertyControlStrings": {
           "defaultPath": "node_modules/@pnp/spfx-property-controls/lib/loc/en-us.js",
-          "type": "localizedPath"
+          "type": "localizedPath",
+          "paths": {}
         },
         "react": {
           "type": "component",
@@ -2798,26 +2800,26 @@ function getManifests() {
           "id": "0d910c1c-13b9-4e1c-9aa4-b008c5e42d7d",
           "failoverPath": "node_modules/react/dist/react.js"
         },
+        "@microsoft/sp-http": {
+          "type": "component",
+          "version": "1.5.1",
+          "id": "c07208f0-ea3b-4c1a-9965-ac1b825211a6"
+        },
         "react-dom": {
           "type": "component",
           "version": "15.6.2",
           "id": "aa0a46ec-1505-43cd-a44a-93f3a5aa460a",
           "failoverPath": "node_modules/react-dom/dist/react-dom.js"
         },
-        "@microsoft/sp-http": {
+        "@microsoft/sp-core-library": {
           "type": "component",
           "version": "1.5.1",
-          "id": "c07208f0-ea3b-4c1a-9965-ac1b825211a6"
+          "id": "7263c7d0-1d6a-45ec-8d85-d4d1d234171b"
         },
         "@microsoft/sp-webpart-base": {
           "type": "component",
           "version": "1.5.1",
           "id": "974a7777-0990-4136-8fa6-95d80114c2e0"
-        },
-        "@microsoft/sp-core-library": {
-          "type": "component",
-          "version": "1.5.1",
-          "id": "7263c7d0-1d6a-45ec-8d85-d4d1d234171b"
         }
       }
     }

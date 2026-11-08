@@ -19,6 +19,9 @@ function createElement() {
     },
     children: [],
     attributes: {},
+    getAttribute: function(name) {
+      return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+    },
     setAttribute: function(name, value) { this.attributes[name] = value; },
     appendChild: function(child) { this.children.push(child); },
     addEventListener: function() {}
@@ -60,9 +63,11 @@ function loadWebPart(project) {
     './components/RepeatedReportForms': {},
     './components/ListControl': { ListControl: function() {} },
     './components/ListDesigner': { ListDesigner: function() {} },
+    './components/PageNavigation': {},
     'ListControlWebPartStrings': {},
     '../shared/deterministicFullWidth': { updateResponsiveOptionalFullWidth: function() {} },
     '../shared/overrideCss': { applyOverrideCss: function() {} },
+    '../shared/instanceNames': project.name === 'PrintControl' ? {} : require('./loadInstanceNames')(root),
     '../../../config/package-solution.json': require(path.join(root, 'config', 'package-solution.json'))
   };
   vm.runInNewContext(output, {

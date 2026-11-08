@@ -2,6 +2,22 @@
 
 SPFx 1.5.1 scrolling-announcement web part for SharePoint Server Subscription Edition. The marquee is injected into the configured SharePoint page header area so it can span beyond the web part canvas.
 
+## Visual example
+
+![Full-width red announcement band with bold white demo message text](docs/images/marquee-announcement.png)
+
+Use a contrasting announcement band for maintenance notices, deadlines or
+short organizational messages. The screenshot captures one moment of the
+scrolling message; it does not demonstrate the motion or message rotation.
+
+Set `description` for static text, or select `listName` and `messageField` for
+list-backed announcements. Adjust `marqueeBackColor`, `marqueeTextColor`,
+`marqueeHeight`, typography and `scrollSpeed` for readability. Hover pauses the
+message so visitors can finish reading.
+
+This approved SharePoint Online demo is cropped to the announcement band and
+stored locally. It is not a SharePoint SE deployment verification.
+
 ## October 14, 2026 release
 
 - npm version: `2.0.4`

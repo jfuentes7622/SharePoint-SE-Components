@@ -12,6 +12,7 @@ describe('Event Registration setup detection', function(): void {
     lists = listSchemas.map(function(schema): { Title: string } {
       return { Title: listTitle("Organizer's Events", schema.key) };
     });
+
     service = new EventRegistrationService('https://example.test', undefined, "Organizer's Events", false);
     (service as any).rest = {
       escape: function(value: string): string { return value.replace(/'/g, "''"); },
@@ -70,7 +71,7 @@ describe('Event Registration setup detection', function(): void {
     component.service = {
       getCurrentUser: function(): Promise<any> { return Promise.resolve({ id: 1 }); },
       isOrganizer: function(): Promise<boolean> { return Promise.resolve(true); },
-      hasRequiredLists: function(): Promise<boolean> {
+      hasRequiredSchema: function(): Promise<boolean> {
         return failure ? Promise.reject(failure) : Promise.resolve(configured);
       }
     };
@@ -93,6 +94,50 @@ describe('Event Registration setup detection', function(): void {
   it('loads data when lists exist', function(): Promise<void> {
     return initializeComponent(true).then(function(component: any): void {
       assert.equal(component.reloadCalls, 1);
+    });
+  });
+
+  it('does not report setup success when the subsequent data load fails', function(): Promise<void> {
+    return initializeComponent(false).then(function(component: any): Promise<void> {
+      component.props.organizerGroupId = 0;
+      component.service.provision = function(): Promise<any> {
+        return Promise.resolve({ createdLists: [], createdFields: [], validatedLists: [] });
+      };
+      component.reload = function(): Promise<void> { return Promise.reject(new Error('Data load failed')); };
+      component.runSetup();
+      return new Promise<void>(function(resolve, reject): void {
+        setTimeout(function(): void {
+          try {
+            assert.equal(component.state.message, '');
+            assert.equal(component.state.error, 'Data load failed');
+            assert.isFalse(component.state.loading);
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        }, 0);
+      });
+    });
+  });
+
+  it('does not load event data or report success after provisioning fails validation', function(): Promise<void> {
+    return initializeComponent(false).then(function(component: any): Promise<void> {
+      component.service.provision = function(): Promise<any> {
+        return Promise.reject(new Error('Required internal name missing'));
+      };
+      component.runSetup();
+      return new Promise<void>(function(resolve, reject): void {
+        setTimeout(function(): void {
+          try {
+            assert.equal(component.reloadCalls, 0);
+            assert.equal(component.state.message, '');
+            assert.equal(component.state.error, 'Required internal name missing');
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        }, 0);
+      });
     });
   });
 
